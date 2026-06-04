@@ -1,0 +1,713 @@
+package room
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base32"
+	"fmt"
+	"log"
+	"math/big"
+	"net"
+	"strings"
+	"time"
+
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
+)
+
+type PublicKeyStore interface {
+	PutRoomPublicKey(ctx context.Context, publicKey string, roomID int64) error
+	RoomIDByPublicKey(ctx context.Context, publicKey string) (int64, bool, error)
+	DeleteRoomPublicKey(ctx context.Context, publicKey string) error
+}
+
+type PresenceStore interface {
+	SetRoomAppOnline(ctx context.Context, roomID, userID int64)
+	RoomHasOnline(ctx context.Context, roomID int64) (bool, error)
+	RoomOnlineUsers(ctx context.Context, roomID int64) (map[int64]string, error)
+	DeleteRoomUserOnline(ctx context.Context, roomID, userID int64)
+	DeleteRoomOnline(ctx context.Context, roomID int64)
+}
+
+type NodeScheduler interface {
+	SelectForRoom(ctx context.Context) (node.Node, error)
+}
+
+// Service owns room rules that should stay independent from HTTP or console UI.
+// The active invite credential is the room public key stored in Redis; MySQL is
+// still the durable source of truth used for listing and restart recovery.
+type Service struct {
+	repo             *Repository
+	keyStore         PublicKeyStore
+	presence         PresenceStore
+	events           EventBus
+	nodes            NodeScheduler
+	roomNetworkBase  string
+	roomSubnetPrefix int
+}
+
+func NewService(repo *Repository, keyStore PublicKeyStore, nodes NodeScheduler, roomNetworkBase string, roomSubnetPrefix int) *Service {
+	presence, _ := keyStore.(PresenceStore)
+	events, _ := keyStore.(EventBus)
+	return &Service{
+		repo:             repo,
+		keyStore:         keyStore,
+		presence:         presence,
+		events:           events,
+		nodes:            nodes,
+		roomNetworkBase:  roomNetworkBase,
+		roomSubnetPrefix: roomSubnetPrefix,
+	}
+}
+
+// CreateRoom creates the durable room record, allocates a room CIDR, then
+// publishes the room public key into Redis so other players can join by key.
+// Creating a room also joins the owner into that room. A player may be in only
+// one room at a time, regardless of whether they are owner or normal member.
+func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string, maxMembers int) (Room, error) {
+	name = strings.TrimSpace(name)
+	if len(name) < 2 || len(name) > 80 {
+		return Room{}, fmt.Errorf("room name length must be 2-80")
+	}
+	maxMembers = normalizeMaxMembers(maxMembers)
+	hasRoom, err := s.repo.UserHasMembership(ctx, ownerUserID)
+	if err != nil {
+		return Room{}, err
+	}
+	if hasRoom {
+		return Room{}, fmt.Errorf("你已经在一个房间中，请先退出或删除当前房间")
+	}
+	var selectedNode node.Node
+	if s.nodes != nil {
+		n, err := s.nodes.SelectForRoom(ctx)
+		if err != nil {
+			return Room{}, err
+		}
+		selectedNode = n
+	}
+	for i := 0; i < 20; i++ {
+		joinCode := randomJoinCode()
+		// The room public key is used as the player-facing invite credential.
+		// The private half is intentionally discarded because this key is not
+		// used for transport crypto; tcpx has its own server identity key.
+		_, roomPublicKey, err := tcpx.GenerateStaticKeyBase64()
+		if err != nil {
+			return Room{}, err
+		}
+		cidr, err := s.randomRoomCIDR(ctx)
+		if err != nil {
+			return Room{}, err
+		}
+		room, err := s.repo.Create(ctx, name, ownerUserID, selectedNode.ID, joinCode, roomPublicKey, cidr, maxMembers)
+		if err == nil {
+			if err := s.activateRoomKey(ctx, room); err != nil {
+				// Avoid leaving a room in MySQL that cannot be joined because
+				// its Redis invite index failed to publish.
+				_ = s.repo.Delete(ctx, room.ID)
+				return Room{}, err
+			}
+			s.touchRoomAppOnline(ctx, room.ID, ownerUserID)
+			s.publishRoomEvent(ctx, RoomEvent{
+				Type:        RoomEventCreated,
+				RoomID:      room.ID,
+				ActorUserID: ownerUserID,
+				UserIDs:     []int64{ownerUserID},
+			})
+			return room, nil
+		}
+	}
+	return Room{}, fmt.Errorf("failed to create room after retries")
+}
+
+// JoinRoom accepts only currently active room public keys. Closing or deleting
+// a room removes the Redis key, so stale invite keys fail even if players kept
+// a copy of the old value.
+func (s *Service) JoinRoom(ctx context.Context, userID int64, roomPublicKey string) (Room, error) {
+	roomPublicKey = strings.TrimSpace(roomPublicKey)
+	if roomPublicKey == "" {
+		return Room{}, fmt.Errorf("room public key is empty")
+	}
+	roomID, ok, err := s.roomIDByActiveKey(ctx, roomPublicKey)
+	if err != nil {
+		return Room{}, err
+	}
+	if !ok {
+		return Room{}, fmt.Errorf("room public key is invalid or expired")
+	}
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.Status != StatusOpen {
+		return Room{}, fmt.Errorf("room is not open")
+	}
+	if room.RoomPublicKey != roomPublicKey {
+		return Room{}, fmt.Errorf("room public key mismatch")
+	}
+	current, hasCurrent, err := s.repo.FindForUser(ctx, userID)
+	if err != nil {
+		return Room{}, err
+	}
+	if hasCurrent {
+		if current.ID == room.ID {
+			return current, nil
+		}
+		return Room{}, fmt.Errorf("你已经在一个房间中，请先退出当前房间")
+	}
+	maxMembers := room.MaxMembers
+	if maxMembers <= 0 {
+		maxMembers = DefaultMaxMembers
+	}
+	ok, err = s.repo.AddMemberWithinLimit(ctx, room.ID, userID, maxMembers)
+	if err != nil {
+		return Room{}, err
+	}
+	if !ok {
+		return Room{}, fmt.Errorf("room is full or you already joined another room")
+	}
+	joined, err := s.repo.FindByID(ctx, room.ID)
+	if err != nil {
+		return Room{}, err
+	}
+	s.touchRoomAppOnline(ctx, joined.ID, userID)
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:         RoomEventMemberJoined,
+		RoomID:       joined.ID,
+		ActorUserID:  userID,
+		TargetUserID: userID,
+	})
+	return joined, nil
+}
+
+// EnsureMemberByRoomKey is the overlay-side guard. It checks token membership
+// and the Redis-backed room key before vDHCP assigns an IP lease.
+func (s *Service) EnsureMemberByRoomKey(ctx context.Context, nodeID, roomID, userID int64, roomPublicKey string) (Room, error) {
+	roomPublicKey = strings.TrimSpace(roomPublicKey)
+	if roomPublicKey == "" {
+		return Room{}, fmt.Errorf("room public key is empty")
+	}
+	activeRoomID, ok, err := s.roomIDByActiveKey(ctx, roomPublicKey)
+	if err != nil {
+		return Room{}, err
+	}
+	if !ok || activeRoomID != roomID {
+		return Room{}, fmt.Errorf("room public key is invalid or expired")
+	}
+	room, err := s.EnsureMember(ctx, roomID, userID)
+	if err != nil {
+		return Room{}, err
+	}
+	if nodeID > 0 && room.NodeID > 0 && room.NodeID != nodeID {
+		return Room{}, fmt.Errorf("room belongs to another node")
+	}
+	if room.RoomPublicKey != roomPublicKey {
+		return Room{}, fmt.Errorf("room public key mismatch")
+	}
+	return room, nil
+}
+
+// EnsureMember is used after the invite step, when a user must already be a
+// room member to read room state or connect to the overlay.
+func (s *Service) EnsureMember(ctx context.Context, roomID, userID int64) (Room, error) {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.Status != StatusOpen {
+		return Room{}, fmt.Errorf("room is not open")
+	}
+	member, err := s.repo.IsMember(ctx, roomID, userID)
+	if err != nil {
+		return Room{}, err
+	}
+	if !member {
+		return Room{}, fmt.Errorf("user is not a room member")
+	}
+	return room, nil
+}
+
+func (s *Service) FindByID(ctx context.Context, roomID int64) (Room, error) {
+	return s.repo.FindByID(ctx, roomID)
+}
+
+func (s *Service) ListForUser(ctx context.Context, userID int64) ([]Room, error) {
+	rooms, err := s.repo.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if s.presence != nil {
+		for _, item := range rooms {
+			s.touchRoomAppOnline(ctx, item.ID, userID)
+		}
+	}
+	return rooms, nil
+}
+
+func (s *Service) CurrentForUser(ctx context.Context, userID int64) (Room, bool, error) {
+	return s.repo.FindForUser(ctx, userID)
+}
+
+func (s *Service) ListMembers(ctx context.Context, requesterUserID, roomID int64) ([]MemberView, error) {
+	if _, err := s.EnsureMember(ctx, roomID, requesterUserID); err != nil {
+		return nil, err
+	}
+	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
+	members, err := s.repo.ListMembers(ctx, roomID)
+	if err != nil || s.presence == nil {
+		return members, err
+	}
+	online, err := s.presence.RoomOnlineUsers(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range members {
+		ip, ok := online[members[i].UserID]
+		members[i].Online = ok
+		members[i].VirtualIP = ip
+	}
+	return members, nil
+}
+
+func (s *Service) ListAll(ctx context.Context) ([]Room, error) {
+	return s.repo.ListAll(ctx)
+}
+
+func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
+	return s.repo.List(ctx, filter)
+}
+
+// SyncOpenRoomKeys rebuilds the Redis invite index from MySQL during startup.
+// This keeps open rooms joinable after Redis restarts or the server is redeployed.
+func (s *Service) SyncOpenRoomKeys(ctx context.Context) error {
+	rooms, err := s.repo.ListOpen(ctx)
+	if err != nil {
+		return err
+	}
+	for _, room := range rooms {
+		if err := s.activateRoomKey(ctx, room); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) StartEmptyRoomCleaner(ctx context.Context, interval, grace time.Duration) {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	if grace <= 0 {
+		grace = 20 * time.Second
+	}
+	runOnce := func() {
+		deleted, err := s.CleanupEmptyRooms(ctx, grace)
+		if err != nil {
+			log.Printf("empty room cleanup failed: %v", err)
+			return
+		}
+		if deleted > 0 {
+			log.Printf("empty room cleanup deleted %d room(s)", deleted)
+		}
+	}
+	go func() {
+		runOnce()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runOnce()
+			}
+		}
+	}()
+}
+
+func (s *Service) CleanupEmptyRooms(ctx context.Context, grace time.Duration) (int, error) {
+	if s.presence == nil {
+		return 0, nil
+	}
+	if grace <= 0 {
+		grace = 20 * time.Second
+	}
+	rooms, err := s.repo.ListOpenOlderThan(ctx, grace)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, room := range rooms {
+		hasOnline, err := s.presence.RoomHasOnline(ctx, room.ID)
+		if err != nil {
+			log.Printf("skip empty room cleanup room=%d: %v", room.ID, err)
+			continue
+		}
+		if hasOnline {
+			continue
+		}
+		userIDs := s.roomUserIDs(ctx, room.ID)
+		if err := s.deactivateRoomKey(ctx, room); err != nil {
+			log.Printf("skip empty room cleanup room=%d deactivate key: %v", room.ID, err)
+			continue
+		}
+		if err := s.repo.Delete(ctx, room.ID); err != nil {
+			log.Printf("skip empty room cleanup room=%d delete: %v", room.ID, err)
+			continue
+		}
+		s.presence.DeleteRoomOnline(ctx, room.ID)
+		s.publishRoomEvent(ctx, RoomEvent{
+			Type:    RoomEventDeleted,
+			RoomID:  room.ID,
+			UserIDs: userIDs,
+		})
+		deleted++
+	}
+	return deleted, nil
+}
+
+// CloseRoom disables joining/connecting by removing the active Redis key while
+// keeping the MySQL room record for admin visibility.
+func (s *Service) CloseRoom(ctx context.Context, roomID int64) error {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if err := s.deactivateRoomKey(ctx, room); err != nil {
+		return err
+	}
+	if err := s.repo.SetStatus(ctx, roomID, StatusClosed); err != nil {
+		return err
+	}
+	s.publishRoomEventToMembers(ctx, RoomEvent{Type: RoomEventClosed, RoomID: roomID})
+	return nil
+}
+
+// ReopenRoom makes a previously closed room joinable again by republishing its
+// room public key.
+func (s *Service) ReopenRoom(ctx context.Context, roomID int64) error {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetStatus(ctx, roomID, StatusOpen); err != nil {
+		return err
+	}
+	if err := s.activateRoomKey(ctx, room); err != nil {
+		return err
+	}
+	s.publishRoomEventToMembers(ctx, RoomEvent{Type: RoomEventReopened, RoomID: roomID})
+	return nil
+}
+
+// DeleteRoom is deliberately owner-only from the public API. Admin flows should
+// close/reopen rooms instead, unless a future admin delete endpoint is added.
+func (s *Service) DeleteRoom(ctx context.Context, requesterUserID, roomID int64) error {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerUserID != requesterUserID {
+		return fmt.Errorf("only room owner can delete the room")
+	}
+	userIDs := s.roomUserIDs(ctx, roomID)
+	if err := s.deactivateRoomKey(ctx, room); err != nil {
+		return err
+	}
+	if err := s.repo.Delete(ctx, roomID); err != nil {
+		return err
+	}
+	if s.presence != nil {
+		s.presence.DeleteRoomOnline(ctx, roomID)
+	}
+	s.publishRoomEvent(ctx, RoomEvent{
+		Type:        RoomEventDeleted,
+		RoomID:      roomID,
+		ActorUserID: requesterUserID,
+		UserIDs:     userIDs,
+	})
+	return nil
+}
+
+func (s *Service) LeaveRoom(ctx context.Context, requesterUserID, roomID int64) error {
+	room, err := s.EnsureMember(ctx, roomID, requesterUserID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerUserID == requesterUserID {
+		return fmt.Errorf("房主不能直接退出，请先转让房主或删除房间")
+	}
+	if err := s.repo.RemoveMember(ctx, roomID, requesterUserID); err != nil {
+		return err
+	}
+	s.deleteRoomUserOnline(ctx, roomID, requesterUserID)
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:         RoomEventMemberLeft,
+		RoomID:       roomID,
+		ActorUserID:  requesterUserID,
+		TargetUserID: requesterUserID,
+		UserIDs:      []int64{requesterUserID},
+	})
+	return nil
+}
+
+func (s *Service) KickMember(ctx context.Context, requesterUserID, roomID, targetUserID int64) error {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerUserID != requesterUserID {
+		return fmt.Errorf("only room owner can kick members")
+	}
+	if targetUserID == requesterUserID || targetUserID == room.OwnerUserID {
+		return fmt.Errorf("房主不能踢出自己")
+	}
+	member, err := s.repo.IsMember(ctx, roomID, targetUserID)
+	if err != nil {
+		return err
+	}
+	if !member {
+		return fmt.Errorf("target user is not a room member")
+	}
+	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
+	if err := s.repo.RemoveMember(ctx, roomID, targetUserID); err != nil {
+		return err
+	}
+	s.deleteRoomUserOnline(ctx, roomID, targetUserID)
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:         RoomEventMemberKicked,
+		RoomID:       roomID,
+		ActorUserID:  requesterUserID,
+		TargetUserID: targetUserID,
+		UserIDs:      []int64{targetUserID},
+	})
+	return nil
+}
+
+func (s *Service) TransferOwner(ctx context.Context, requesterUserID, roomID, targetUserID int64) (Room, error) {
+	room, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if room.OwnerUserID != requesterUserID {
+		return Room{}, fmt.Errorf("only room owner can transfer ownership")
+	}
+	if targetUserID == requesterUserID {
+		return room, nil
+	}
+	member, err := s.repo.IsMember(ctx, roomID, targetUserID)
+	if err != nil {
+		return Room{}, err
+	}
+	if !member {
+		return Room{}, fmt.Errorf("target user is not a room member")
+	}
+	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
+	s.touchRoomAppOnline(ctx, roomID, targetUserID)
+	if err := s.repo.SetOwner(ctx, roomID, targetUserID); err != nil {
+		return Room{}, err
+	}
+	updated, err := s.repo.FindByID(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:         RoomEventOwnerTransferred,
+		RoomID:       roomID,
+		ActorUserID:  requesterUserID,
+		TargetUserID: targetUserID,
+	})
+	return updated, nil
+}
+
+func (s *Service) DeleteRoomsOwnedBy(ctx context.Context, ownerUserID int64) error {
+	rooms, err := s.repo.ListOwnedByOwner(ctx, ownerUserID)
+	if err != nil {
+		return err
+	}
+	for _, room := range rooms {
+		userIDs := s.roomUserIDs(ctx, room.ID)
+		if err := s.deactivateRoomKey(ctx, room); err != nil {
+			return err
+		}
+		if err := s.repo.Delete(ctx, room.ID); err != nil {
+			return err
+		}
+		if s.presence != nil {
+			s.presence.DeleteRoomOnline(ctx, room.ID)
+		}
+		s.publishRoomEvent(ctx, RoomEvent{
+			Type:        RoomEventDeleted,
+			RoomID:      room.ID,
+			ActorUserID: ownerUserID,
+			UserIDs:     userIDs,
+		})
+	}
+	return nil
+}
+
+func (s *Service) activateRoomKey(ctx context.Context, room Room) error {
+	if s.keyStore == nil {
+		return fmt.Errorf("room public key store is not configured")
+	}
+	return s.keyStore.PutRoomPublicKey(ctx, room.RoomPublicKey, room.ID)
+}
+
+func (s *Service) deactivateRoomKey(ctx context.Context, room Room) error {
+	if s.keyStore == nil {
+		return fmt.Errorf("room public key store is not configured")
+	}
+	return s.keyStore.DeleteRoomPublicKey(ctx, room.RoomPublicKey)
+}
+
+func (s *Service) roomIDByActiveKey(ctx context.Context, publicKey string) (int64, bool, error) {
+	if s.keyStore == nil {
+		return 0, false, fmt.Errorf("room public key store is not configured")
+	}
+	return s.keyStore.RoomIDByPublicKey(ctx, publicKey)
+}
+
+func (s *Service) touchRoomAppOnline(ctx context.Context, roomID, userID int64) {
+	if s.presence == nil || roomID <= 0 || userID <= 0 {
+		return
+	}
+	s.presence.SetRoomAppOnline(ctx, roomID, userID)
+}
+
+func (s *Service) deleteRoomUserOnline(ctx context.Context, roomID, userID int64) {
+	if s.presence == nil || roomID <= 0 || userID <= 0 {
+		return
+	}
+	s.presence.DeleteRoomUserOnline(ctx, roomID, userID)
+}
+
+func (s *Service) TouchForUser(ctx context.Context, userID int64) error {
+	rooms, err := s.repo.ListForUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, item := range rooms {
+		s.touchRoomAppOnline(ctx, item.ID, userID)
+	}
+	return nil
+}
+
+func (s *Service) NotifyPresenceChanged(ctx context.Context, roomID, userID int64) {
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:         RoomEventPresenceChanged,
+		RoomID:       roomID,
+		ActorUserID:  userID,
+		TargetUserID: userID,
+	})
+}
+
+func (s *Service) SubscribeUserEvents(ctx context.Context, userID int64) (<-chan RoomEvent, func(), error) {
+	if s.events == nil {
+		return nil, nil, fmt.Errorf("room event bus is not configured")
+	}
+	return s.events.SubscribeUserRoomEvents(ctx, userID)
+}
+
+func (s *Service) SubscribeAllEvents(ctx context.Context) (<-chan RoomEvent, func(), error) {
+	if s.events == nil {
+		return nil, nil, fmt.Errorf("room event bus is not configured")
+	}
+	return s.events.SubscribeAllRoomEvents(ctx)
+}
+
+func (s *Service) publishRoomEventToMembers(ctx context.Context, event RoomEvent) {
+	event.UserIDs = append(event.UserIDs, s.roomUserIDs(ctx, event.RoomID)...)
+	s.publishRoomEvent(ctx, event)
+}
+
+func (s *Service) publishRoomEvent(ctx context.Context, event RoomEvent) {
+	if s.events == nil || event.RoomID <= 0 || event.Type == "" {
+		return
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now()
+	}
+	if err := s.events.PublishRoomEvent(ctx, event); err != nil {
+		log.Printf("publish room event failed type=%s room=%d: %v", event.Type, event.RoomID, err)
+	}
+}
+
+func (s *Service) roomUserIDs(ctx context.Context, roomID int64) []int64 {
+	members, err := s.repo.ListMembers(ctx, roomID)
+	if err != nil {
+		return nil
+	}
+	ids := make([]int64, 0, len(members))
+	for _, member := range members {
+		ids = append(ids, member.UserID)
+	}
+	return ids
+}
+
+func (s *Service) randomRoomCIDR(ctx context.Context) (string, error) {
+	_, baseNet, err := net.ParseCIDR(s.roomNetworkBase)
+	if err != nil {
+		return "", err
+	}
+	basePrefix, bits := baseNet.Mask.Size()
+	if bits != 32 {
+		return "", fmt.Errorf("room network base must be IPv4")
+	}
+	if s.roomSubnetPrefix <= basePrefix || s.roomSubnetPrefix > 30 {
+		return "", fmt.Errorf("room subnet prefix must be between %d and 30", basePrefix+1)
+	}
+	subnetCount := int64(1) << uint(s.roomSubnetPrefix-basePrefix)
+	blockSize := uint32(1) << uint(32-s.roomSubnetPrefix)
+	baseU := ipToUint32(baseNet.IP)
+
+	// Try random subnets instead of sequential allocation so short-lived test
+	// rooms do not repeatedly collide with recently deleted or cached routes.
+	for i := 0; i < 64; i++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(subnetCount))
+		if err != nil {
+			return "", err
+		}
+		network := uint32ToIP(baseU + uint32(n.Int64())*blockSize)
+		cidr := fmt.Sprintf("%s/%d", network.String(), s.roomSubnetPrefix)
+		exists, err := s.repo.NetworkExists(ctx, cidr)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return cidr, nil
+		}
+	}
+	return "", fmt.Errorf("no available room network")
+}
+
+func randomJoinCode() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "ROOMFAIL"
+	}
+	code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])
+	if len(code) > 8 {
+		code = code[:8]
+	}
+	return code
+}
+
+func normalizeMaxMembers(v int) int {
+	if v <= 0 {
+		return DefaultMaxMembers
+	}
+	if v < MinMaxMembers {
+		return MinMaxMembers
+	}
+	if v > MaxMaxMembers {
+		return MaxMaxMembers
+	}
+	return v
+}
+
+func ipToUint32(ip net.IP) uint32 {
+	v := ip.To4()
+	return uint32(v[0])<<24 | uint32(v[1])<<16 | uint32(v[2])<<8 | uint32(v[3])
+}
+
+func uint32ToIP(v uint32) net.IP {
+	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=LwyV GameNet room node
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lwyv-gamenet
+ExecStart=/opt/lwyv-gamenet/gamenet-node -config /opt/lwyv-gamenet/configs/node.prod.json
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

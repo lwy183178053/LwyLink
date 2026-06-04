@@ -1,0 +1,15 @@
+{
+  "overlayAddr": "0.0.0.0:7777",
+  "mysqlDsn": "gamenet:gamenet@tcp(127.0.0.1:3306)/gamenet?parseTime=true&charset=utf8mb4&loc=Local",
+  "redisAddr": "127.0.0.1:6379",
+  "redisPassword": "",
+  "tokenSecret": "dev-secret-change-before-public-deploy",
+  "overlayPrivateKey": "Se8hD61trbaNe60eUCI11TvlGPPhK4+47WF9+ow2S7c=",
+  "roomNetworkBase": "172.16.0.0/16",
+  "roomSubnetPrefix": 24,
+  "defaultMTU": 1300,
+  "defaultDNS": [
+    "223.5.5.5",
+    "119.29.29.29"
+  ]
+}

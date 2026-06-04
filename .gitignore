@@ -1,0 +1,13 @@
+.idea/
+.vscode/
+build/
+dist/
+*.exe
+*.log
+configs/server.local.json
+configs/server.prod.json
+deploy/dist/
+deploy/.env
+node_modules/
+cmd/gamenet-windows-ui/frontend/dist/
+cmd/gamenet-windows-ui/build/
