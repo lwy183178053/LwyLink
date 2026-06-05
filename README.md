@@ -61,7 +61,7 @@ internal/tcpx        从 LwyV-Net 迁入的 X25519/AES-GCM 加密 TCP 通道
 internal/tun         Windows Wintun 封装；非 Windows 为桩实现
 internal/web         REST API 和管理页面
 internal/db          MySQL 连接和表结构迁移
-internal/cache       Redis 在线状态
+internal/state       Redis 运行态：登录会话、在线状态、房间公钥索引和事件
 ```
 
 测试服务器、自动部署和远端服务维护说明见 `deploy/TEST_SERVER.md`。新会话接手部署前请先读这个文件，尤其注意测试服务器上的 `443` 端口属于旧服务，GameNet 只使用 `8080` 和 `35768`。
@@ -142,9 +142,9 @@ go run .\cmd\gamenet-client
 
 ### 5. 启动 Wails Windows 客户端
 
-图形客户端位于 `cmd/gamenet-windows-ui`，使用 Wails + React + TypeScript + Fluent UI。默认 API 地址是 `http://64.83.34.53:8080`，也可以在客户端第 4 步设置里改成其他服务器 IP。连接虚拟网络时仍然需要管理员权限，因为 Wintun 和路由配置需要写入系统网络设置。
+图形客户端位于 `cmd/gamenet-windows-ui`，使用 Wails + React + TypeScript + Fluent UI。默认 API 地址是 `http://64.83.34.53:8080`，也可以在客户端设置页改成其他服务器 IP。Windows 版 EXE 内嵌 `wintun.dll`，启动时会自动释放到 EXE 同目录；连接虚拟网络时仍然需要管理员权限，因为 Wintun 和路由配置需要写入系统网络设置。
 
-图形客户端按 4 个模块组织界面：第 1 步登录或注册，第 2 步创建或加入房间，第 3 步查看当前房间、成员身份和连接状态并手动启动虚拟网卡，第 4 步设置服务器 API、服务器 IP 和虚拟网卡名。房主可以复制房间公钥、踢出普通成员、转让房主或删除房间；普通成员可以退出房间。断开后仍可在第 3 步手动重新启动虚拟网卡。
+图形客户端按 3 个页面组织界面：账号页负责登录、注册和账号状态；房间页负责创建、加入、成员管理、房间聊天和虚拟网卡连接；设置页负责服务器 API、服务器 IP、虚拟网卡名和本地日志。房主可以复制房间公钥、踢出普通成员、转让房主或删除房间；普通成员可以退出房间。断开后仍可在房间页手动重新启动虚拟网卡。
 
 ```powershell
 cd .\cmd\gamenet-windows-ui
@@ -183,6 +183,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 | `POST` | `/api/rooms/join` | 使用房间公钥加入房间 |
 | `POST` | `/api/rooms/delete` | 房主删除房间，并让房间公钥失效 |
 | `GET` | `/api/rooms/members?roomID=1` | 查询房间成员 |
+| `POST` | `/api/rooms/chat` | 发送房间聊天消息，并通过 SSE 推送给房间成员 |
 | `POST` | `/api/rooms/leave` | 普通成员退出房间 |
 | `POST` | `/api/rooms/kick` | 房主踢出普通成员 |
 | `POST` | `/api/rooms/transfer-owner` | 房主转让给房间内其他成员 |

@@ -25,10 +25,6 @@ type ConnectOptions struct {
 	OnConnected     func(overlay.DHCPResponse)
 }
 
-// ConnectRoom establishes the full client data path:
-// HTTP token + room public key -> tcpx secure channel -> vDHCP lease -> Wintun.
-// The console UI calls this directly today; a future Windows UI can reuse the
-// same function and only replace the prompts/status rendering.
 func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	if opts.Token == "" {
 		return fmt.Errorf("not logged in")

@@ -202,16 +202,13 @@ func (r *Repository) ListMembers(ctx context.Context, roomID int64) ([]MemberVie
 	return out, rows.Err()
 }
 
-func (r *Repository) ListAll(ctx context.Context) ([]Room, error) {
-	return r.List(ctx, Filter{Limit: 500})
-}
-
 func (r *Repository) List(ctx context.Context, filter Filter) ([]Room, error) {
 	where, args := roomWhere(filter)
 	limit := normalizeRoomLimit(filter.Limit, 500, 1000)
-	args = append(args, limit)
+	offset := normalizeRoomOffset(filter.Offset)
+	args = append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx,
-		roomSelect()+where+` ORDER BY r.id DESC LIMIT ?`,
+		roomSelect()+where+` ORDER BY r.id DESC LIMIT ? OFFSET ?`,
 		args...,
 	)
 	if err != nil {
@@ -397,4 +394,11 @@ func normalizeRoomLimit(v, fallback, max int) int {
 		return fallback
 	}
 	return min(v, max)
+}
+
+func normalizeRoomOffset(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
 }

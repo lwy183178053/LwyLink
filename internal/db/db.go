@@ -35,6 +35,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			password_hash VARCHAR(255) NOT NULL,
 			display_name VARCHAR(64) NOT NULL,
 			role VARCHAR(32) NOT NULL DEFAULT 'player',
+			membership VARCHAR(16) NOT NULL DEFAULT 'free',
 			disabled BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -86,5 +87,25 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	if err := ensureColumn(ctx, db, "users", "membership", "VARCHAR(16) NOT NULL DEFAULT 'free' AFTER role"); err != nil {
+		return fmt.Errorf("migrate users.membership: %w", err)
+	}
 	return nil
+}
+
+func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		   FROM information_schema.COLUMNS
+		  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+		table, column,
+	).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", table, column, definition))
+	return err
 }

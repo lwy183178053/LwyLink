@@ -56,10 +56,6 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (Node, error) {
 	return scanNode(r.db.QueryRowContext(ctx, nodeSelect()+` WHERE n.id = ? GROUP BY n.id`, id))
 }
 
-func (r *Repository) FindByName(ctx context.Context, name string) (Node, error) {
-	return scanNode(r.db.QueryRowContext(ctx, nodeSelect()+` WHERE n.name = ? GROUP BY n.id`, name))
-}
-
 func (r *Repository) FindByPublicKey(ctx context.Context, publicKey string) (Node, error) {
 	return scanNode(r.db.QueryRowContext(ctx, nodeSelect()+` WHERE n.overlay_public_key = ? GROUP BY n.id`, publicKey))
 }

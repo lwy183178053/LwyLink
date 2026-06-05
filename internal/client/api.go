@@ -97,6 +97,15 @@ func (a *API) RoomMembers(ctx context.Context, roomID int64) ([]room.MemberView,
 	return out, err
 }
 
+func (a *API) SendRoomChat(ctx context.Context, roomID int64, message string) (room.ChatMessage, error) {
+	var out room.ChatMessage
+	err := a.request(ctx, http.MethodPost, "/api/rooms/chat", map[string]any{
+		"roomID":  roomID,
+		"message": message,
+	}, &out)
+	return out, err
+}
+
 func (a *API) DeleteRoom(ctx context.Context, roomID int64) error {
 	return a.request(ctx, http.MethodPost, "/api/rooms/delete", map[string]int64{"roomID": roomID}, nil)
 }

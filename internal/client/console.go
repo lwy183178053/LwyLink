@@ -12,9 +12,6 @@ import (
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
 )
 
-// RunConsole is the temporary Windows client UI. It keeps the account menu and
-// the room lobby separate so the future graphical client can reuse the same
-// flows without copying business logic into the UI layer.
 func RunConsole(ctx context.Context, apiBaseURL, ifName string) error {
 	api := NewAPI(apiBaseURL)
 	reader := bufio.NewReader(os.Stdin)

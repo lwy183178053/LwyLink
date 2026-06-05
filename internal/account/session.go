@@ -32,9 +32,8 @@ func NewTokenManager(secret string, ttl time.Duration) *TokenManager {
 	return &TokenManager{secret: []byte(secret), ttl: ttl}
 }
 
-// Sign creates a compact HMAC token for the prototype API. It is JWT-like but
-// deliberately local and minimal, so later OAuth/JWT integration can replace
-// only this manager.
+// Sign creates a compact HMAC token. It is JWT-like but deliberately local and
+// minimal, so later OAuth/JWT integration can replace only this manager.
 func (m *TokenManager) Sign(u User, sessionID string) (string, error) {
 	claims := TokenClaims{
 		UserID:    u.ID,

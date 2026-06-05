@@ -50,6 +50,10 @@ export function Register(arg1) {
   return window['go']['main']['App']['Register'](arg1);
 }
 
+export function SendRoomChat(arg1) {
+  return window['go']['main']['App']['SendRoomChat'](arg1);
+}
+
 export function SetSettings(arg1) {
   return window['go']['main']['App']['SetSettings'](arg1);
 }

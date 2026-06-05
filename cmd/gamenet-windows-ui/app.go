@@ -12,12 +12,14 @@ import (
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/client"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/overlay"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/tun"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
 	defaultAPIBaseURL = "http://64.83.34.53:8080"
 	defaultIfName     = "LwyV-GameNet"
+	maxChatMessages   = 120
 
 	statusDisconnected  = "disconnected"
 	statusConnecting    = "connecting"
@@ -34,10 +36,11 @@ type App struct {
 	apiBaseURL string
 	ifName     string
 
-	user        *account.PublicUser
-	rooms       []room.Room
-	currentRoom *room.Room
-	members     []room.MemberView
+	user         *account.PublicUser
+	rooms        []room.Room
+	currentRoom  *room.Room
+	members      []room.MemberView
+	chatMessages []room.ChatMessage
 
 	connectSeq    int64
 	connectCancel context.CancelFunc
@@ -72,6 +75,11 @@ type JoinRoomInput struct {
 	RoomPublicKey string `json:"roomPublicKey"`
 }
 
+type SendChatInput struct {
+	RoomID  int64  `json:"roomID"`
+	Message string `json:"message"`
+}
+
 type MemberActionInput struct {
 	UserID int64 `json:"userID"`
 }
@@ -83,6 +91,7 @@ type AppState struct {
 	Rooms         []room.Room         `json:"rooms"`
 	CurrentRoom   *room.Room          `json:"currentRoom,omitempty"`
 	Members       []room.MemberView   `json:"members"`
+	ChatMessages  []room.ChatMessage  `json:"chatMessages"`
 	Connection    ConnectionState     `json:"connection"`
 }
 
@@ -109,6 +118,14 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if err := tun.EnsureWintunDLL(); err != nil {
+		a.mu.Lock()
+		a.connection = ConnectionState{Status: statusError, Message: friendlyConnectionError(err)}
+		state := a.stateLocked()
+		a.mu.Unlock()
+		a.emitState(state)
+		return
+	}
 	a.emitState(a.CurrentState())
 }
 
@@ -281,6 +298,41 @@ func (a *App) JoinRoom(input JoinRoomInput) (AppState, error) {
 	a.emitState(state)
 	return state, nil
 }
+
+func (a *App) SendRoomChat(input SendChatInput) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	if a.user == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("请先登录")
+	}
+	if a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	roomID := input.RoomID
+	if roomID <= 0 {
+		roomID = a.currentRoom.ID
+	}
+	if roomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能在当前房间发送聊天")
+	}
+	message := strings.TrimSpace(input.Message)
+	chat, err := a.api.SendRoomChat(ctx, roomID, message)
+	if err != nil {
+		a.mu.Unlock()
+		return AppState{}, err
+	}
+	a.appendChatMessageLocked(chat)
+	state := a.stateLocked()
+	a.mu.Unlock()
+	a.emitState(state)
+	return state, nil
+}
+
 func (a *App) DeleteRoom(roomID int64) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -551,6 +603,18 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 	if event.Type == "" {
 		return
 	}
+	if event.Type == room.RoomEventChatMessage && event.Chat != nil {
+		a.mu.Lock()
+		if a.roomEventsSeq != seq || a.user == nil {
+			a.mu.Unlock()
+			return
+		}
+		a.appendChatMessageLocked(*event.Chat)
+		state := a.stateLocked()
+		a.mu.Unlock()
+		a.emitState(state)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	a.mu.Lock()
@@ -571,10 +635,15 @@ func (a *App) clearRoomStateLocked() {
 	a.rooms = nil
 	a.currentRoom = nil
 	a.members = nil
+	a.chatMessages = nil
 }
 
 func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	activeRoomID := a.connection.RoomID
+	previousRoomID := int64(0)
+	if a.currentRoom != nil {
+		previousRoomID = a.currentRoom.ID
+	}
 	rooms, err := a.api.Rooms(ctx)
 	if err != nil {
 		return err
@@ -583,6 +652,7 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	a.currentRoom = nil
 	a.members = nil
 	if len(rooms) == 0 {
+		a.chatMessages = nil
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
 			a.connection = ConnectionState{Status: statusDisconnected, Message: "已离开房间，虚拟网卡已断开"}
@@ -591,6 +661,9 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	}
 	current := rooms[0]
 	a.currentRoom = &current
+	if previousRoomID > 0 && previousRoomID != current.ID {
+		a.chatMessages = nil
+	}
 	if activeRoomID > 0 && activeRoomID != current.ID {
 		a.cancelConnectionLocked()
 		a.connection = ConnectionState{Status: statusDisconnected, Message: "当前房间已变化，虚拟网卡已断开"}
@@ -603,11 +676,31 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) appendChatMessageLocked(message room.ChatMessage) {
+	if message.ID == "" || message.RoomID <= 0 {
+		return
+	}
+	if a.currentRoom == nil || a.currentRoom.ID != message.RoomID {
+		return
+	}
+	for _, item := range a.chatMessages {
+		if item.ID == message.ID {
+			return
+		}
+	}
+	a.chatMessages = append(a.chatMessages, message)
+	if len(a.chatMessages) > maxChatMessages {
+		a.chatMessages = append([]room.ChatMessage(nil), a.chatMessages[len(a.chatMessages)-maxChatMessages:]...)
+	}
+}
+
 func (a *App) stateLocked() AppState {
 	rooms := make([]room.Room, len(a.rooms))
 	copy(rooms, a.rooms)
 	members := make([]room.MemberView, len(a.members))
 	copy(members, a.members)
+	chatMessages := make([]room.ChatMessage, len(a.chatMessages))
+	copy(chatMessages, a.chatMessages)
 	var currentRoom *room.Room
 	if a.currentRoom != nil {
 		cp := *a.currentRoom
@@ -625,6 +718,7 @@ func (a *App) stateLocked() AppState {
 		Rooms:         rooms,
 		CurrentRoom:   currentRoom,
 		Members:       members,
+		ChatMessages:  chatMessages,
 		Connection:    a.connection,
 	}
 }
@@ -650,6 +744,8 @@ func friendlyConnectionError(err error) string {
 	switch {
 	case strings.Contains(lower, "wintun client is only implemented"):
 		return "Wintun 客户端只能在 Windows 上运行"
+	case strings.Contains(lower, "release wintun.dll"):
+		return "释放 Wintun 组件失败，请确认客户端所在目录可写，并用管理员身份运行"
 	case strings.Contains(lower, "access is denied") || strings.Contains(lower, "拒绝访问"):
 		return "启动虚拟网卡需要管理员权限，请用管理员身份运行客户端"
 	case strings.Contains(lower, "configure tun address") || strings.Contains(lower, "new-netroute") || strings.Contains(lower, "set-netipinterface"):

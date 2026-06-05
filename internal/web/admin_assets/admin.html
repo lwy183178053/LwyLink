@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} - LwyV-GameNet Admin</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+  <script defer src="/admin/assets/admin.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>LwyV-GameNet</strong>
+        <span>Control Admin</span>
+      </div>
+      <nav class="nav">
+        {{range .Nav}}
+        <a class="nav-link {{activeClass $.Active .Key}}" href="{{.URL}}">{{.Label}}</a>
+        {{end}}
+      </nav>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1>{{.Title}}</h1>
+          <p>控制面板</p>
+        </div>
+        <a class="button" href="{{with index .Nav 0}}{{.URL}}{{end}}">刷新</a>
+      </header>
+
+      {{template "metrics" .}}
+
+      {{if eq .Active "overview"}}
+        {{template "overview" .}}
+      {{else if eq .Active "users"}}
+        {{template "users" .}}
+      {{else if eq .Active "rooms"}}
+        {{template "rooms" .}}
+      {{else if eq .Active "nodes"}}
+        {{template "nodes" .}}
+      {{end}}
+    </main>
+  </div>
+</body>
+</html>
+
+{{define "metrics"}}
+<section class="metrics">
+  <div class="metric"><strong>{{.Stats.Users}}</strong><span>玩家账号</span></div>
+  <div class="metric"><strong>{{.Stats.ActiveUsers}}</strong><span>正常账号</span></div>
+  <div class="metric"><strong>{{.Stats.Rooms}}</strong><span>房间总数</span></div>
+  <div class="metric"><strong>{{.Stats.OnlineNodes}}</strong><span>在线节点</span></div>
+</section>
+{{end}}
+
+{{define "overview"}}
+<section class="split">
+  <div class="panel">
+    <div class="panel-head"><h2>最近账号</h2><a href="{{with index .Nav 2}}{{.URL}}{{end}}">查看全部</a></div>
+    {{template "user-table" .}}
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>最近房间</h2><a href="{{with index .Nav 3}}{{.URL}}{{end}}">查看全部</a></div>
+    {{template "room-table" .}}
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-head"><h2>服务器节点</h2><a href="{{with index .Nav 1}}{{.URL}}{{end}}">管理节点</a></div>
+  {{template "node-table" .}}
+</section>
+{{end}}
+
+{{define "filters"}}
+<form class="toolbar" method="get">
+  <input type="hidden" name="token" value="{{.Token}}">
+  <label>搜索
+    <input name="q" value="{{.Query}}" placeholder="ID、名称、密钥或地址">
+  </label>
+  <label>状态
+    <select name="status">
+      <option value="">全部</option>
+      {{if eq .Active "users"}}
+      <option value="active" {{if eq .Status "active"}}selected{{end}}>正常</option>
+      <option value="disabled" {{if eq .Status "disabled"}}selected{{end}}>禁用</option>
+      {{else if eq .Active "rooms"}}
+      <option value="open" {{if eq .Status "open"}}selected{{end}}>开放</option>
+      <option value="closed" {{if eq .Status "closed"}}selected{{end}}>关闭</option>
+      {{else if eq .Active "nodes"}}
+      <option value="online" {{if eq .Status "online"}}selected{{end}}>在线</option>
+      <option value="paused" {{if eq .Status "paused"}}selected{{end}}>暂停</option>
+      <option value="disabled" {{if eq .Status "disabled"}}selected{{end}}>禁用</option>
+      <option value="unknown" {{if eq .Status "unknown"}}selected{{end}}>未知</option>
+      {{end}}
+    </select>
+  </label>
+  <label>每页
+    <select name="perPage">
+      <option value="20" {{if eq .PerPage 20}}selected{{end}}>20</option>
+      <option value="50" {{if eq .PerPage 50}}selected{{end}}>50</option>
+      <option value="100" {{if eq .PerPage 100}}selected{{end}}>100</option>
+      <option value="200" {{if eq .PerPage 200}}selected{{end}}>200</option>
+    </select>
+  </label>
+  <button class="primary" type="submit">筛选</button>
+</form>
+{{end}}
+
+{{define "pagination"}}
+{{if or .HasPrev .HasNext}}
+<div class="pagination">
+  <span>第 {{.Page}} 页</span>
+  {{if .HasPrev}}<a class="button" href="{{.PrevURL}}">上一页</a>{{else}}<span class="button disabled">上一页</span>{{end}}
+  {{if .HasNext}}<a class="button" href="{{.NextURL}}">下一页</a>{{else}}<span class="button disabled">下一页</span>{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "context-inputs"}}
+<input type="hidden" name="token" value="{{.Token}}">
+<input type="hidden" name="q" value="{{.Query}}">
+<input type="hidden" name="status" value="{{.Status}}">
+<input type="hidden" name="filterStatus" value="{{.Status}}">
+<input type="hidden" name="page" value="{{.Page}}">
+<input type="hidden" name="perPage" value="{{.PerPage}}">
+{{end}}
+
+{{define "users"}}
+<section class="panel">
+  <div class="panel-head"><h2>玩家账号</h2><span>{{len .Users}} 条</span></div>
+  {{template "filters" .}}
+  {{template "user-table" .}}
+  {{template "pagination" .}}
+</section>
+{{end}}
+
+{{define "user-table"}}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>账号</th><th>昵称</th><th>角色</th><th>会员</th><th>状态</th><th>创建时间</th><th>更新时间</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {{range .Users}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td>{{.Username}}</td>
+        <td>{{.DisplayName}}</td>
+        <td>{{.Role}}</td>
+        <td>
+          <form class="inline-select" method="post" action="/admin/users/membership">
+            {{template "context-inputs" $}}
+            <input type="hidden" name="userID" value="{{.ID}}">
+            <select name="membership" onchange="this.form.submit()">
+              <option value="free" {{if eq .Membership "free"}}selected{{end}}>普通</option>
+              <option value="vip" {{if eq .Membership "vip"}}selected{{end}}>会员</option>
+            </select>
+          </form>
+        </td>
+        <td><span class="status {{userStatusClass .Disabled}}">{{userStatusText .Disabled}}</span></td>
+        <td>{{timeText .CreatedAt}}</td>
+        <td>{{timeText .UpdatedAt}}</td>
+        <td>
+          <div class="row-actions">
+            <form method="post" action="/admin/users/status">
+              {{template "context-inputs" $}}
+              <input type="hidden" name="userID" value="{{.ID}}">
+              <input type="hidden" name="disabled" value="{{if .Disabled}}false{{else}}true{{end}}">
+              <button type="submit">{{if .Disabled}}启用{{else}}禁用{{end}}</button>
+            </form>
+            <form method="post" action="/admin/users/delete" data-confirm="确认删除该账号以及其拥有的房间？">
+              {{template "context-inputs" $}}
+              <input type="hidden" name="userID" value="{{.ID}}">
+              <button class="danger" type="submit">删除</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="9" class="empty">暂无账号</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "rooms"}}
+<section class="panel">
+  <div class="panel-head"><h2>房间列表</h2><span>{{len .Rooms}} 条</span></div>
+  {{template "filters" .}}
+  {{template "room-table" .}}
+  {{template "pagination" .}}
+</section>
+{{end}}
+
+{{define "room-table"}}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>名称</th><th>房主</th><th>成员</th><th>状态</th><th>网络</th><th>节点</th><th>密钥</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {{range .Rooms}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td>{{.Name}}</td>
+        <td class="mono">{{.OwnerUserID}}</td>
+        <td>{{.MemberCount}} / {{.MaxMembers}}</td>
+        <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
+        <td class="mono">{{.NetworkCIDR}}</td>
+        <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="muted">未分配</span>{{end}}</td>
+        <td class="mono compact">{{.RoomPublicKey}}</td>
+        <td>
+          <form method="post" action="/admin/rooms/status">
+            {{template "context-inputs" $}}
+            <input type="hidden" name="roomID" value="{{.ID}}">
+            <input type="hidden" name="newStatus" value="{{if eq .Status "open"}}closed{{else}}open{{end}}">
+            <button type="submit">{{if eq .Status "open"}}关闭{{else}}开放{{end}}</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="9" class="empty">暂无房间</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "nodes"}}
+<section class="panel">
+  <div class="panel-head"><h2>节点登记</h2><span>新增或更新</span></div>
+  <form class="node-form" method="post" action="/admin/nodes/save" id="node-form">
+    {{template "context-inputs" .}}
+    <label>ID<input name="nodeID" id="node-id" placeholder="留空新增"></label>
+    <label>名称<input name="name" id="node-name" required></label>
+    <label>公网 Overlay 地址<input name="publicOverlayAddr" id="node-overlay" required></label>
+    <label>健康检查地址<input name="healthAddr" id="node-health"></label>
+    <label>最大房间<input name="maxRooms" id="node-max" type="number" min="1" value="100"></label>
+    <label>状态
+      <select name="enabled" id="node-enabled">
+        <option value="true">启用</option>
+        <option value="false">禁用</option>
+      </select>
+    </label>
+    <label class="wide">Overlay 公钥<input name="overlayPublicKey" id="node-key" required></label>
+    <button class="primary" type="submit">保存节点</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>服务器节点</h2><span>{{len .Nodes}} 条</span></div>
+  {{template "filters" .}}
+  {{template "node-table" .}}
+  {{template "pagination" .}}
+</section>
+{{end}}
+
+{{define "node-table"}}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>名称</th><th>状态</th><th>房间</th><th>Overlay</th><th>健康检查</th><th>最后在线</th><th>错误</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {{range .Nodes}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td>{{.Name}}</td>
+        <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
+        <td>{{.CurrentRooms}} / {{.MaxRooms}}</td>
+        <td class="mono compact">{{.PublicOverlayAddr}}</td>
+        <td class="mono compact">{{.HealthAddr}}</td>
+        <td>{{timePtrText .LastSeenAt}}</td>
+        <td class="compact">{{.LastError}}</td>
+        <td>
+          <div class="row-actions">
+            <button type="button"
+              data-fill-node
+              data-id="{{.ID}}"
+              data-name="{{.Name}}"
+              data-overlay="{{.PublicOverlayAddr}}"
+              data-health="{{.HealthAddr}}"
+              data-max="{{.MaxRooms}}"
+              data-key="{{.OverlayPublicKey}}"
+              data-enabled="{{.Enabled}}">编辑</button>
+            <form method="post" action="/admin/nodes/enabled">
+              {{template "context-inputs" $}}
+              <input type="hidden" name="nodeID" value="{{.ID}}">
+              <input type="hidden" name="enabled" value="{{if .Enabled}}false{{else}}true{{end}}">
+              <button type="submit">{{if .Enabled}}禁用{{else}}启用{{end}}</button>
+            </form>
+            <form method="post" action="/admin/nodes/check">
+              {{template "context-inputs" $}}
+              <input type="hidden" name="nodeID" value="{{.ID}}">
+              <button type="submit">检查</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="9" class="empty">暂无节点</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

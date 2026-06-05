@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/cache"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/config"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/db"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/state"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/web"
 )
 
@@ -43,17 +43,17 @@ func main() {
 	}
 	log.Println("mysql migrated")
 
-	online := cache.NewOnlineStore(cfg.RedisAddr, cfg.RedisPassword)
-	defer online.Close()
-	if err := online.Ping(ctx); err != nil {
+	runtimeState := state.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword)
+	defer runtimeState.Close()
+	if err := runtimeState.Ping(ctx); err != nil {
 		log.Printf("redis unavailable, login sessions and room keys will fail closed: %v", err)
 	} else {
 		log.Println("redis connected")
 	}
 
-	accountSvc := account.NewService(account.NewRepository(sqlDB), cfg.TokenSecret, online)
+	accountSvc := account.NewService(account.NewRepository(sqlDB), cfg.TokenSecret, runtimeState)
 	nodeSvc := node.NewService(node.NewRepository(sqlDB))
-	roomSvc := room.NewService(room.NewRepository(sqlDB), online, nodeSvc, cfg.RoomNetworkBase, cfg.RoomSubnetPrefix)
+	roomSvc := room.NewService(room.NewRepository(sqlDB), runtimeState, nodeSvc, cfg.RoomNetworkBase, cfg.RoomSubnetPrefix)
 	if err := roomSvc.SyncOpenRoomKeys(ctx); err != nil {
 		log.Fatalf("sync room public keys to redis: %v", err)
 	}

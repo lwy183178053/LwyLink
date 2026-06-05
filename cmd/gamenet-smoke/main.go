@@ -82,6 +82,8 @@ func main() {
 	}
 	log.Printf("room members ok count=%d owner=%s member=%s", len(members), members[0].Username, members[1].Username)
 
+	verifyRoomChatEvents(ctx, ownerAPI, playerAPI, roomInfo.ID)
+
 	if joined.NodePublicKey == "" {
 		log.Fatalf("joined room has no node public key")
 	}
@@ -153,6 +155,62 @@ func waitForMemberPresence(ctx context.Context, api *client.API, roomID, userID 
 		case <-ticker.C:
 		case <-waitCtx.Done():
 			log.Fatalf("presence user=%d expected online=%v ip=%s, last=%s", userID, wantOnline, wantIP, last)
+		}
+	}
+}
+
+func verifyRoomChatEvents(ctx context.Context, senderAPI, receiverAPI *client.API, roomID int64) {
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	defer cancelEvents()
+
+	connected := make(chan struct{}, 1)
+	events := make(chan room.RoomEvent, 8)
+	go func() {
+		_ = receiverAPI.SubscribeRoomEvents(eventCtx, func(event room.RoomEvent) {
+			if event.Type == room.RoomEventConnected {
+				select {
+				case connected <- struct{}{}:
+				default:
+				}
+				return
+			}
+			if event.RoomID == roomID {
+				select {
+				case events <- event:
+				default:
+				}
+			}
+		})
+	}()
+
+	select {
+	case <-connected:
+	case <-time.After(5 * time.Second):
+		log.Fatalf("room chat event stream did not connect")
+	case <-ctx.Done():
+		log.Fatalf("room chat event stream: %v", ctx.Err())
+	}
+
+	message := "smoke chat " + fmt.Sprintf("%d", time.Now().UnixNano())
+	chat, err := senderAPI.SendRoomChat(ctx, roomID, message)
+	must("send room chat", err)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Type != room.RoomEventChatMessage || event.Chat == nil {
+				continue
+			}
+			if event.Chat.ID != chat.ID || event.Chat.Message != message {
+				log.Fatalf("chat event mismatch id=%s message=%q", event.Chat.ID, event.Chat.Message)
+			}
+			log.Printf("room chat event ok id=%s", chat.ID)
+			return
+		case <-deadline:
+			log.Fatalf("room chat event was not delivered")
+		case <-ctx.Done():
+			log.Fatalf("room chat event: %v", ctx.Err())
 		}
 	}
 }

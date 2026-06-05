@@ -1,15 +1,9 @@
 package overlay
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-)
-
-const (
-	maxPayload = 4 << 20
 )
 
 // FrameType is the lightweight overlay protocol carried inside a tcpx encrypted
@@ -78,64 +72,6 @@ func PackJSON(typ FrameType, v any) ([]byte, error) {
 		return nil, err
 	}
 	return PackFrame(typ, b), nil
-}
-
-// readFrame/writeFrame are kept for plain net.Conn tooling and tests. The
-// production overlay path uses PackFrame inside tcpx encrypted messages.
-func readFrame(conn net.Conn) (FrameType, []byte, error) {
-	var header [5]byte
-	if _, err := io.ReadFull(conn, header[:]); err != nil {
-		return 0, nil, err
-	}
-	typ := FrameType(header[0])
-	length := binary.BigEndian.Uint32(header[1:5])
-	if length > maxPayload {
-		return 0, nil, fmt.Errorf("frame too large: %d", length)
-	}
-	payload := make([]byte, length)
-	if length > 0 {
-		if _, err := io.ReadFull(conn, payload); err != nil {
-			return 0, nil, err
-		}
-	}
-	return typ, payload, nil
-}
-
-func ReadFrame(conn net.Conn) (FrameType, []byte, error) {
-	return readFrame(conn)
-}
-
-func writeFrame(conn net.Conn, typ FrameType, payload []byte) error {
-	if len(payload) > maxPayload {
-		return fmt.Errorf("frame too large: %d", len(payload))
-	}
-	var header [5]byte
-	header[0] = byte(typ)
-	binary.BigEndian.PutUint32(header[1:5], uint32(len(payload)))
-	if _, err := conn.Write(header[:]); err != nil {
-		return err
-	}
-	if len(payload) == 0 {
-		return nil
-	}
-	_, err := conn.Write(payload)
-	return err
-}
-
-func WriteFrame(conn net.Conn, typ FrameType, payload []byte) error {
-	return writeFrame(conn, typ, payload)
-}
-
-func writeJSON(conn net.Conn, typ FrameType, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return writeFrame(conn, typ, b)
-}
-
-func WriteJSON(conn net.Conn, typ FrameType, v any) error {
-	return writeJSON(conn, typ, v)
 }
 
 func ipv4SrcDst(pkt []byte) (src, dst string, err error) {

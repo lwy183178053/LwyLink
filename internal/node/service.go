@@ -33,10 +33,6 @@ func (s *Service) List(ctx context.Context) ([]Node, error) {
 	return s.repo.List(ctx)
 }
 
-func (s *Service) FindByID(ctx context.Context, id int64) (Node, error) {
-	return s.repo.FindByID(ctx, id)
-}
-
 func (s *Service) FindByPublicKey(ctx context.Context, publicKey string) (Node, error) {
 	return s.repo.FindByPublicKey(ctx, publicKey)
 }

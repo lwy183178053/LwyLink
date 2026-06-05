@@ -11,11 +11,15 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/cache"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/vdhcp"
 )
+
+type PresenceStore interface {
+	SetOnline(ctx context.Context, roomID, userID int64, ip string)
+	SetOffline(ctx context.Context, roomID, userID int64)
+}
 
 type Server struct {
 	addr       string
@@ -25,7 +29,7 @@ type Server struct {
 	accounts *account.Service
 	rooms    *room.Service
 	leases   *vdhcp.Manager
-	online   *cache.OnlineStore
+	presence PresenceStore
 
 	defaultDNS []string
 	defaultMTU int
@@ -35,10 +39,7 @@ type Server struct {
 	byRoomIP map[int64]map[string]*session
 }
 
-// NewServer wires the encrypted overlay to the account, room, vDHCP, and Redis
-// domains. Keeping those dependencies explicit makes it easier to test or swap
-// individual parts later.
-func NewServer(addr string, nodeID int64, privateKey string, accounts *account.Service, rooms *room.Service, leases *vdhcp.Manager, online *cache.OnlineStore, defaultDNS []string, defaultMTU int) *Server {
+func NewServer(addr string, nodeID int64, privateKey string, accounts *account.Service, rooms *room.Service, leases *vdhcp.Manager, presence PresenceStore, defaultDNS []string, defaultMTU int) *Server {
 	return &Server{
 		addr:       addr,
 		nodeID:     nodeID,
@@ -46,7 +47,7 @@ func NewServer(addr string, nodeID int64, privateKey string, accounts *account.S
 		accounts:   accounts,
 		rooms:      rooms,
 		leases:     leases,
-		online:     online,
+		presence:   presence,
 		defaultDNS: append([]string(nil), defaultDNS...),
 		defaultMTU: defaultMTU,
 		byConn:     make(map[*tcpx.SecureConn]*session),
@@ -239,8 +240,8 @@ func (s *Server) register(sess *session) *session {
 	roomMap[sess.lease.IP] = sess
 	// A reconnect for the same user/IP replaces the old live session so packets
 	// do not split across two TCP connections.
-	if s.online != nil {
-		s.online.SetOnline(context.Background(), sess.roomID, sess.userID, sess.lease.IP)
+	if s.presence != nil {
+		s.presence.SetOnline(context.Background(), sess.roomID, sess.userID, sess.lease.IP)
 	}
 	if s.rooms != nil {
 		s.rooms.NotifyPresenceChanged(context.Background(), sess.roomID, sess.userID)
@@ -279,8 +280,8 @@ func (s *Server) refreshOnlineLoop(ctx context.Context, sess *session) {
 					return
 				}
 			}
-			if s.online != nil {
-				s.online.SetOnline(ctx, sess.roomID, sess.userID, sess.lease.IP)
+			if s.presence != nil {
+				s.presence.SetOnline(ctx, sess.roomID, sess.userID, sess.lease.IP)
 			}
 		}
 	}
@@ -301,8 +302,8 @@ func (s *Server) unregister(ctx context.Context, sess *session) {
 		removedRouting = true
 	}
 	s.mu.Unlock()
-	if removedRouting && s.online != nil {
-		s.online.SetOffline(ctx, sess.roomID, sess.userID)
+	if removedRouting && s.presence != nil {
+		s.presence.SetOffline(ctx, sess.roomID, sess.userID)
 	}
 	if removedRouting && s.rooms != nil {
 		s.rooms.NotifyPresenceChanged(ctx, sess.roomID, sess.userID)
@@ -373,6 +374,8 @@ func (s *Server) applyRoomEvent(ctx context.Context, event room.RoomEvent) {
 		return
 	}
 	switch event.Type {
+	case room.RoomEventChatMessage:
+		return
 	case room.RoomEventDeleted, room.RoomEventClosed:
 		s.closeRoomSessions(ctx, event.RoomID, 0, event.Type)
 	case room.RoomEventMemberKicked, room.RoomEventMemberLeft:

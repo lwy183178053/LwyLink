@@ -3,6 +3,7 @@ export type PublicUser = {
   username: string;
   displayName: string;
   role: string;
+  membership: "free" | "vip" | string;
   disabled: boolean;
   createdAt: string;
 };
@@ -35,6 +36,16 @@ export type RoomMember = {
   createdAt: string;
 };
 
+export type ChatMessage = {
+  id: string;
+  roomID: number;
+  userID: number;
+  username: string;
+  displayName: string;
+  message: string;
+  createdAt: string;
+};
+
 export type ConnectionState = {
   status: "disconnected" | "connecting" | "connected" | "disconnecting" | "error" | string;
   message: string;
@@ -54,6 +65,7 @@ export type AppState = {
   rooms: Room[];
   currentRoom?: Room;
   members: RoomMember[];
+  chatMessages: ChatMessage[];
   connection: ConnectionState;
 };
 
@@ -62,6 +74,7 @@ export const emptyState: AppState = {
   interfaceName: "LwyV-GameNet",
   rooms: [],
   members: [],
+  chatMessages: [],
   connection: {
     status: "disconnected",
     message: "未连接",

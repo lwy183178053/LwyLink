@@ -1,35 +1,31 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Button, Field, Input, Spinner, Textarea } from "@fluentui/react-components";
 import {
-  Badge,
-  Button,
-  Divider,
-  Field,
-  Input,
-  Spinner,
-  Textarea,
-} from "@fluentui/react-components";
-import {
-  CircleCheck,
+  BadgeCheck,
   CircleX,
   Copy,
-  Crown,
   DoorOpen,
+  Gamepad2,
   KeyRound,
   LogIn,
   LogOut,
+  MessageSquare,
+  Minus,
   Network,
   PlugZap,
   Plus,
   Power,
   RefreshCw,
-  Server,
+  Send,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
+  Square,
   Trash2,
-  UserMinus,
+  UserCircle,
   UserPlus,
   Users,
-  Wifi,
+  X,
 } from "lucide-react";
 import {
   ConnectRoom,
@@ -44,58 +40,54 @@ import {
   Logout,
   RefreshRooms,
   Register,
+  SendRoomChat,
   SetSettings,
   TransferOwner,
 } from "../wailsjs/go/main/App";
-import { EventsOn } from "../wailsjs/runtime/runtime";
-import type { AppState, Room, RoomMember } from "./types";
+import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
+import {
+  authRuleState,
+  errorText,
+  formatDate,
+  membershipLabel,
+  membershipTone,
+  pageEyebrow,
+  pageSubtitle,
+  pageTitle,
+  passwordMaxLength,
+  passwordMinLength,
+  serverHostFromAPI,
+  statusText,
+  statusTone,
+  type LoginForm,
+  type PageKey,
+  type RoomForm,
+  type SettingsForm,
+  usernameMaxLength,
+  usernameMinLength,
+  userLabel,
+} from "./client-ui";
+import { Avatar, ChatBubble, MemberRow, Metric, NavButton, Rule } from "./components";
+import type { AppState } from "./types";
 import { emptyState } from "./types";
 
-const remoteServerHost = "64.83.34.53";
-const remoteAPIBaseURL = `http://${remoteServerHost}:8080`;
-const localAPIBaseURL = "http://127.0.0.1:8080";
-const usernameMinLength = 3;
-const usernameMaxLength = 32;
-const passwordMinLength = 6;
-const passwordMaxLength = 128;
-const usernamePattern = /^[a-z0-9_-]+$/;
-
-type LoginForm = {
-  username: string;
-  password: string;
-  displayName: string;
-};
-
-type RoomForm = {
-  name: string;
-  maxMembers: string;
-  joinKey: string;
-};
-
-type SettingsForm = {
-  serverHost: string;
-  apiBaseURL: string;
-  interfaceName: string;
-};
-
 export default function App() {
+  const [page, setPage] = useState<PageKey>("account");
   const [state, setState] = useState<AppState>(emptyState);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
+  const [chatText, setChatText] = useState("");
+  const [chatSending, setChatSending] = useState(false);
   const [loginForm, setLoginForm] = useState<LoginForm>({ username: "", password: "", displayName: "" });
-  const [roomForm, setRoomForm] = useState<RoomForm>({
-    name: "",
-    maxMembers: "8",
-    joinKey: "",
-  });
+  const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: "8", joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
-    serverHost: serverHostFromAPI(emptyState.apiBaseURL),
     apiBaseURL: emptyState.apiBaseURL,
-    interfaceName: emptyState.interfaceName,
   });
   const connectionSignature = useRef("");
+  const settingsSignature = useRef("");
+  const chatListRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     CurrentState()
@@ -111,24 +103,37 @@ export default function App() {
 
   const currentRoom = useMemo(() => state.currentRoom ?? state.rooms[0], [state.currentRoom, state.rooms]);
   const members = state.members ?? [];
+  const chatMessages = useMemo(
+    () => (currentRoom ? (state.chatMessages ?? []).filter((message) => message.roomID === currentRoom.id) : []),
+    [currentRoom, state.chatMessages],
+  );
   const onlineCount = members.filter((member) => member.online).length;
   const currentMember = members.find((member) => member.userID === state.user?.id);
   const isOwner = !!currentRoom && currentRoom.ownerUserID === state.user?.id;
-  const canEnterRoom = !!state.user && !currentRoom;
   const connectionTone = statusTone(state.connection.status);
   const isBusy = busy !== "";
   const authRules = authRuleState(loginForm.username, loginForm.password);
-  const canSubmitAuth = authMode === "login"
-    ? loginForm.username.trim() !== "" && loginForm.password !== ""
-    : authRules.usernameLength && authRules.usernameCharset && authRules.passwordLength;
+  const canSubmitAuth =
+    authMode === "login"
+      ? loginForm.username.trim() !== "" && loginForm.password !== ""
+      : authRules.usernameLength && authRules.usernameCharset && authRules.passwordLength;
+
+  useEffect(() => {
+    if (page !== "room" || !chatListRef.current) {
+      return;
+    }
+    chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
+  }, [chatMessages.length]);
 
   function applyState(next: AppState) {
     setState(next);
-    setSettingsForm({
-      serverHost: serverHostFromAPI(next.apiBaseURL),
-      apiBaseURL: next.apiBaseURL,
-      interfaceName: next.interfaceName,
-    });
+    const nextSettingsSignature = `${next.apiBaseURL}|${next.interfaceName}`;
+    if (settingsSignature.current !== nextSettingsSignature) {
+      settingsSignature.current = nextSettingsSignature;
+      setSettingsForm({
+        apiBaseURL: next.apiBaseURL,
+      });
+    }
 
     const signature = `${next.connection.status}|${next.connection.message}|${next.connection.ip}`;
     if (connectionSignature.current && signature !== connectionSignature.current) {
@@ -149,10 +154,12 @@ export default function App() {
       const next = await task();
       applyState(next);
       pushLog(`${label}完成`);
+      return true;
     } catch (err) {
       const text = errorText(err);
       setError(text);
       pushLog(`${label}失败: ${text}`);
+      return false;
     } finally {
       setBusy("");
     }
@@ -164,665 +171,491 @@ export default function App() {
       setError(authMode === "login" ? "请输入用户名和密码" : "请先完成账号规则");
       return;
     }
-    if (authMode === "login") {
-      await run("登录", () => Login({ username: loginForm.username, password: loginForm.password }));
-      return;
+    const ok =
+      authMode === "login"
+        ? await run("登录", () => Login({ username: loginForm.username, password: loginForm.password }))
+        : await run("注册", () =>
+            Register({
+              username: loginForm.username,
+              password: loginForm.password,
+              displayName: loginForm.displayName,
+            }),
+          );
+    if (ok) {
+      setPage("room");
     }
-    await run("注册", () =>
-      Register({
-        username: loginForm.username,
-        password: loginForm.password,
-        displayName: loginForm.displayName,
+  }
+
+  async function handleCreateRoom(event: FormEvent) {
+    event.preventDefault();
+    const ok = await run("创建房间", () =>
+      CreateRoom({
+        name: roomForm.name,
+        maxMembers: Number.parseInt(roomForm.maxMembers, 10) || 8,
       }),
     );
+    if (ok) {
+      setRoomForm((value) => ({ ...value, name: "" }));
+    }
+  }
+
+  async function handleJoinRoom(event: FormEvent) {
+    event.preventDefault();
+    const ok = await run("加入房间", () => JoinRoom({ roomPublicKey: roomForm.joinKey }));
+    if (ok) {
+      setRoomForm((value) => ({ ...value, joinKey: "" }));
+    }
+  }
+
+  async function handleSendChat(event: FormEvent) {
+    event.preventDefault();
+    const message = chatText.trim();
+    if (!currentRoom || !message) {
+      return;
+    }
+    setChatSending(true);
+    setError("");
+    try {
+      const next = await SendRoomChat({ roomID: currentRoom.id, message });
+      applyState(next);
+      setChatText("");
+      pushLog("发送聊天完成");
+    } catch (err) {
+      const text = errorText(err);
+      setError(text);
+      pushLog(`发送聊天失败: ${text}`);
+    } finally {
+      setChatSending(false);
+    }
+  }
+
+  async function handleSaveSettings(event: FormEvent) {
+    event.preventDefault();
+    await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: state.interfaceName }));
   }
 
   function handleUsernameChange(value: string) {
     setLoginForm((current) => ({ ...current, username: value.trim().toLowerCase() }));
   }
 
-  async function handleCreateRoom(event: FormEvent) {
-    event.preventDefault();
-    await run("创建房间", () =>
-      CreateRoom({
-        name: roomForm.name,
-        maxMembers: Number.parseInt(roomForm.maxMembers, 10) || 8,
-      }),
-    );
-    setRoomForm((value) => ({ ...value, name: "" }));
-  }
-
-  async function handleJoinRoom(event: FormEvent) {
-    event.preventDefault();
-    await run("加入房间", () => JoinRoom({ roomPublicKey: roomForm.joinKey }));
-    setRoomForm((value) => ({ ...value, joinKey: "" }));
-  }
-
-  async function handleSaveSettings(event: FormEvent) {
-    event.preventDefault();
-    await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: settingsForm.interfaceName }));
-  }
-
-  function handleServerHostChange(value: string) {
-    setSettingsForm((current) => ({
-      ...current,
-      serverHost: value,
-      apiBaseURL: apiBaseURLFromHost(value),
-    }));
-  }
-
-  function setRemoteServer() {
-    setSettingsForm((current) => ({
-      ...current,
-      serverHost: remoteServerHost,
-      apiBaseURL: remoteAPIBaseURL,
-    }));
-  }
-
-  function setLocalServer() {
-    setSettingsForm((current) => ({
-      ...current,
-      serverHost: "127.0.0.1",
-      apiBaseURL: localAPIBaseURL,
-    }));
-  }
-
-  async function copyKey(room: Room) {
+  async function copyText(text: string, label: string) {
+    if (!text) {
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(room.roomPublicKey);
-      pushLog(`已复制房间 ${room.id} 公钥`);
-    } catch (err) {
-      setError(errorText(err));
+      await navigator.clipboard.writeText(text);
+      pushLog(`${label}已复制`);
+    } catch {
+      setError("复制失败");
     }
-  }
-
-  async function handleDeleteRoom(room: Room) {
-    if (!window.confirm(`确认删除房间「${room.name}」？房间公钥会立即失效。`)) {
-      return;
-    }
-    await run("删除房间", () => DeleteRoom(room.id));
-  }
-
-  async function handleLeaveRoom(room: Room) {
-    if (!window.confirm(`确认退出房间「${room.name}」？`)) {
-      return;
-    }
-    await run("退出房间", LeaveCurrentRoom);
-  }
-
-  async function handleKick(member: RoomMember) {
-    if (!window.confirm(`确认踢出 ${member.displayName || member.username}？`)) {
-      return;
-    }
-    await run("踢出成员", () => KickMember({ userID: member.userID }));
-  }
-
-  async function handleTransfer(member: RoomMember) {
-    if (!window.confirm(`确认把房主转让给 ${member.displayName || member.username}？`)) {
-      return;
-    }
-    await run("转让房主", () => TransferOwner({ userID: member.userID }));
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <strong>LwyV-GameNet</strong>
-          <span>Windows Client</span>
+    <div className="client-shell">
+      <aside className="rail">
+        <div className="player-card">
+          <Avatar user={state.user} size="large" />
+          <div className="player-meta">
+            <span>{state.user ? `@${state.user.username}` : "未登录"}</span>
+            <strong>{state.user ? userLabel(state.user.displayName, state.user.username) : "游客"}</strong>
+          </div>
+          <span className={`member-chip ${state.user ? membershipTone(state.user.membership) : "neutral"}`}>
+            {state.user ? membershipLabel(state.user.membership) : "访客"}
+          </span>
         </div>
 
-        <nav className="step-nav">
-          <a href="#account-step">
-            <LogIn size={16} />
-            <span>1. 账号</span>
-            <Badge color={state.user ? "success" : "warning"}>{state.user ? "已登录" : "未登录"}</Badge>
-          </a>
-          <a href="#room-step">
-            <Network size={16} />
-            <span>2. 房间入口</span>
-            <Badge color={currentRoom ? "success" : "subtle"}>{currentRoom ? "已加入" : "待进入"}</Badge>
-          </a>
-          <a href="#status-step">
-            <Users size={16} />
-            <span>3. 房间状态</span>
-            <Badge color={currentMember?.role === "owner" ? "important" : currentMember ? "informative" : "subtle"}>
-              {currentRoom ? roleText(currentMember?.role || (isOwner ? "owner" : "member")) : "无房间"}
-            </Badge>
-          </a>
-          <a href="#settings-step">
-            <Settings size={16} />
-            <span>4. 设置</span>
-            <Badge color="informative">{serverHostFromAPI(state.apiBaseURL)}</Badge>
-          </a>
+        <nav className="rail-nav">
+          <NavButton active={page === "account"} icon={<UserCircle size={18} />} label="账号" detail={state.user ? "已登录" : "未登录"} onClick={() => setPage("account")} />
+          <NavButton active={page === "room"} icon={<Gamepad2 size={18} />} label="房间" detail={currentRoom?.name ?? "未加入"} onClick={() => setPage("room")} />
+          <NavButton active={page === "settings"} icon={<Settings size={18} />} label="设置" detail={state.interfaceName} onClick={() => setPage("settings")} />
         </nav>
 
-        <div className="sidebar-status">
-          <Badge appearance="filled" color={connectionTone}>{statusText(state.connection.status)}</Badge>
-          <span>{currentRoom?.name || state.connection.message}</span>
+        <div className="rail-network">
+          <div className="network-topline">
+            <span className={`status-light ${connectionTone}`} />
+            <strong>{statusText(state.connection.status)}</strong>
+          </div>
+          <span>{state.connection.ip || state.connection.message || "未连接"}</span>
+          <div className="rail-actions">
+            {currentRoom && (state.connection.status === "connected" || state.connection.status === "connecting") ? (
+              <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
+                <Power size={15} />
+                断开
+              </button>
+            ) : (
+              <button type="button" disabled={isBusy || !currentRoom} onClick={() => currentRoom && run("连接虚拟网络", () => ConnectRoom(currentRoom.id))}>
+                <PlugZap size={15} />
+                连接
+              </button>
+            )}
+          </div>
         </div>
       </aside>
 
-      <main className="workspace">
-        <header className="topbar">
-          <div>
-            <h1>游戏虚拟组网</h1>
-            <div className="muted">
-              {state.user ? `${state.user.displayName || state.user.username} @ ${state.apiBaseURL}` : state.apiBaseURL}
+      <section className="app-frame">
+        <main className="stage">
+          <div className="integrated-chrome">
+            <div className="chrome-drag">
+              <div className="brand-lockup">
+                <span className="brand-mark">LG</span>
+                <div>
+                  <strong>LwyV GameNet</strong>
+                  <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>
+                </div>
+            </div>
+            <div className="chrome-status">
+              <span className={`status-pill ${connectionTone}`}>{statusText(state.connection.status)}</span>
             </div>
           </div>
-          <div className="top-actions">
-            {isBusy && <Spinner size="tiny" label={busy} />}
-            {state.user && (
-              <Button icon={<RefreshCw size={16} />} onClick={() => run("刷新状态", RefreshRooms)} disabled={isBusy}>
-                刷新
+            <div className="window-controls">
+              <button type="button" aria-label="最小化" onClick={WindowMinimise}>
+                <Minus size={16} />
+              </button>
+              <button type="button" aria-label="最大化" onClick={WindowToggleMaximise}>
+                <Square size={13} />
+              </button>
+              <button type="button" aria-label="关闭" className="close" onClick={Quit}>
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="stage-head">
+            <div>
+              <span className="eyebrow">{pageEyebrow(page)}</span>
+              <h1>{pageTitle(page)}</h1>
+            </div>
+            <div className="stage-actions">
+              {isBusy && (
+                <span className="operation-busy">
+                  <Spinner size="tiny" />
+                  {busy}
+                </span>
+              )}
+              {page !== "settings" && (
+                <Button icon={<RefreshCw size={16} />} disabled={isBusy || !state.user} onClick={() => run("刷新房间", RefreshRooms)}>
+                  刷新
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {error && (
+            <div className="toast-error">
+              <CircleX size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {page === "account" && renderAccountPage()}
+          {page === "room" && renderRoomPage()}
+          {page === "settings" && renderSettingsPage()}
+        </main>
+      </section>
+    </div>
+  );
+
+  function renderAccountPage() {
+    if (!state.user) {
+      return (
+        <section className="auth-layout">
+          <div className="hero-panel">
+            <div className="hero-symbol">
+              <Gamepad2 size={30} />
+            </div>
+            <div className="hero-copy">
+              <span>LwyV GameNet</span>
+              <strong>玩家网络客户端</strong>
+            </div>
+            <div className="hero-status-grid">
+              <Metric label="服务器" value={serverHostFromAPI(settingsForm.apiBaseURL)} />
+              <Metric label="网卡" value={state.interfaceName} />
+              <Metric label="状态" value={statusText(state.connection.status)} />
+            </div>
+          </div>
+
+          <form className="surface auth-form" onSubmit={handleAuthSubmit}>
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">账号</span>
+                <h2>{authMode === "login" ? "登录" : "注册"}</h2>
+              </div>
+              <LogIn size={18} />
+            </div>
+            <div className="form-stack">
+              <div className="segmented">
+                <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>
+                  登录
+                </button>
+                <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>
+                  注册
+                </button>
+              </div>
+              <Field label="用户名">
+                <Input value={loginForm.username} onChange={(_, data) => handleUsernameChange(data.value)} />
+              </Field>
+              {authMode === "register" && (
+                <Field label="昵称">
+                  <Input value={loginForm.displayName} onChange={(_, data) => setLoginForm((current) => ({ ...current, displayName: data.value }))} />
+                </Field>
+              )}
+              <Field label="密码">
+                <Input type="password" value={loginForm.password} onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))} />
+              </Field>
+              {authMode === "register" && (
+                <div className="rules">
+                  <Rule ok={authRules.usernameLength} text={`${usernameMinLength}-${usernameMaxLength} 位用户名`} />
+                  <Rule ok={authRules.usernameCharset} text="小写字母、数字、下划线或短横线" />
+                  <Rule ok={authRules.passwordLength} text={`${passwordMinLength}-${passwordMaxLength} 位密码`} />
+                </div>
+              )}
+              <Button appearance="primary" icon={<LogIn size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
+                {authMode === "login" ? "进入客户端" : "创建账号"}
+              </Button>
+            </div>
+          </form>
+        </section>
+      );
+    }
+
+    return (
+      <section className="account-grid">
+        <div className="surface account-hero">
+          <Avatar user={state.user} size="hero" />
+          <div className="account-main">
+            <span>@{state.user.username}</span>
+            <h2>{userLabel(state.user.displayName, state.user.username)}</h2>
+            <div className="account-tags">
+              <span className={`member-chip ${membershipTone(state.user.membership)}`}>
+                <BadgeCheck size={14} />
+                {membershipLabel(state.user.membership)}
+              </span>
+              <span className="member-chip neutral">{state.user.disabled ? "已禁用" : "账号正常"}</span>
+            </div>
+          </div>
+          <div className="account-actions">
+            <Button icon={<RefreshCw size={16} />} disabled={isBusy} onClick={() => run("刷新房间", RefreshRooms)}>
+              刷新
+            </Button>
+            <Button icon={<LogOut size={16} />} disabled={isBusy} onClick={() => run("退出登录", Logout)}>
+              退出
+            </Button>
+          </div>
+        </div>
+
+        <div className="surface data-panel">
+          <div className="surface-head">
+            <h2>账号信息</h2>
+            <ShieldCheck size={18} />
+          </div>
+          <div className="data-grid">
+            <Metric label="用户 ID" value={String(state.user.id)} />
+            <Metric label="权限" value={state.user.role} />
+            <Metric label="创建时间" value={formatDate(state.user.createdAt)} wide />
+            <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
+          </div>
+        </div>
+
+        <div className="surface data-panel">
+          <div className="surface-head">
+            <h2>网络状态</h2>
+            <Network size={18} />
+          </div>
+          <div className="data-grid">
+            <Metric label="连接" value={statusText(state.connection.status)} />
+            <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
+            <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderRoomPage() {
+    if (!state.user) {
+      return (
+        <section className="empty-state">
+          <UserCircle size={38} />
+          <h2>请先登录</h2>
+        </section>
+      );
+    }
+
+    if (!currentRoom) {
+      return (
+        <section className="room-entry">
+          <form className="surface command-panel" onSubmit={handleCreateRoom}>
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">房主</span>
+                <h2>创建房间</h2>
+              </div>
+              <Plus size={18} />
+            </div>
+            <div className="form-stack">
+              <Field label="房间名">
+                <Input value={roomForm.name} onChange={(_, data) => setRoomForm((current) => ({ ...current, name: data.value }))} />
+              </Field>
+              <Field label="人数上限">
+                <Input type="number" min={2} max={64} value={roomForm.maxMembers} onChange={(_, data) => setRoomForm((current) => ({ ...current, maxMembers: data.value }))} />
+              </Field>
+              <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={isBusy || roomForm.name.trim() === ""}>
+                创建
+              </Button>
+            </div>
+          </form>
+
+          <form className="surface command-panel" onSubmit={handleJoinRoom}>
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">成员</span>
+                <h2>加入房间</h2>
+              </div>
+              <KeyRound size={18} />
+            </div>
+            <div className="form-stack">
+              <Field label="房间密钥">
+                <Textarea rows={8} value={roomForm.joinKey} onChange={(_, data) => setRoomForm((current) => ({ ...current, joinKey: data.value }))} />
+              </Field>
+              <Button appearance="primary" icon={<UserPlus size={16} />} type="submit" disabled={isBusy || roomForm.joinKey.trim() === ""}>
+                加入
+              </Button>
+            </div>
+          </form>
+        </section>
+      );
+    }
+
+    return (
+      <section className="room-workspace">
+        <div className="surface room-command">
+          <div className="room-command-top">
+            <div>
+              <span className="eyebrow">当前房间</span>
+              <h2>{currentRoom.name}</h2>
+            </div>
+            <span className={`status-pill ${currentRoom.status === "open" ? "good" : "bad"}`}>{currentRoom.status}</span>
+          </div>
+
+          <div className="room-metrics">
+            <Metric label="成员" value={`${currentRoom.memberCount} / ${currentRoom.maxMembers}`} />
+            <Metric label="在线" value={`${onlineCount} / ${members.length}`} />
+            <Metric label="节点" value={currentRoom.nodeName || "未分配"} />
+          </div>
+
+          <div className="room-network-line">
+            <Network size={15} />
+            <span>{currentRoom.networkCIDR}</span>
+          </div>
+
+          <div className="room-key">
+            <span>房间密钥</span>
+            <code>{currentRoom.roomPublicKey}</code>
+            <Button icon={<Copy size={16} />} onClick={() => copyText(currentRoom.roomPublicKey, "房间密钥")}>
+              复制
+            </Button>
+          </div>
+
+          <div className="command-actions">
+            {state.connection.status === "connected" || state.connection.status === "connecting" ? (
+              <Button icon={<Power size={16} />} disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
+                断开虚拟网络
+              </Button>
+            ) : (
+              <Button appearance="primary" icon={<PlugZap size={16} />} disabled={isBusy} onClick={() => run("连接虚拟网络", () => ConnectRoom(currentRoom.id))}>
+                启动虚拟网络
+              </Button>
+            )}
+            {isOwner ? (
+              <Button icon={<Trash2 size={16} />} disabled={isBusy} onClick={() => run("删除房间", () => DeleteRoom(currentRoom.id))}>
+                删除房间
+              </Button>
+            ) : (
+              <Button icon={<DoorOpen size={16} />} disabled={isBusy} onClick={() => run("退出房间", LeaveCurrentRoom)}>
+                退出房间
               </Button>
             )}
           </div>
-        </header>
+        </div>
 
-        {error && <div className="error-bar">{error}</div>}
-
-        <section id="account-step" className="workflow-section">
-          <StepHeading
-            number="1"
-            icon={<LogIn size={18} />}
-            title="账号"
-            status={state.user ? "已登录" : authMode === "login" ? "登录" : "注册"}
-          />
-          <div className="account-layout">
-            <div className="panel">
-              <div className="panel-head">
-                <h2>{state.user ? "当前账号" : authMode === "login" ? "登录账号" : "注册账号"}</h2>
-                {!state.user && (
-                  <div className="auth-tabs">
-                    <Button appearance={authMode === "login" ? "primary" : "subtle"} icon={<LogIn size={16} />} onClick={() => setAuthMode("login")}>
-                      登录
-                    </Button>
-                    <Button appearance={authMode === "register" ? "primary" : "subtle"} icon={<UserPlus size={16} />} onClick={() => setAuthMode("register")}>
-                      注册
-                    </Button>
-                  </div>
-                )}
-              </div>
-              {state.user ? (
-                <div className="account-card">
-                  <div className="avatar">{avatarText(state.user.displayName || state.user.username)}</div>
-                  <div>
-                    <strong>{state.user.displayName || state.user.username}</strong>
-                    <span>@{state.user.username}</span>
-                  </div>
-                  <Button icon={<LogOut size={16} />} onClick={() => run("退出登录", Logout)} disabled={isBusy}>
-                    退出
-                  </Button>
-                </div>
-              ) : (
-                <form className="form-stack" onSubmit={handleAuthSubmit}>
-                  <Field
-                    label="用户名"
-                    validationState={authMode === "register" && loginForm.username ? fieldState(authRules.usernameLength && authRules.usernameCharset) : undefined}
-                    validationMessage={authMode === "register" && loginForm.username ? usernameValidationText(authRules) : undefined}
-                  >
-                    <Input
-                      value={loginForm.username}
-                      maxLength={usernameMaxLength}
-                      onChange={(_, data) => handleUsernameChange(data.value)}
-                    />
-                  </Field>
-                  {authMode === "register" && (
-                    <Field label="昵称">
-                      <Input
-                        value={loginForm.displayName}
-                        onChange={(_, data) => setLoginForm({ ...loginForm, displayName: data.value })}
-                      />
-                    </Field>
-                  )}
-                  <Field
-                    label="密码"
-                    validationState={authMode === "register" && loginForm.password ? fieldState(authRules.passwordLength) : undefined}
-                    validationMessage={authMode === "register" && loginForm.password ? passwordValidationText(authRules) : undefined}
-                  >
-                    <Input
-                      type="password"
-                      maxLength={passwordMaxLength}
-                      value={loginForm.password}
-                      onChange={(_, data) => setLoginForm({ ...loginForm, password: data.value })}
-                    />
-                  </Field>
-                  {authMode === "register" && (
-                    <div className="rule-grid">
-                      <RuleItem ok={authRules.usernameLength} text={`${usernameMinLength}-${usernameMaxLength} 位用户名`} />
-                      <RuleItem ok={authRules.usernameCharset} text="小写字母 / 数字 / _ / -" />
-                      <RuleItem ok={authRules.passwordLength} text={`${passwordMinLength}-${passwordMaxLength} 位密码`} />
-                      <RuleItem ok={true} text="不要求复杂度" />
-                    </div>
-                  )}
-                  <Button appearance="primary" icon={authMode === "login" ? <LogIn size={16} /> : <UserPlus size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
-                    {authMode === "login" ? "登录" : "注册并登录"}
-                  </Button>
-                </form>
-              )}
-            </div>
-
-            <div className="panel">
-              <div className="panel-head">
-                <h2>账号状态</h2>
-                <Badge color={state.user ? "success" : "warning"}>{state.user ? "在线" : "离线"}</Badge>
-              </div>
-              <div className="metrics">
-                <Metric label="当前房间" value={currentRoom?.name || "-"} />
-                <Metric label="我的身份" value={currentRoom ? roleText(currentMember?.role || (isOwner ? "owner" : "member")) : "-"} />
-                <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
-              </div>
-              {!state.user && (
-                <div className="account-note">
-                  <ShieldCheck size={18} />
-                  <span>同一账号只保留最后一次登录会话，用户名注册后不可重复。</span>
-                </div>
-              )}
-            </div>
+        <div className="surface member-panel">
+          <div className="surface-head">
+            <h2>成员</h2>
+            <span>{members.length} 人</span>
           </div>
-        </section>
+          <div className="member-table">
+            {members.map((member) => (
+              <MemberRow
+                key={member.userID}
+                member={member}
+                isSelf={member.userID === state.user?.id}
+                canManage={isOwner && member.userID !== state.user?.id}
+                disabled={isBusy}
+                onKick={() => run("移出成员", () => KickMember({ userID: member.userID }))}
+                onTransfer={() => run("转让房主", () => TransferOwner({ userID: member.userID }))}
+              />
+            ))}
+          </div>
+        </div>
 
-        <section id="room-step" className="workflow-section">
-          <StepHeading
-            number="2"
-            icon={<Network size={18} />}
-            title="创建或加入房间"
-            status={currentRoom ? "已在房间中" : state.user ? "可进入房间" : "请先登录"}
-          />
+        <div className="surface chat-panel">
+          <div className="surface-head">
+            <h2>聊天</h2>
+            <MessageSquare size={18} />
+          </div>
+          <div className="chat-list" ref={chatListRef}>
+            {chatMessages.map((message) => (
+              <ChatBubble key={message.id} message={message} mine={message.userID === state.user?.id} />
+            ))}
+            {chatMessages.length === 0 && <div className="empty-chat">暂无消息</div>}
+          </div>
+          <form className="chat-form" onSubmit={handleSendChat}>
+            <Textarea rows={2} maxLength={500} value={chatText} onChange={(_, data) => setChatText(data.value)} />
+            <Button appearance="primary" icon={chatSending ? <Spinner size="tiny" /> : <Send size={16} />} type="submit" disabled={chatSending || chatText.trim() === ""}>
+              {chatSending ? "发送中" : "发送"}
+            </Button>
+          </form>
+        </div>
+      </section>
+    );
+  }
 
-          {!state.user && (
-            <div className="panel empty-panel">
-              <ShieldCheck size={22} />
-              <strong>请先登录账号</strong>
+  function renderSettingsPage() {
+    return (
+      <section className="settings-grid">
+        <form className="surface settings-panel" onSubmit={handleSaveSettings}>
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">客户端</span>
+              <h2>连接偏好</h2>
             </div>
-          )}
-
-          {state.user && currentRoom && (
-            <div className="panel joined-panel">
-              <div className="joined-icon"><Network size={22} /></div>
-              <div>
-                <strong>你已经在「{currentRoom.name}」中</strong>
-                <span>同一账号同一时间只能处在一个房间里，需要联机时再手动启动虚拟网卡。</span>
-              </div>
-              <Button icon={<RefreshCw size={16} />} onClick={() => run("刷新状态", RefreshRooms)} disabled={isBusy}>
-                刷新
+            <SlidersHorizontal size={18} />
+          </div>
+          <div className="form-stack">
+            <Field label="接口地址">
+              <Input
+                value={settingsForm.apiBaseURL}
+                onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
+              />
+            </Field>
+            <div className="command-actions">
+              <Button appearance="primary" type="submit" disabled={isBusy}>
+                保存
               </Button>
             </div>
-          )}
-
-          {state.user && !currentRoom && (
-            <div className="room-entry-layout">
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>创建房间</h2>
-                  <Badge color="informative">自动成为房主</Badge>
-                </div>
-                <form className="form-stack" onSubmit={handleCreateRoom}>
-                  <Field label="房间名">
-                    <Input value={roomForm.name} onChange={(_, data) => setRoomForm({ ...roomForm, name: data.value })} />
-                  </Field>
-                  <Field label="最大人数">
-                    <Input
-                      type="number"
-                      min={2}
-                      max={64}
-                      value={roomForm.maxMembers}
-                      onChange={(_, data) => setRoomForm({ ...roomForm, maxMembers: data.value })}
-                    />
-                  </Field>
-                  <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={!canEnterRoom || isBusy}>
-                    创建房间
-                  </Button>
-                </form>
-              </div>
-
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>加入房间</h2>
-                  <Badge color="subtle">使用房间公钥</Badge>
-                </div>
-                <form className="form-stack" onSubmit={handleJoinRoom}>
-                  <Field label="房间公钥">
-                    <Textarea
-                      value={roomForm.joinKey}
-                      onChange={(_, data) => setRoomForm({ ...roomForm, joinKey: data.value })}
-                      resize="vertical"
-                    />
-                  </Field>
-                  <Button icon={<KeyRound size={16} />} type="submit" disabled={!canEnterRoom || isBusy}>
-                    加入房间
-                  </Button>
-                </form>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section id="status-step" className="workflow-section">
-          <StepHeading
-            number="3"
-            icon={<Users size={18} />}
-            title="当前房间状态"
-            status={currentRoom ? `${roleText(currentMember?.role || (isOwner ? "owner" : "member"))} · ${statusText(state.connection.status)}` : "未加入房间"}
-          />
-
-          {!currentRoom && (
-            <div className="panel empty-panel">
-              <Users size={22} />
-              <strong>暂无当前房间</strong>
-            </div>
-          )}
-
-          {currentRoom && (
-            <div className="status-layout">
-              <div className="panel room-panel">
-                <div className="panel-head">
-                  <h2>{currentRoom.name}</h2>
-                  <Badge appearance="filled" color={isOwner ? "important" : "informative"}>
-                    {roleText(currentMember?.role || (isOwner ? "owner" : "member"))}
-                  </Badge>
-                </div>
-                <div className="room-summary">
-                  <Metric label="人数" value={`${currentRoom.memberCount} / ${currentRoom.maxMembers}`} />
-                  <Metric label="在线" value={`${onlineCount} / ${members.length || currentRoom.memberCount}`} />
-                  <Metric label="虚拟网段" value={currentRoom.networkCIDR} />
-                  <Metric label="节点" value={currentRoom.nodeName || currentRoom.nodeOverlayAddr || "-"} />
-                  <Metric label="网络状态" value={statusText(state.connection.status)} />
-                </div>
-                <Divider />
-                <div className="key-block">
-                  <Field label="房间公钥">
-                    <Textarea value={currentRoom.roomPublicKey} readOnly resize="vertical" />
-                  </Field>
-                </div>
-                <div className="actions padded-actions">
-                  {state.connection.status === "disconnected" ? (
-                    <Button icon={<PlugZap size={16} />} onClick={() => run("启动虚拟网卡", () => ConnectRoom(currentRoom.id))} disabled={isBusy}>
-                      启动虚拟网卡
-                    </Button>
-                  ) : (
-                    <Button icon={<Power size={16} />} onClick={() => run("断开虚拟网卡", Disconnect)} disabled={isBusy}>
-                      断开虚拟网卡
-                    </Button>
-                  )}
-                  <Button icon={<Copy size={16} />} onClick={() => copyKey(currentRoom)}>
-                    复制公钥
-                  </Button>
-                  {isOwner ? (
-                    <Button icon={<Trash2 size={16} />} onClick={() => handleDeleteRoom(currentRoom)} disabled={isBusy}>
-                      删除房间
-                    </Button>
-                  ) : (
-                    <Button icon={<DoorOpen size={16} />} onClick={() => handleLeaveRoom(currentRoom)} disabled={isBusy}>
-                      退出房间
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              <div className="panel members-panel">
-                <div className="panel-head">
-                  <h2>玩家列表</h2>
-                  <Badge color={onlineCount > 0 ? "success" : "subtle"}>{onlineCount} / {members.length} 在线</Badge>
-                </div>
-                <div className="member-list">
-                  {members.map((member) => (
-                    <div className="member-row" key={member.userID}>
-                      <div className="member-avatar">{avatarText(member.displayName || member.username)}</div>
-                      <div className="member-main">
-                        <strong>{member.displayName || member.username}</strong>
-                        <span>@{member.username} · ID {member.userID}</span>
-                      </div>
-                      <Badge className="role-badge" appearance="filled" color={member.role === "owner" ? "important" : "informative"}>
-                        {roleText(member.role)}
-                      </Badge>
-                      <Badge className="online-badge" appearance="filled" color={member.online ? "success" : "subtle"}>
-                        {member.online ? "在线" : "离线"}
-                      </Badge>
-                      <span className="member-ip">{member.online ? member.virtualIP || "未启动网卡" : formatTime(member.createdAt)}</span>
-                      <div className="member-actions">
-                        {isOwner && member.userID !== state.user?.id ? (
-                          <>
-                            <Button icon={<Crown size={15} />} onClick={() => handleTransfer(member)} disabled={isBusy}>
-                              转让
-                            </Button>
-                            <Button icon={<UserMinus size={15} />} onClick={() => handleKick(member)} disabled={isBusy}>
-                              踢出
-                            </Button>
-                          </>
-                        ) : (
-                          <span className="muted">-</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {members.length === 0 && <div className="empty-cell">暂无成员</div>}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section id="settings-step" className="workflow-section">
-          <StepHeading
-            number="4"
-            icon={<Settings size={18} />}
-            title="设置"
-            status={serverHostFromAPI(state.apiBaseURL)}
-          />
-          <div className="settings-layout">
-            <div className="panel">
-              <div className="panel-head">
-                <h2>服务器与网卡</h2>
-                <Server size={18} />
-              </div>
-              <form className="form-stack" onSubmit={handleSaveSettings}>
-                <Field label="服务器 IP">
-                  <Input value={settingsForm.serverHost} onChange={(_, data) => handleServerHostChange(data.value)} />
-                </Field>
-                <Field label="API 地址">
-                  <Input
-                    value={settingsForm.apiBaseURL}
-                    onChange={(_, data) => setSettingsForm({ ...settingsForm, apiBaseURL: data.value })}
-                  />
-                </Field>
-                <Field label="虚拟网卡名">
-                  <Input
-                    value={settingsForm.interfaceName}
-                    onChange={(_, data) => setSettingsForm({ ...settingsForm, interfaceName: data.value })}
-                  />
-                </Field>
-                <div className="actions no-pad">
-                  <Button type="button" icon={<Server size={16} />} onClick={setRemoteServer}>
-                    远程服务器
-                  </Button>
-                  <Button type="button" icon={<Network size={16} />} onClick={setLocalServer}>
-                    本机测试
-                  </Button>
-                  <Button appearance="primary" icon={<Settings size={16} />} type="submit" disabled={isBusy}>
-                    保存设置
-                  </Button>
-                </div>
-              </form>
-            </div>
-
-            <div className="panel">
-              <div className="panel-head">
-                <h2>虚拟网络</h2>
-                <Badge appearance="filled" color={connectionTone}>{statusText(state.connection.status)}</Badge>
-              </div>
-              <div className="connection-box">
-                <Metric label="房间" value={state.connection.roomName || currentRoom?.name || "-"} />
-                <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
-                <Metric label="网段" value={state.connection.networkCIDR || currentRoom?.networkCIDR || "-"} />
-                <Metric label="节点" value={state.connection.overlayAddr || currentRoom?.nodeOverlayAddr || "-"} />
-                <Metric label="网关" value={state.connection.gateway || "-"} />
-                <Metric label="MTU" value={state.connection.mtu ? String(state.connection.mtu) : "-"} />
-              </div>
-            </div>
-
-            <div className="panel logs-panel">
-              <div className="panel-head">
-                <h2>日志</h2>
-                <Wifi size={18} />
-              </div>
-              <div className="log-list">
-                {logs.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}
-                {logs.length === 0 && <div className="muted">暂无日志</div>}
-              </div>
-            </div>
           </div>
-        </section>
-      </main>
-    </div>
-  );
-}
+        </form>
 
-function StepHeading(props: { number: string; icon: JSX.Element; title: string; status: string }) {
-  return (
-    <div className="step-heading">
-      <div className="step-mark">
-        <span>{props.number}</span>
-        {props.icon}
-      </div>
-      <div>
-        <h2>{props.title}</h2>
-        <span>{props.status}</span>
-      </div>
-    </div>
-  );
-}
-
-function RuleItem(props: { ok: boolean; text: string }) {
-  return (
-    <div className={`rule-item ${props.ok ? "ok" : "bad"}`}>
-      {props.ok ? <CircleCheck size={15} /> : <CircleX size={15} />}
-      <span>{props.text}</span>
-    </div>
-  );
-}
-
-function Metric(props: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-    </div>
-  );
-}
-
-function authRuleState(username: string, password: string) {
-  const normalized = username.trim().toLowerCase();
-  return {
-    usernameLength: normalized.length >= usernameMinLength && normalized.length <= usernameMaxLength,
-    usernameCharset: normalized === "" || usernamePattern.test(normalized),
-    passwordLength: password.length >= passwordMinLength && password.length <= passwordMaxLength,
-  };
-}
-
-function fieldState(ok: boolean): "success" | "error" {
-  return ok ? "success" : "error";
-}
-
-function usernameValidationText(rules: ReturnType<typeof authRuleState>) {
-  if (!rules.usernameLength) {
-    return `用户名长度必须是 ${usernameMinLength}-${usernameMaxLength} 位`;
+        <div className="surface logs-panel">
+          <div className="surface-head">
+            <h2>本地日志</h2>
+            <span>{logs.length} 条</span>
+          </div>
+          <div className="logs">
+            {logs.length === 0 ? <span className="muted">暂无日志</span> : logs.map((line) => <code key={line}>{line}</code>)}
+          </div>
+        </div>
+      </section>
+    );
   }
-  if (!rules.usernameCharset) {
-    return "用户名只能包含小写字母、数字、下划线和短横线";
-  }
-  return "用户名格式可用";
-}
-
-function passwordValidationText(rules: ReturnType<typeof authRuleState>) {
-  if (!rules.passwordLength) {
-    return `密码长度必须是 ${passwordMinLength}-${passwordMaxLength} 位`;
-  }
-  return "密码长度可用";
-}
-
-function roleText(role: string) {
-  if (role === "owner") {
-    return "房主";
-  }
-  if (role === "member") {
-    return "普通成员";
-  }
-  return "-";
-}
-
-function statusText(status: string) {
-  switch (status) {
-    case "connected":
-      return "已连接";
-    case "connecting":
-      return "连接中";
-    case "disconnecting":
-      return "断开中";
-    case "error":
-      return "错误";
-    default:
-      return "未连接";
-  }
-}
-
-function statusTone(status: string): "success" | "warning" | "danger" | "informative" | "subtle" {
-  switch (status) {
-    case "connected":
-      return "success";
-    case "connecting":
-    case "disconnecting":
-      return "warning";
-    case "error":
-      return "danger";
-    default:
-      return "subtle";
-  }
-}
-
-function formatTime(value: string) {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
-
-function avatarText(value: string) {
-  const text = value.trim();
-  return (text ? text.slice(0, 1) : "U").toUpperCase();
-}
-
-function apiBaseURLFromHost(value: string) {
-  const raw = value.trim().replace(/\/+$/, "");
-  if (!raw) {
-    return remoteAPIBaseURL;
-  }
-  if (raw.startsWith("http://") || raw.startsWith("https://")) {
-    return raw;
-  }
-  if (raw.includes(":")) {
-    return `http://${raw}`;
-  }
-  return `http://${raw}:8080`;
-}
-
-function serverHostFromAPI(value: string) {
-  try {
-    return new URL(value).hostname || remoteServerHost;
-  } catch {
-    return remoteServerHost;
-  }
-}
-
-function errorText(err: unknown) {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return String(err);
 }

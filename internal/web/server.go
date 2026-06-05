@@ -26,9 +26,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
-// NewServer exposes both the JSON API used by clients and the small admin page
-// used during this prototype stage. The admin UI is intentionally simple so it
-// can be replaced by a real frontend without changing account/room services.
+// NewServer exposes the JSON client API and the embedded admin console.
 func NewServer(addr, adminToken string, accounts *account.Service, rooms *room.Service, nodes *node.Service) *Server {
 	return &Server{
 		addr:       addr,
@@ -50,14 +48,17 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/join", s.handleJoinRoom)
 	mux.HandleFunc("/api/rooms/delete", s.handleDeleteRoom)
 	mux.HandleFunc("/api/rooms/members", s.handleRoomMembers)
+	mux.HandleFunc("/api/rooms/chat", s.handleRoomChat)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
 	mux.HandleFunc("/api/rooms/transfer-owner", s.handleTransferRoomOwner)
+	mux.Handle("/admin/assets/", http.StripPrefix("/admin/assets/", adminAssetHandler()))
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/nodes", s.handleAdminNodes)
 	mux.HandleFunc("/admin/users", s.handleAdminUsers)
 	mux.HandleFunc("/admin/users/status", s.handleAdminUserStatus)
+	mux.HandleFunc("/admin/users/membership", s.handleAdminUserMembership)
 	mux.HandleFunc("/admin/users/delete", s.handleAdminUserDelete)
 	mux.HandleFunc("/admin/rooms", s.handleAdminRooms)
 	mux.HandleFunc("/admin/rooms/status", s.handleAdminRoomStatus)
@@ -247,6 +248,32 @@ func (s *Server) handleRoomMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, members)
+}
+
+func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID  int64  `json:"roomID"`
+		Message string `json:"message"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	chat, err := s.rooms.SendChat(r.Context(), user.ID, req.RoomID, req.Message)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, chat)
 }
 
 func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {
@@ -482,31 +509,27 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "admin token required")
 		return
 	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	status := normalizedAdminStatus(r.URL.Query().Get("status"), []string{"active", "disabled"})
+	listReq := adminListRequestFromQuery(r, []string{"active", "disabled"})
 	users, err := s.accounts.SearchUsers(r.Context(), account.UserFilter{
-		Query:  query,
-		Status: status,
-		Limit:  300,
+		Query:  listReq.Query,
+		Status: listReq.Status,
+		Limit:  listReq.PerPage + 1,
+		Offset: listReq.Offset(),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	users, hasNext := trimAdminPage(users, listReq.PerPage)
 	stats, err := s.adminStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.renderAdmin(w, adminPageData{
-		Active: "users",
-		Title:  "玩家账号",
-		Token:  s.adminToken,
-		Stats:  stats,
-		Query:  query,
-		Status: status,
-		Users:  users,
-	})
+	data := s.adminListPageData("users", "玩家账号", "/admin/users", listReq, hasNext)
+	data.Stats = stats
+	data.Users = users
+	s.renderAdmin(w, data)
 }
 
 func (s *Server) handleAdminRooms(w http.ResponseWriter, r *http.Request) {
@@ -514,31 +537,27 @@ func (s *Server) handleAdminRooms(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "admin token required")
 		return
 	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	status := normalizedAdminStatus(r.URL.Query().Get("status"), []string{room.StatusOpen, room.StatusClosed})
+	listReq := adminListRequestFromQuery(r, []string{room.StatusOpen, room.StatusClosed})
 	rooms, err := s.rooms.Search(r.Context(), room.Filter{
-		Query:  query,
-		Status: status,
-		Limit:  300,
+		Query:  listReq.Query,
+		Status: listReq.Status,
+		Limit:  listReq.PerPage + 1,
+		Offset: listReq.Offset(),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	rooms, hasNext := trimAdminPage(rooms, listReq.PerPage)
 	stats, err := s.adminStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.renderAdmin(w, adminPageData{
-		Active: "rooms",
-		Title:  "房间",
-		Token:  s.adminToken,
-		Stats:  stats,
-		Query:  query,
-		Status: status,
-		Rooms:  rooms,
-	})
+	data := s.adminListPageData("rooms", "房间", "/admin/rooms", listReq, hasNext)
+	data.Stats = stats
+	data.Rooms = rooms
+	s.renderAdmin(w, data)
 }
 
 func (s *Server) handleAdminNodes(w http.ResponseWriter, r *http.Request) {
@@ -550,28 +569,23 @@ func (s *Server) handleAdminNodes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "node service is not configured")
 		return
 	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	status := normalizedAdminStatus(r.URL.Query().Get("status"), []string{node.StatusOnline, node.StatusPaused, node.StatusDisabled, node.StatusUnknown})
+	listReq := adminListRequestFromQuery(r, []string{node.StatusOnline, node.StatusPaused, node.StatusDisabled, node.StatusUnknown})
 	nodes, err := s.nodes.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	nodes = filterAdminNodes(nodes, query, status)
+	nodes = filterAdminNodes(nodes, listReq.Query, listReq.Status)
+	nodes, hasNext := paginateAdminNodes(nodes, listReq.Page, listReq.PerPage)
 	stats, err := s.adminStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.renderAdmin(w, adminPageData{
-		Active: "nodes",
-		Title:  "服务器节点",
-		Token:  s.adminToken,
-		Stats:  stats,
-		Query:  query,
-		Status: status,
-		Nodes:  nodes,
-	})
+	data := s.adminListPageData("nodes", "服务器节点", "/admin/nodes", listReq, hasNext)
+	data.Stats = stats
+	data.Nodes = nodes
+	s.renderAdmin(w, data)
 }
 
 func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
@@ -606,7 +620,28 @@ func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLWithFilters("/admin/users", r.FormValue("q"), r.FormValue("status")), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
+}
+
+func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.adminAuthorized(r) {
+		writeError(w, http.StatusUnauthorized, "admin token required")
+		return
+	}
+	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
+	if userID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad userID")
+		return
+	}
+	if err := s.accounts.SetMembership(r.Context(), userID, r.FormValue("membership")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
@@ -633,7 +668,7 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLWithFilters("/admin/users", r.FormValue("q"), r.FormValue("status")), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
@@ -665,7 +700,7 @@ func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURL("/admin/nodes"), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminNodeEnabled(w http.ResponseWriter, r *http.Request) {
@@ -691,7 +726,7 @@ func (s *Server) handleAdminNodeEnabled(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURL("/admin/nodes"), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminNodeCheck(w http.ResponseWriter, r *http.Request) {
@@ -715,7 +750,7 @@ func (s *Server) handleAdminNodeCheck(w http.ResponseWriter, r *http.Request) {
 	if err := s.nodes.CheckNow(r.Context(), nodeID); err != nil {
 		log.Printf("manual node check failed node=%d: %v", nodeID, err)
 	}
-	http.Redirect(w, r, s.adminURL("/admin/nodes"), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminRoomStatus(w http.ResponseWriter, r *http.Request) {
@@ -743,7 +778,7 @@ func (s *Server) handleAdminRoomStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLWithFilters("/admin/rooms", r.FormValue("q"), r.FormValue("filterStatus")), http.StatusSeeOther)
+	http.Redirect(w, r, s.adminURLFromForm("/admin/rooms", r, "filterStatus"), http.StatusSeeOther)
 }
 
 func (s *Server) adminAuthorized(r *http.Request) bool {
@@ -755,16 +790,33 @@ func (s *Server) adminAuthorized(r *http.Request) bool {
 }
 
 type adminPageData struct {
-	Active string
-	Title  string
-	Token  string
-	Query  string
-	Status string
-	Stats  adminStats
-	Nav    []adminNavItem
-	Users  []account.User
-	Rooms  []room.Room
-	Nodes  []node.Node
+	Active  string
+	Title   string
+	Token   string
+	Query   string
+	Status  string
+	Page    int
+	PerPage int
+	HasPrev bool
+	HasNext bool
+	PrevURL string
+	NextURL string
+	Stats   adminStats
+	Nav     []adminNavItem
+	Users   []account.User
+	Rooms   []room.Room
+	Nodes   []node.Node
+}
+
+type adminListRequest struct {
+	Query   string
+	Status  string
+	Page    int
+	PerPage int
+}
+
+func (r adminListRequest) Offset() int {
+	return (r.Page - 1) * r.PerPage
 }
 
 type adminNavItem struct {
@@ -836,7 +888,24 @@ func (s *Server) adminURL(path string) string {
 	return path + "?" + values.Encode()
 }
 
-func (s *Server) adminURLWithFilters(path, query, status string) string {
+func (s *Server) adminListPageData(active, title, path string, listReq adminListRequest, hasNext bool) adminPageData {
+	prevURL, nextURL := s.adminPageURLs(path, listReq, hasNext)
+	return adminPageData{
+		Active:  active,
+		Title:   title,
+		Token:   s.adminToken,
+		Query:   listReq.Query,
+		Status:  listReq.Status,
+		Page:    listReq.Page,
+		PerPage: listReq.PerPage,
+		HasPrev: listReq.Page > 1,
+		HasNext: hasNext,
+		PrevURL: prevURL,
+		NextURL: nextURL,
+	}
+}
+
+func (s *Server) adminURLWithFilters(path, query, status string, pageSettings ...int) string {
 	values := url.Values{}
 	values.Set("token", s.adminToken)
 	query = strings.TrimSpace(query)
@@ -847,7 +916,83 @@ func (s *Server) adminURLWithFilters(path, query, status string) string {
 	if status != "" {
 		values.Set("status", status)
 	}
+	if len(pageSettings) > 0 && pageSettings[0] > 1 {
+		values.Set("page", strconv.Itoa(pageSettings[0]))
+	}
+	if len(pageSettings) > 1 && pageSettings[1] > 0 && pageSettings[1] != defaultAdminPerPage {
+		values.Set("perPage", strconv.Itoa(pageSettings[1]))
+	}
 	return path + "?" + values.Encode()
+}
+
+func (s *Server) adminURLFromForm(path string, r *http.Request, statusField string) string {
+	page, perPage := adminPaginationFromForm(r)
+	return s.adminURLWithFilters(path, r.FormValue("q"), r.FormValue(statusField), page, perPage)
+}
+
+func (s *Server) adminPageURLs(path string, listReq adminListRequest, hasNext bool) (string, string) {
+	prevURL := ""
+	if listReq.Page > 1 {
+		prevURL = s.adminURLWithFilters(path, listReq.Query, listReq.Status, listReq.Page-1, listReq.PerPage)
+	}
+	nextURL := ""
+	if hasNext {
+		nextURL = s.adminURLWithFilters(path, listReq.Query, listReq.Status, listReq.Page+1, listReq.PerPage)
+	}
+	return prevURL, nextURL
+}
+
+const (
+	defaultAdminPerPage = 50
+	maxAdminPerPage     = 200
+)
+
+func adminListRequestFromQuery(r *http.Request, allowedStatuses []string) adminListRequest {
+	page, perPage := adminPagination(r.URL.Query().Get("page"), r.URL.Query().Get("perPage"))
+	return adminListRequest{
+		Query:   strings.TrimSpace(r.URL.Query().Get("q")),
+		Status:  normalizedAdminStatus(r.URL.Query().Get("status"), allowedStatuses),
+		Page:    page,
+		PerPage: perPage,
+	}
+}
+
+func adminPaginationFromForm(r *http.Request) (int, int) {
+	return adminPagination(r.FormValue("page"), r.FormValue("perPage"))
+}
+
+func adminPagination(pageValue, perPageValue string) (int, int) {
+	page, _ := strconv.Atoi(pageValue)
+	if page < 1 {
+		page = 1
+	}
+	perPage, _ := strconv.Atoi(perPageValue)
+	if perPage <= 0 {
+		perPage = defaultAdminPerPage
+	}
+	if perPage > maxAdminPerPage {
+		perPage = maxAdminPerPage
+	}
+	return page, perPage
+}
+
+func trimAdminPage[T any](items []T, perPage int) ([]T, bool) {
+	if len(items) <= perPage {
+		return items, false
+	}
+	return items[:perPage], true
+}
+
+func paginateAdminNodes(nodes []node.Node, page, perPage int) ([]node.Node, bool) {
+	start := (page - 1) * perPage
+	if start >= len(nodes) {
+		return nil, false
+	}
+	end := start + perPage + 1
+	if end > len(nodes) {
+		end = len(nodes)
+	}
+	return trimAdminPage(nodes[start:end], perPage)
 }
 
 func normalizedAdminStatus(value string, allowed []string) string {

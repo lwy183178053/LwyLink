@@ -24,6 +24,9 @@ func hiddenCommand(name string, args ...string) *exec.Cmd {
 }
 
 func createTunDevice(ifName string, mtu int) (wgtun.Device, error) {
+	if err := EnsureWintunDLL(); err != nil {
+		return nil, err
+	}
 	return wgtun.CreateTUN(ifName, mtu)
 }
 

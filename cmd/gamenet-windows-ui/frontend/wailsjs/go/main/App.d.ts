@@ -26,6 +26,8 @@ export function RefreshRooms():Promise<main.AppState>;
 
 export function Register(arg1:main.RegisterInput):Promise<main.AppState>;
 
+export function SendRoomChat(arg1:main.SendChatInput):Promise<main.AppState>;
+
 export function SetSettings(arg1:main.SettingsInput):Promise<main.AppState>;
 
 export function TransferOwner(arg1:main.MemberActionInput):Promise<main.AppState>;

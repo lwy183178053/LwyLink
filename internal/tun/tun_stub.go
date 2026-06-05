@@ -12,6 +12,10 @@ func createTunDevice(ifName string, mtu int) (wgtun.Device, error) {
 	return nil, fmt.Errorf("wintun client is only implemented on Windows")
 }
 
+func EnsureWintunDLL() error {
+	return nil
+}
+
 func ConfigureAddressAndRoute(ifName, ip, mask, roomCIDR, gateway string) error {
 	return fmt.Errorf("wintun route configuration is only implemented on Windows")
 }

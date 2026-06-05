@@ -38,14 +38,14 @@ func (r *Repository) Create(ctx context.Context, username, passwordHash, display
 
 func (r *Repository) FindByUsername(ctx context.Context, username string) (User, error) {
 	return scanUser(r.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, display_name, role, disabled, created_at, updated_at FROM users WHERE username = ?`,
+		userColumns()+` FROM users WHERE username = ?`,
 		username,
 	))
 }
 
 func (r *Repository) FindByID(ctx context.Context, id int64) (User, error) {
 	return scanUser(r.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, display_name, role, disabled, created_at, updated_at FROM users WHERE id = ?`,
+		userColumns()+` FROM users WHERE id = ?`,
 		id,
 	))
 }
@@ -53,11 +53,12 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (User, error) {
 func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error) {
 	where, args := userWhere(filter)
 	limit := normalizeLimit(filter.Limit, 500, 1000)
-	args = append(args, limit)
+	offset := normalizeOffset(filter.Offset)
+	args = append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, username, password_hash, display_name, role, disabled, created_at, updated_at
+		userColumns()+`
 		 FROM users`+where+`
-		 ORDER BY id DESC LIMIT ?`,
+		 ORDER BY id DESC LIMIT ? OFFSET ?`,
 		args...,
 	)
 	if err != nil {
@@ -88,6 +89,18 @@ func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled boo
 	return err
 }
 
+func (r *Repository) SetMembership(ctx context.Context, userID int64, membership string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE users SET membership = ? WHERE id = ?`, normalizeMembership(membership), userID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return err
+}
+
 func (r *Repository) Delete(ctx context.Context, userID int64) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
 	if err != nil {
@@ -107,11 +120,11 @@ func userWhere(filter UserFilter) (string, []any) {
 	if query != "" {
 		like := "%" + query + "%"
 		if id, err := strconv.ParseInt(query, 10, 64); err == nil {
-			parts = append(parts, `(id = ? OR username LIKE ? OR display_name LIKE ? OR role LIKE ?)`)
-			args = append(args, id, like, like, like)
+			parts = append(parts, `(id = ? OR username LIKE ? OR display_name LIKE ? OR role LIKE ? OR membership LIKE ?)`)
+			args = append(args, id, like, like, like, like)
 		} else {
-			parts = append(parts, `(username LIKE ? OR display_name LIKE ? OR role LIKE ?)`)
-			args = append(args, like, like, like)
+			parts = append(parts, `(username LIKE ? OR display_name LIKE ? OR role LIKE ? OR membership LIKE ?)`)
+			args = append(args, like, like, like, like)
 		}
 	}
 	switch strings.ToLower(strings.TrimSpace(filter.Status)) {
@@ -133,16 +146,28 @@ func normalizeLimit(v, fallback, max int) int {
 	return min(v, max)
 }
 
+func normalizeOffset(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 type userScanner interface {
 	Scan(dest ...any) error
 }
 
+func userColumns() string {
+	return `SELECT id, username, password_hash, display_name, role, membership, disabled, created_at, updated_at`
+}
+
 func scanUser(scanner userScanner) (User, error) {
 	var u User
-	err := scanner.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+	err := scanner.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.Membership, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
+	u.Membership = normalizeMembership(u.Membership)
 	return u, err
 }
 

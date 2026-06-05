@@ -65,9 +65,6 @@ func (s *Service) Register(ctx context.Context, username, password, displayName 
 	if err := validateUsernamePassword(username, password); err != nil {
 		return LoginResult{}, err
 	}
-	if err := s.ensureUsernameAvailable(ctx, username); err != nil {
-		return LoginResult{}, err
-	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return LoginResult{}, err
@@ -138,10 +135,6 @@ func (s *Service) EnsureSession(ctx context.Context, userID int64, sessionID str
 	return nil
 }
 
-func (s *Service) FindByID(ctx context.Context, id int64) (User, error) {
-	return s.repo.FindByID(ctx, id)
-}
-
 func (s *Service) EnsureActive(ctx context.Context, id int64) error {
 	u, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -151,10 +144,6 @@ func (s *Service) EnsureActive(ctx context.Context, id int64) error {
 		return ErrDisabled
 	}
 	return nil
-}
-
-func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
-	return s.SearchUsers(ctx, UserFilter{Limit: 500})
 }
 
 func (s *Service) SearchUsers(ctx context.Context, filter UserFilter) ([]User, error) {
@@ -169,6 +158,10 @@ func (s *Service) SetDisabled(ctx context.Context, userID int64, disabled bool) 
 		_ = s.sessions.DeleteCurrentSession(ctx, userID)
 	}
 	return nil
+}
+
+func (s *Service) SetMembership(ctx context.Context, userID int64, membership string) error {
+	return s.repo.SetMembership(ctx, userID, membership)
 }
 
 func (s *Service) Delete(ctx context.Context, userID int64) error {
@@ -198,17 +191,6 @@ func randomSessionID() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf[:]), nil
-}
-
-func (s *Service) ensureUsernameAvailable(ctx context.Context, username string) error {
-	_, err := s.repo.FindByUsername(ctx, username)
-	if err == nil {
-		return ErrUsernameUsed
-	}
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
-	return err
 }
 
 func normalizeUsername(v string) string {

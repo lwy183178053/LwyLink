@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -14,6 +15,8 @@ import (
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
 )
+
+const maxChatMessageRunes = 500
 
 type PublicKeyStore interface {
 	PutRoomPublicKey(ctx context.Context, publicKey string, roomID int64) error
@@ -29,41 +32,34 @@ type PresenceStore interface {
 	DeleteRoomOnline(ctx context.Context, roomID int64)
 }
 
+type RuntimeStore interface {
+	PublicKeyStore
+	PresenceStore
+	EventBus
+}
+
 type NodeScheduler interface {
 	SelectForRoom(ctx context.Context) (node.Node, error)
 }
 
-// Service owns room rules that should stay independent from HTTP or console UI.
-// The active invite credential is the room public key stored in Redis; MySQL is
-// still the durable source of truth used for listing and restart recovery.
 type Service struct {
 	repo             *Repository
-	keyStore         PublicKeyStore
-	presence         PresenceStore
-	events           EventBus
+	runtime          RuntimeStore
 	nodes            NodeScheduler
 	roomNetworkBase  string
 	roomSubnetPrefix int
 }
 
-func NewService(repo *Repository, keyStore PublicKeyStore, nodes NodeScheduler, roomNetworkBase string, roomSubnetPrefix int) *Service {
-	presence, _ := keyStore.(PresenceStore)
-	events, _ := keyStore.(EventBus)
+func NewService(repo *Repository, runtime RuntimeStore, nodes NodeScheduler, roomNetworkBase string, roomSubnetPrefix int) *Service {
 	return &Service{
 		repo:             repo,
-		keyStore:         keyStore,
-		presence:         presence,
-		events:           events,
+		runtime:          runtime,
 		nodes:            nodes,
 		roomNetworkBase:  roomNetworkBase,
 		roomSubnetPrefix: roomSubnetPrefix,
 	}
 }
 
-// CreateRoom creates the durable room record, allocates a room CIDR, then
-// publishes the room public key into Redis so other players can join by key.
-// Creating a room also joins the owner into that room. A player may be in only
-// one room at a time, regardless of whether they are owner or normal member.
 func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string, maxMembers int) (Room, error) {
 	name = strings.TrimSpace(name)
 	if len(name) < 2 || len(name) > 80 {
@@ -87,9 +83,6 @@ func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string
 	}
 	for i := 0; i < 20; i++ {
 		joinCode := randomJoinCode()
-		// The room public key is used as the player-facing invite credential.
-		// The private half is intentionally discarded because this key is not
-		// used for transport crypto; tcpx has its own server identity key.
 		_, roomPublicKey, err := tcpx.GenerateStaticKeyBase64()
 		if err != nil {
 			return Room{}, err
@@ -101,8 +94,6 @@ func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string
 		room, err := s.repo.Create(ctx, name, ownerUserID, selectedNode.ID, joinCode, roomPublicKey, cidr, maxMembers)
 		if err == nil {
 			if err := s.activateRoomKey(ctx, room); err != nil {
-				// Avoid leaving a room in MySQL that cannot be joined because
-				// its Redis invite index failed to publish.
 				_ = s.repo.Delete(ctx, room.ID)
 				return Room{}, err
 			}
@@ -119,9 +110,6 @@ func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string
 	return Room{}, fmt.Errorf("failed to create room after retries")
 }
 
-// JoinRoom accepts only currently active room public keys. Closing or deleting
-// a room removes the Redis key, so stale invite keys fail even if players kept
-// a copy of the old value.
 func (s *Service) JoinRoom(ctx context.Context, userID int64, roomPublicKey string) (Room, error) {
 	roomPublicKey = strings.TrimSpace(roomPublicKey)
 	if roomPublicKey == "" {
@@ -179,8 +167,6 @@ func (s *Service) JoinRoom(ctx context.Context, userID int64, roomPublicKey stri
 	return joined, nil
 }
 
-// EnsureMemberByRoomKey is the overlay-side guard. It checks token membership
-// and the Redis-backed room key before vDHCP assigns an IP lease.
 func (s *Service) EnsureMemberByRoomKey(ctx context.Context, nodeID, roomID, userID int64, roomPublicKey string) (Room, error) {
 	roomPublicKey = strings.TrimSpace(roomPublicKey)
 	if roomPublicKey == "" {
@@ -206,8 +192,6 @@ func (s *Service) EnsureMemberByRoomKey(ctx context.Context, nodeID, roomID, use
 	return room, nil
 }
 
-// EnsureMember is used after the invite step, when a user must already be a
-// room member to read room state or connect to the overlay.
 func (s *Service) EnsureMember(ctx context.Context, roomID, userID int64) (Room, error) {
 	room, err := s.repo.FindByID(ctx, roomID)
 	if err != nil {
@@ -226,25 +210,17 @@ func (s *Service) EnsureMember(ctx context.Context, roomID, userID int64) (Room,
 	return room, nil
 }
 
-func (s *Service) FindByID(ctx context.Context, roomID int64) (Room, error) {
-	return s.repo.FindByID(ctx, roomID)
-}
-
 func (s *Service) ListForUser(ctx context.Context, userID int64) ([]Room, error) {
 	rooms, err := s.repo.ListForUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if s.presence != nil {
+	if s.runtime != nil {
 		for _, item := range rooms {
 			s.touchRoomAppOnline(ctx, item.ID, userID)
 		}
 	}
 	return rooms, nil
-}
-
-func (s *Service) CurrentForUser(ctx context.Context, userID int64) (Room, bool, error) {
-	return s.repo.FindForUser(ctx, userID)
 }
 
 func (s *Service) ListMembers(ctx context.Context, requesterUserID, roomID int64) ([]MemberView, error) {
@@ -253,10 +229,10 @@ func (s *Service) ListMembers(ctx context.Context, requesterUserID, roomID int64
 	}
 	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
 	members, err := s.repo.ListMembers(ctx, roomID)
-	if err != nil || s.presence == nil {
+	if err != nil || s.runtime == nil {
 		return members, err
 	}
-	online, err := s.presence.RoomOnlineUsers(ctx, roomID)
+	online, err := s.runtime.RoomOnlineUsers(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}
@@ -268,16 +244,55 @@ func (s *Service) ListMembers(ctx context.Context, requesterUserID, roomID int64
 	return members, nil
 }
 
-func (s *Service) ListAll(ctx context.Context) ([]Room, error) {
-	return s.repo.ListAll(ctx)
+func (s *Service) SendChat(ctx context.Context, userID, roomID int64, message string) (ChatMessage, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ChatMessage{}, fmt.Errorf("聊天内容不能为空")
+	}
+	if len([]rune(message)) > maxChatMessageRunes {
+		return ChatMessage{}, fmt.Errorf("聊天内容不能超过 %d 个字符", maxChatMessageRunes)
+	}
+	if _, err := s.EnsureMember(ctx, roomID, userID); err != nil {
+		return ChatMessage{}, err
+	}
+	members, err := s.repo.ListMembers(ctx, roomID)
+	if err != nil {
+		return ChatMessage{}, err
+	}
+	var sender MemberView
+	for _, member := range members {
+		if member.UserID == userID {
+			sender = member
+			break
+		}
+	}
+	if sender.UserID == 0 {
+		return ChatMessage{}, fmt.Errorf("user is not a room member")
+	}
+	chat := ChatMessage{
+		ID:          randomChatID(),
+		RoomID:      roomID,
+		UserID:      userID,
+		Username:    sender.Username,
+		DisplayName: sender.DisplayName,
+		Message:     message,
+		CreatedAt:   time.Now(),
+	}
+	s.touchRoomAppOnline(ctx, roomID, userID)
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:        RoomEventChatMessage,
+		RoomID:      roomID,
+		ActorUserID: userID,
+		Chat:        &chat,
+		CreatedAt:   chat.CreatedAt,
+	})
+	return chat, nil
 }
 
 func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
 	return s.repo.List(ctx, filter)
 }
 
-// SyncOpenRoomKeys rebuilds the Redis invite index from MySQL during startup.
-// This keeps open rooms joinable after Redis restarts or the server is redeployed.
 func (s *Service) SyncOpenRoomKeys(ctx context.Context) error {
 	rooms, err := s.repo.ListOpen(ctx)
 	if err != nil {
@@ -324,7 +339,7 @@ func (s *Service) StartEmptyRoomCleaner(ctx context.Context, interval, grace tim
 }
 
 func (s *Service) CleanupEmptyRooms(ctx context.Context, grace time.Duration) (int, error) {
-	if s.presence == nil {
+	if s.runtime == nil {
 		return 0, nil
 	}
 	if grace <= 0 {
@@ -336,7 +351,7 @@ func (s *Service) CleanupEmptyRooms(ctx context.Context, grace time.Duration) (i
 	}
 	deleted := 0
 	for _, room := range rooms {
-		hasOnline, err := s.presence.RoomHasOnline(ctx, room.ID)
+		hasOnline, err := s.runtime.RoomHasOnline(ctx, room.ID)
 		if err != nil {
 			log.Printf("skip empty room cleanup room=%d: %v", room.ID, err)
 			continue
@@ -344,28 +359,15 @@ func (s *Service) CleanupEmptyRooms(ctx context.Context, grace time.Duration) (i
 		if hasOnline {
 			continue
 		}
-		userIDs := s.roomUserIDs(ctx, room.ID)
-		if err := s.deactivateRoomKey(ctx, room); err != nil {
-			log.Printf("skip empty room cleanup room=%d deactivate key: %v", room.ID, err)
+		if err := s.deleteRoom(ctx, room, 0); err != nil {
+			log.Printf("skip empty room cleanup room=%d: %v", room.ID, err)
 			continue
 		}
-		if err := s.repo.Delete(ctx, room.ID); err != nil {
-			log.Printf("skip empty room cleanup room=%d delete: %v", room.ID, err)
-			continue
-		}
-		s.presence.DeleteRoomOnline(ctx, room.ID)
-		s.publishRoomEvent(ctx, RoomEvent{
-			Type:    RoomEventDeleted,
-			RoomID:  room.ID,
-			UserIDs: userIDs,
-		})
 		deleted++
 	}
 	return deleted, nil
 }
 
-// CloseRoom disables joining/connecting by removing the active Redis key while
-// keeping the MySQL room record for admin visibility.
 func (s *Service) CloseRoom(ctx context.Context, roomID int64) error {
 	room, err := s.repo.FindByID(ctx, roomID)
 	if err != nil {
@@ -381,8 +383,6 @@ func (s *Service) CloseRoom(ctx context.Context, roomID int64) error {
 	return nil
 }
 
-// ReopenRoom makes a previously closed room joinable again by republishing its
-// room public key.
 func (s *Service) ReopenRoom(ctx context.Context, roomID int64) error {
 	room, err := s.repo.FindByID(ctx, roomID)
 	if err != nil {
@@ -398,8 +398,6 @@ func (s *Service) ReopenRoom(ctx context.Context, roomID int64) error {
 	return nil
 }
 
-// DeleteRoom is deliberately owner-only from the public API. Admin flows should
-// close/reopen rooms instead, unless a future admin delete endpoint is added.
 func (s *Service) DeleteRoom(ctx context.Context, requesterUserID, roomID int64) error {
 	room, err := s.repo.FindByID(ctx, roomID)
 	if err != nil {
@@ -408,23 +406,7 @@ func (s *Service) DeleteRoom(ctx context.Context, requesterUserID, roomID int64)
 	if room.OwnerUserID != requesterUserID {
 		return fmt.Errorf("only room owner can delete the room")
 	}
-	userIDs := s.roomUserIDs(ctx, roomID)
-	if err := s.deactivateRoomKey(ctx, room); err != nil {
-		return err
-	}
-	if err := s.repo.Delete(ctx, roomID); err != nil {
-		return err
-	}
-	if s.presence != nil {
-		s.presence.DeleteRoomOnline(ctx, roomID)
-	}
-	s.publishRoomEvent(ctx, RoomEvent{
-		Type:        RoomEventDeleted,
-		RoomID:      roomID,
-		ActorUserID: requesterUserID,
-		UserIDs:     userIDs,
-	})
-	return nil
+	return s.deleteRoom(ctx, room, requesterUserID)
 }
 
 func (s *Service) LeaveRoom(ctx context.Context, requesterUserID, roomID int64) error {
@@ -524,59 +506,66 @@ func (s *Service) DeleteRoomsOwnedBy(ctx context.Context, ownerUserID int64) err
 		return err
 	}
 	for _, room := range rooms {
-		userIDs := s.roomUserIDs(ctx, room.ID)
-		if err := s.deactivateRoomKey(ctx, room); err != nil {
+		if err := s.deleteRoom(ctx, room, ownerUserID); err != nil {
 			return err
 		}
-		if err := s.repo.Delete(ctx, room.ID); err != nil {
-			return err
-		}
-		if s.presence != nil {
-			s.presence.DeleteRoomOnline(ctx, room.ID)
-		}
-		s.publishRoomEvent(ctx, RoomEvent{
-			Type:        RoomEventDeleted,
-			RoomID:      room.ID,
-			ActorUserID: ownerUserID,
-			UserIDs:     userIDs,
-		})
 	}
 	return nil
 }
 
+func (s *Service) deleteRoom(ctx context.Context, room Room, actorUserID int64) error {
+	userIDs := s.roomUserIDs(ctx, room.ID)
+	if err := s.deactivateRoomKey(ctx, room); err != nil {
+		return err
+	}
+	if err := s.repo.Delete(ctx, room.ID); err != nil {
+		return err
+	}
+	if s.runtime != nil {
+		s.runtime.DeleteRoomOnline(ctx, room.ID)
+	}
+	s.publishRoomEvent(ctx, RoomEvent{
+		Type:        RoomEventDeleted,
+		RoomID:      room.ID,
+		ActorUserID: actorUserID,
+		UserIDs:     userIDs,
+	})
+	return nil
+}
+
 func (s *Service) activateRoomKey(ctx context.Context, room Room) error {
-	if s.keyStore == nil {
+	if s.runtime == nil {
 		return fmt.Errorf("room public key store is not configured")
 	}
-	return s.keyStore.PutRoomPublicKey(ctx, room.RoomPublicKey, room.ID)
+	return s.runtime.PutRoomPublicKey(ctx, room.RoomPublicKey, room.ID)
 }
 
 func (s *Service) deactivateRoomKey(ctx context.Context, room Room) error {
-	if s.keyStore == nil {
+	if s.runtime == nil {
 		return fmt.Errorf("room public key store is not configured")
 	}
-	return s.keyStore.DeleteRoomPublicKey(ctx, room.RoomPublicKey)
+	return s.runtime.DeleteRoomPublicKey(ctx, room.RoomPublicKey)
 }
 
 func (s *Service) roomIDByActiveKey(ctx context.Context, publicKey string) (int64, bool, error) {
-	if s.keyStore == nil {
+	if s.runtime == nil {
 		return 0, false, fmt.Errorf("room public key store is not configured")
 	}
-	return s.keyStore.RoomIDByPublicKey(ctx, publicKey)
+	return s.runtime.RoomIDByPublicKey(ctx, publicKey)
 }
 
 func (s *Service) touchRoomAppOnline(ctx context.Context, roomID, userID int64) {
-	if s.presence == nil || roomID <= 0 || userID <= 0 {
+	if s.runtime == nil || roomID <= 0 || userID <= 0 {
 		return
 	}
-	s.presence.SetRoomAppOnline(ctx, roomID, userID)
+	s.runtime.SetRoomAppOnline(ctx, roomID, userID)
 }
 
 func (s *Service) deleteRoomUserOnline(ctx context.Context, roomID, userID int64) {
-	if s.presence == nil || roomID <= 0 || userID <= 0 {
+	if s.runtime == nil || roomID <= 0 || userID <= 0 {
 		return
 	}
-	s.presence.DeleteRoomUserOnline(ctx, roomID, userID)
+	s.runtime.DeleteRoomUserOnline(ctx, roomID, userID)
 }
 
 func (s *Service) TouchForUser(ctx context.Context, userID int64) error {
@@ -600,17 +589,17 @@ func (s *Service) NotifyPresenceChanged(ctx context.Context, roomID, userID int6
 }
 
 func (s *Service) SubscribeUserEvents(ctx context.Context, userID int64) (<-chan RoomEvent, func(), error) {
-	if s.events == nil {
+	if s.runtime == nil {
 		return nil, nil, fmt.Errorf("room event bus is not configured")
 	}
-	return s.events.SubscribeUserRoomEvents(ctx, userID)
+	return s.runtime.SubscribeUserRoomEvents(ctx, userID)
 }
 
 func (s *Service) SubscribeAllEvents(ctx context.Context) (<-chan RoomEvent, func(), error) {
-	if s.events == nil {
+	if s.runtime == nil {
 		return nil, nil, fmt.Errorf("room event bus is not configured")
 	}
-	return s.events.SubscribeAllRoomEvents(ctx)
+	return s.runtime.SubscribeAllRoomEvents(ctx)
 }
 
 func (s *Service) publishRoomEventToMembers(ctx context.Context, event RoomEvent) {
@@ -619,13 +608,13 @@ func (s *Service) publishRoomEventToMembers(ctx context.Context, event RoomEvent
 }
 
 func (s *Service) publishRoomEvent(ctx context.Context, event RoomEvent) {
-	if s.events == nil || event.RoomID <= 0 || event.Type == "" {
+	if s.runtime == nil || event.RoomID <= 0 || event.Type == "" {
 		return
 	}
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
-	if err := s.events.PublishRoomEvent(ctx, event); err != nil {
+	if err := s.runtime.PublishRoomEvent(ctx, event); err != nil {
 		log.Printf("publish room event failed type=%s room=%d: %v", event.Type, event.RoomID, err)
 	}
 }
@@ -640,6 +629,14 @@ func (s *Service) roomUserIDs(ctx context.Context, roomID int64) []int64 {
 		ids = append(ids, member.UserID)
 	}
 	return ids
+}
+
+func randomChatID() string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 func (s *Service) randomRoomCIDR(ctx context.Context) (string, error) {
@@ -658,8 +655,6 @@ func (s *Service) randomRoomCIDR(ctx context.Context) (string, error) {
 	blockSize := uint32(1) << uint(32-s.roomSubnetPrefix)
 	baseU := ipToUint32(baseNet.IP)
 
-	// Try random subnets instead of sequential allocation so short-lived test
-	// rooms do not repeatedly collide with recently deleted or cached routes.
 	for i := 0; i < 64; i++ {
 		n, err := rand.Int(rand.Reader, big.NewInt(subnetCount))
 		if err != nil {
