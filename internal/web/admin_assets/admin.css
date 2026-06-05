@@ -120,7 +120,7 @@ h2 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(138px, 1fr));
+  grid-template-columns: repeat(5, minmax(128px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -195,7 +195,19 @@ h2 {
   padding: 16px;
 }
 
+.release-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+}
+
 .node-form .wide {
+  grid-column: span 4;
+}
+
+.release-form .wide {
   grid-column: span 4;
 }
 
@@ -207,7 +219,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -216,6 +229,11 @@ select {
   background: #fff;
   color: var(--text);
   font: inherit;
+}
+
+textarea {
+  min-height: 112px;
+  resize: vertical;
 }
 
 button,
@@ -362,6 +380,10 @@ tbody tr:hover {
   min-height: 30px;
 }
 
+.release-toolbar {
+  grid-template-columns: minmax(220px, 1fr) 120px auto;
+}
+
 .pagination {
   display: flex;
   align-items: center;
@@ -397,11 +419,13 @@ tbody tr:hover {
   .metrics,
   .split,
   .toolbar,
-  .node-form {
+  .node-form,
+  .release-form {
     grid-template-columns: 1fr;
   }
 
-  .node-form .wide {
+  .node-form .wide,
+  .release-form .wide {
     grid-column: auto;
   }
 }

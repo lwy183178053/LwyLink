@@ -28,6 +28,8 @@ const (
 	statusError         = "error"
 )
 
+var AppVersion = "0.1.0"
+
 type App struct {
 	ctx context.Context
 
@@ -48,6 +50,15 @@ type App struct {
 
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
+
+	updateSeq          int64
+	preparedUpdatePath string
+	update             UpdateState
+
+	tray               *trayController
+	allowQuit          bool
+	trayNoticeShown    bool
+	notificationsReady bool
 }
 
 type SettingsInput struct {
@@ -93,6 +104,7 @@ type AppState struct {
 	Members       []room.MemberView   `json:"members"`
 	ChatMessages  []room.ChatMessage  `json:"chatMessages"`
 	Connection    ConnectionState     `json:"connection"`
+	Update        UpdateState         `json:"update"`
 }
 
 type ConnectionState struct {
@@ -113,20 +125,23 @@ func NewApp() *App {
 		apiBaseURL: defaultAPIBaseURL,
 		ifName:     defaultIfName,
 		connection: ConnectionState{Status: statusDisconnected, Message: "未连接"},
+		update:     UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.initializeNotifications(ctx)
+	a.registerTray()
 	if err := tun.EnsureWintunDLL(); err != nil {
 		a.mu.Lock()
 		a.connection = ConnectionState{Status: statusError, Message: friendlyConnectionError(err)}
-		state := a.stateLocked()
-		a.mu.Unlock()
-		a.emitState(state)
+		a.commitStateLocked()
 		return
 	}
-	a.emitState(a.CurrentState())
+	a.mu.Lock()
+	a.startUpdateCheckLocked("正在检查更新")
+	a.commitStateLocked()
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -134,12 +149,21 @@ func (a *App) shutdown(ctx context.Context) {
 	a.cancelConnectionLocked()
 	a.cancelRoomEventsLocked()
 	a.mu.Unlock()
+	a.cleanupNotifications(ctx)
+	a.stopTray()
 }
 
 func (a *App) CurrentState() AppState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.stateLocked()
+}
+
+func (a *App) commitStateLocked() AppState {
+	state := a.stateLocked()
+	a.mu.Unlock()
+	a.emitState(state)
+	return state
 }
 
 func (a *App) SetSettings(input SettingsInput) (AppState, error) {
@@ -161,13 +185,12 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		a.user = nil
 		a.clearRoomStateLocked()
 		a.connection = ConnectionState{Status: statusDisconnected, Message: "切换服务器后已退出登录"}
+		a.resetUpdateLocked()
+		a.startUpdateCheckLocked("正在检查更新")
 	}
 	a.ifName = ifName
 	a.startRoomEventsLocked()
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) Register(input RegisterInput) (AppState, error) {
@@ -185,10 +208,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	a.user = &res.User
 	_ = a.refreshRoomStateLocked(ctx)
 	a.startRoomEventsLocked()
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) Login(input LoginInput) (AppState, error) {
@@ -205,10 +225,7 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 	a.user = &res.User
 	_ = a.refreshRoomStateLocked(ctx)
 	a.startRoomEventsLocked()
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) Logout() (AppState, error) {
@@ -219,10 +236,7 @@ func (a *App) Logout() (AppState, error) {
 	a.user = nil
 	a.clearRoomStateLocked()
 	a.connection = ConnectionState{Status: statusDisconnected, Message: "已退出登录"}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) RefreshRooms() (AppState, error) {
@@ -238,10 +252,7 @@ func (a *App) RefreshRooms() (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
@@ -266,11 +277,9 @@ func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
 		return AppState{}, err
 	}
 	a.connection = ConnectionState{Status: statusDisconnected, Message: "房间已创建，请手动启动虚拟网卡"}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
+
 func (a *App) JoinRoom(input JoinRoomInput) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
@@ -293,10 +302,7 @@ func (a *App) JoinRoom(input JoinRoomInput) (AppState, error) {
 		return AppState{}, err
 	}
 	a.connection = ConnectionState{Status: statusDisconnected, Message: "已加入房间，请手动启动虚拟网卡"}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) SendRoomChat(input SendChatInput) (AppState, error) {
@@ -327,10 +333,7 @@ func (a *App) SendRoomChat(input SendChatInput) (AppState, error) {
 		return AppState{}, err
 	}
 	a.appendChatMessageLocked(chat)
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) DeleteRoom(roomID int64) (AppState, error) {
@@ -357,10 +360,7 @@ func (a *App) DeleteRoom(roomID int64) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) LeaveCurrentRoom() (AppState, error) {
@@ -384,10 +384,7 @@ func (a *App) LeaveCurrentRoom() (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) KickMember(input MemberActionInput) (AppState, error) {
@@ -407,10 +404,7 @@ func (a *App) KickMember(input MemberActionInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) TransferOwner(input MemberActionInput) (AppState, error) {
@@ -430,10 +424,7 @@ func (a *App) TransferOwner(input MemberActionInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) ConnectRoom(roomID int64) (AppState, error) {
@@ -451,10 +442,7 @@ func (a *App) ConnectRoom(roomID int64) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) startRoomConnectionLocked(selected room.Room, message string) error {
@@ -481,22 +469,17 @@ func (a *App) startRoomConnectionLocked(selected room.Room, message string) erro
 	go a.runConnection(seq, connectCtx, selected, token, ifName)
 	return nil
 }
+
 func (a *App) Disconnect() (AppState, error) {
 	a.mu.Lock()
 	if a.connectCancel == nil {
 		a.connection = ConnectionState{Status: statusDisconnected, Message: "未连接"}
-		state := a.stateLocked()
-		a.mu.Unlock()
-		a.emitState(state)
-		return state, nil
+		return a.commitStateLocked(), nil
 	}
 	a.connection.Status = statusDisconnecting
 	a.connection.Message = "正在断开"
 	a.connectCancel()
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
-	return state, nil
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, token, ifName string) {
@@ -520,9 +503,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 					Gateway:     lease.Gateway,
 					MTU:         lease.MTU,
 				}
-				state := a.stateLocked()
-				a.mu.Unlock()
-				a.emitState(state)
+				a.commitStateLocked()
 				return
 			}
 			a.mu.Unlock()
@@ -541,9 +522,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 	} else {
 		a.connection = ConnectionState{Status: statusDisconnected, Message: "已断开"}
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
+	a.commitStateLocked()
 }
 
 func (a *App) cancelConnectionLocked() {
@@ -585,9 +564,7 @@ func (a *App) runRoomEvents(seq int64, ctx context.Context, api *client.API) {
 		current := a.roomEventsSeq == seq && a.roomEventsCancel != nil
 		if current && err != nil {
 			a.connection.Message = "房间事件流已断开，正在重连"
-			state := a.stateLocked()
-			a.mu.Unlock()
-			a.emitState(state)
+			a.commitStateLocked()
 		} else {
 			a.mu.Unlock()
 		}
@@ -610,9 +587,7 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 			return
 		}
 		a.appendChatMessageLocked(*event.Chat)
-		state := a.stateLocked()
-		a.mu.Unlock()
-		a.emitState(state)
+		a.commitStateLocked()
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -626,9 +601,7 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 		a.mu.Unlock()
 		return
 	}
-	state := a.stateLocked()
-	a.mu.Unlock()
-	a.emitState(state)
+	a.commitStateLocked()
 }
 
 func (a *App) clearRoomStateLocked() {
@@ -720,12 +693,14 @@ func (a *App) stateLocked() AppState {
 		Members:       members,
 		ChatMessages:  chatMessages,
 		Connection:    a.connection,
+		Update:        a.update,
 	}
 }
 
 func (a *App) emitState(state AppState) {
-	if a.ctx != nil {
-		wailsRuntime.EventsEmit(a.ctx, "state-changed", state)
+	a.updateTray(state)
+	if ctx := a.currentContext(); ctx != nil {
+		wailsRuntime.EventsEmit(ctx, "state-changed", state)
 	}
 }
 

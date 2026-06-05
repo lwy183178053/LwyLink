@@ -80,6 +80,23 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			CONSTRAINT fk_room_members_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
 			CONSTRAINT fk_room_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS client_releases (
+			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			version VARCHAR(32) NOT NULL,
+			platform VARCHAR(32) NOT NULL,
+			notes TEXT NULL,
+			mandatory BOOLEAN NOT NULL DEFAULT FALSE,
+			install_args VARCHAR(255) NOT NULL DEFAULT '',
+			file_name VARCHAR(255) NOT NULL,
+			stored_file_name VARCHAR(255) NOT NULL UNIQUE,
+			content_type VARCHAR(128) NOT NULL DEFAULT '',
+			size_bytes BIGINT NOT NULL,
+			sha256 CHAR(64) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE INDEX uniq_client_releases_platform_version (platform, version),
+			INDEX idx_client_releases_platform_created (platform, created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 
 	for _, stmt := range stmts {

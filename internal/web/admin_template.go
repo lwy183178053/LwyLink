@@ -16,6 +16,7 @@ var adminModuleTemplate = template.Must(template.New("admin.html").Funcs(templat
 	"statusClass":     statusClass,
 	"userStatusText":  userStatusText,
 	"userStatusClass": userStatusClass,
+	"formatBytes":     formatBytes,
 	"timeText":        timeText,
 	"timePtrText":     timePtrText,
 }).ParseFS(adminFiles, "admin_assets/admin.html"))

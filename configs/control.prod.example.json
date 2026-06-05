@@ -5,6 +5,7 @@
   "redisPassword": "",
   "tokenSecret": "",
   "adminToken": "",
+  "clientReleaseDir": "data/client-releases",
   "nodeHealthCheckIntervalSeconds": 30,
   "roomCleanupIntervalSeconds": 10,
   "roomEmptyGraceSeconds": 20,

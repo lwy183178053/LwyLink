@@ -39,7 +39,6 @@ func (a *API) Clone() *API {
 	return cp
 }
 
-// ClearToken is used by the console client when the current player logs out.
 func (a *API) ClearToken() {
 	a.token = ""
 }

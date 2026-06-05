@@ -979,8 +979,9 @@ code {
   display: grid;
   grid-template-columns: minmax(380px, 430px) minmax(0, 1fr);
   grid-template-areas:
-    "settings logs";
-  grid-template-rows: minmax(0, 1fr);
+    "settings logs"
+    "update logs";
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
   height: calc(100vh - 162px);
@@ -999,6 +1000,21 @@ code {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
+}
+
+.update-panel {
+  grid-area: update;
+  align-self: start;
+}
+
+.settings-actions,
+.update-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
 }
 
 .logs {
@@ -1038,6 +1054,55 @@ code {
   background: #ffffff;
 }
 
+.update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(12, 18, 19, 0.48);
+}
+
+.update-dialog {
+  width: min(520px, 100%);
+  border: 1px solid #d7e0dc;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 72px rgba(12, 18, 19, 0.24);
+  overflow: hidden;
+}
+
+.update-body {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+}
+
+.update-version-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.update-version-line span {
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid #d8e0dc;
+  border-radius: 999px;
+  color: #596763;
+  background: #f8faf8;
+  font-size: 12px;
+}
+
+.update-body p {
+  color: #273631;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+
 .member-table,
 .chat-list,
 .logs {
@@ -1073,7 +1138,8 @@ code {
   .member-panel,
   .chat-panel,
   .settings-panel,
-  .logs-panel {
+  .logs-panel,
+  .update-panel {
     grid-area: auto;
   }
 

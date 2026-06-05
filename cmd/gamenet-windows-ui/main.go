@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -9,7 +10,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
+const singleInstanceID = "com.lwyv-labs.lwyv-gamenet.windows"
+
 func main() {
+	if handled, err := runUpdaterFromArgs(os.Args); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	app := NewApp()
 	if err := wails.Run(&options.App{
 		Title:     "LwyV-GameNet",
@@ -30,8 +40,15 @@ func main() {
 		Windows: &windows.Options{
 			DisableFramelessWindowDecorations: false,
 		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
+		OnStartup:     app.startup,
+		OnShutdown:    app.shutdown,
+		OnBeforeClose: app.beforeClose,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: singleInstanceID,
+			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
+				app.showMainWindow()
+			},
+		},
 		Bind: []any{
 			app,
 		},

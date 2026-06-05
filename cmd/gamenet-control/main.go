@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/clientrelease"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/config"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/db"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
@@ -54,13 +55,14 @@ func main() {
 	accountSvc := account.NewService(account.NewRepository(sqlDB), cfg.TokenSecret, runtimeState)
 	nodeSvc := node.NewService(node.NewRepository(sqlDB))
 	roomSvc := room.NewService(room.NewRepository(sqlDB), runtimeState, nodeSvc, cfg.RoomNetworkBase, cfg.RoomSubnetPrefix)
+	releaseSvc := clientrelease.NewService(clientrelease.NewRepository(sqlDB), cfg.ClientReleaseDir)
 	if err := roomSvc.SyncOpenRoomKeys(ctx); err != nil {
 		log.Fatalf("sync room public keys to redis: %v", err)
 	}
 	nodeSvc.StartHealthMonitor(ctx, time.Duration(cfg.NodeHealthCheckIntervalSeconds)*time.Second)
 	roomSvc.StartEmptyRoomCleaner(ctx, time.Duration(cfg.RoomCleanupIntervalSeconds)*time.Second, time.Duration(cfg.RoomEmptyGraceSeconds)*time.Second)
 
-	httpServer := web.NewServer(cfg.HTTPAddr, cfg.AdminToken, accountSvc, roomSvc, nodeSvc)
+	httpServer := web.NewServer(cfg.HTTPAddr, cfg.AdminToken, accountSvc, roomSvc, nodeSvc, releaseSvc)
 	if err := httpServer.ListenAndServe(ctx); err != nil {
 		log.Fatalf("control plane failed: %v", err)
 	}

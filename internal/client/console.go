@@ -38,8 +38,6 @@ func RunConsole(ctx context.Context, apiBaseURL, ifName string) error {
 	}
 }
 
-// runGuestMenu handles unauthenticated flows only. Password recovery is a safe
-// placeholder until the account domain has verified email/phone support.
 func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account.PublicUser, bool) {
 	for {
 		fmt.Println()
@@ -81,8 +79,6 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 	}
 }
 
-// runPlayerMenu handles authenticated room operations. Server-side checks still
-// enforce ownership and membership; the console only guides the player.
 func runPlayerMenu(ctx context.Context, reader *bufio.Reader, api *API, ifName string, user account.PublicUser) (logout bool, exit bool) {
 	for {
 		current, hasRoom, _ := currentRoom(ctx, api)

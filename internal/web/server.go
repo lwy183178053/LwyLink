@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/clientrelease"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
 )
@@ -23,17 +25,19 @@ type Server struct {
 	accounts   *account.Service
 	rooms      *room.Service
 	nodes      *node.Service
+	releases   *clientrelease.Service
 	httpServer *http.Server
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
-func NewServer(addr, adminToken string, accounts *account.Service, rooms *room.Service, nodes *node.Service) *Server {
+func NewServer(addr, adminToken string, accounts *account.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service) *Server {
 	return &Server{
 		addr:       addr,
 		adminToken: adminToken,
 		accounts:   accounts,
 		rooms:      rooms,
 		nodes:      nodes,
+		releases:   releases,
 	}
 }
 
@@ -53,6 +57,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
 	mux.HandleFunc("/api/rooms/transfer-owner", s.handleTransferRoomOwner)
+	mux.HandleFunc("/api/client/releases/latest", s.handleLatestClientRelease)
+	mux.HandleFunc("/downloads/client/", s.handleClientReleaseDownload)
 	mux.Handle("/admin/assets/", http.StripPrefix("/admin/assets/", adminAssetHandler()))
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/nodes", s.handleAdminNodes)
@@ -65,6 +71,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/admin/nodes/save", s.handleAdminNodeSave)
 	mux.HandleFunc("/admin/nodes/enabled", s.handleAdminNodeEnabled)
 	mux.HandleFunc("/admin/nodes/check", s.handleAdminNodeCheck)
+	mux.HandleFunc("/admin/releases", s.handleAdminReleases)
+	mux.HandleFunc("/admin/releases/upload", s.handleAdminReleaseUpload)
 
 	s.httpServer = &http.Server{
 		Addr:              s.addr,
@@ -88,8 +96,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -110,8 +117,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -131,8 +137,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -179,8 +184,7 @@ func (s *Server) handleRooms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleJoinRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -204,8 +208,7 @@ func (s *Server) handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -228,8 +231,7 @@ func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRoomMembers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -251,8 +253,7 @@ func (s *Server) handleRoomMembers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -277,8 +278,7 @@ func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -331,8 +331,7 @@ func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -355,8 +354,7 @@ func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleKickRoomMember(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -380,8 +378,7 @@ func (s *Server) handleKickRoomMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTransferRoomOwner(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	user, err := s.userFromRequest(r)
@@ -405,6 +402,49 @@ func (s *Server) handleTransferRoomOwner(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, roomInfo)
 }
 
+func (s *Server) handleLatestClientRelease(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) || !s.requireReleases(w, http.StatusNotFound) {
+		return
+	}
+	platform := clientrelease.NormalizePlatform(r.URL.Query().Get("platform"))
+	release, err := s.releases.Latest(r.Context(), platform)
+	if err != nil {
+		if errors.Is(err, clientrelease.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "no client release for platform")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.publicClientRelease(r, release))
+}
+
+func (s *Server) handleClientReleaseDownload(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) || !s.requireReleases(w, http.StatusNotFound) {
+		return
+	}
+	storedName := strings.TrimPrefix(r.URL.Path, "/downloads/client/")
+	storedName, err := url.PathUnescape(storedName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad file name")
+		return
+	}
+	release, err := s.releases.FindByStoredFileName(r.Context(), storedName)
+	if err != nil {
+		if errors.Is(err, clientrelease.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "release file not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if release.ContentType != "" {
+		w.Header().Set("Content-Type", release.ContentType)
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": release.FileName}))
+	http.ServeFile(w, r, s.releases.FilePath(release))
+}
+
 func (s *Server) userFromRequest(r *http.Request) (account.User, error) {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(auth, "Bearer ") {
@@ -413,11 +453,41 @@ func (s *Server) userFromRequest(r *http.Request) (account.User, error) {
 	return s.accounts.AuthenticateToken(r.Context(), strings.TrimPrefix(auth, "Bearer "))
 }
 
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method == method {
+		return true
+	}
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	return false
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminAuthorized(r) {
+		return true
+	}
+	writeError(w, http.StatusUnauthorized, "admin token required")
+	return false
+}
+
+func (s *Server) requireNodes(w http.ResponseWriter) bool {
+	if s.nodes != nil {
+		return true
+	}
+	writeError(w, http.StatusBadRequest, "node service is not configured")
+	return false
+}
+
+func (s *Server) requireReleases(w http.ResponseWriter, status int) bool {
+	if s.releases != nil {
+		return true
+	}
+	writeError(w, status, "client release service is not configured")
+	return false
+}
+
 func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)
-	// Rejecting unknown fields catches client/UI drift early while the protocol
-	// is still evolving.
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }
@@ -455,8 +525,7 @@ func withCORS(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !s.requireAdmin(w, r) {
 		return
 	}
 	stats, err := s.adminStats(r.Context())
@@ -474,6 +543,14 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	data := adminPageData{
+		Active: "overview",
+		Title:  "概览",
+		Token:  s.adminToken,
+		Stats:  stats,
+		Users:  users,
+		Rooms:  rooms,
+	}
 	if s.nodes != nil {
 		nodes, err := s.nodes.List(r.Context())
 		if err != nil {
@@ -483,30 +560,13 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		if len(nodes) > 5 {
 			nodes = nodes[:5]
 		}
-		s.renderAdmin(w, adminPageData{
-			Active: "overview",
-			Title:  "概览",
-			Token:  s.adminToken,
-			Stats:  stats,
-			Users:  users,
-			Rooms:  rooms,
-			Nodes:  nodes,
-		})
-		return
+		data.Nodes = nodes
 	}
-	s.renderAdmin(w, adminPageData{
-		Active: "overview",
-		Title:  "概览",
-		Token:  s.adminToken,
-		Stats:  stats,
-		Users:  users,
-		Rooms:  rooms,
-	})
+	s.renderAdmin(w, data)
 }
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !s.requireAdmin(w, r) {
 		return
 	}
 	listReq := adminListRequestFromQuery(r, []string{"active", "disabled"})
@@ -533,8 +593,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminRooms(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !s.requireAdmin(w, r) {
 		return
 	}
 	listReq := adminListRequestFromQuery(r, []string{room.StatusOpen, room.StatusClosed})
@@ -561,12 +620,7 @@ func (s *Server) handleAdminRooms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminNodes(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
-		return
-	}
-	if s.nodes == nil {
-		writeError(w, http.StatusBadRequest, "node service is not configured")
+	if !s.requireAdmin(w, r) || !s.requireNodes(w) {
 		return
 	}
 	listReq := adminListRequestFromQuery(r, []string{node.StatusOnline, node.StatusPaused, node.StatusDisabled, node.StatusUnknown})
@@ -588,12 +642,39 @@ func (s *Server) handleAdminNodes(w http.ResponseWriter, r *http.Request) {
 	s.renderAdmin(w, data)
 }
 
+func (s *Server) handleAdminReleases(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
+		return
+	}
+	listReq := adminListRequestFromQuery(r, nil)
+	releases, err := s.releases.List(r.Context(), clientrelease.Filter{
+		Query:  listReq.Query,
+		Limit:  listReq.PerPage + 1,
+		Offset: listReq.Offset(),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	releases, hasNext := trimAdminPage(releases, listReq.PerPage)
+	stats, err := s.adminStats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	data := s.adminListPageData("releases", "客户端版本", "/admin/releases", listReq, hasNext)
+	data.Stats = stats
+	data.Releases = releases
+	s.renderAdmin(w, data)
+}
+
 func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 	data.Nav = []adminNavItem{
 		{Key: "overview", Label: "概览", URL: s.adminURL("/admin")},
 		{Key: "nodes", Label: "节点", URL: s.adminURL("/admin/nodes")},
 		{Key: "users", Label: "玩家", URL: s.adminURL("/admin/users")},
 		{Key: "rooms", Label: "房间", URL: s.adminURL("/admin/rooms")},
+		{Key: "releases", Label: "客户端", URL: s.adminURL("/admin/releases")},
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := adminModuleTemplate.Execute(w, data); err != nil {
@@ -601,13 +682,36 @@ func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 	}
 }
 
-func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
 		return
 	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "请选择客户端安装包")
+		return
+	}
+	defer file.Close()
+	_, err = s.releases.Upload(r.Context(), clientrelease.UploadInput{
+		Version:     r.FormValue("version"),
+		Platform:    r.FormValue("platform"),
+		Notes:       r.FormValue("notes"),
+		Mandatory:   r.FormValue("mandatory") == "true" || r.FormValue("mandatory") == "on",
+		InstallArgs: r.FormValue("installArgs"),
+	}, file, header)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, s.adminURL("/admin/releases"), http.StatusSeeOther)
+}
+
+func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
 		return
 	}
 	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
@@ -624,12 +728,7 @@ func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
 		return
 	}
 	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
@@ -645,12 +744,7 @@ func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
 		return
 	}
 	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
@@ -672,16 +766,7 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
-		return
-	}
-	if s.nodes == nil {
-		writeError(w, http.StatusBadRequest, "node service is not configured")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
@@ -704,16 +789,7 @@ func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminNodeEnabled(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
-		return
-	}
-	if s.nodes == nil {
-		writeError(w, http.StatusBadRequest, "node service is not configured")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
 		return
 	}
 	nodeID, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
@@ -730,16 +806,7 @@ func (s *Server) handleAdminNodeEnabled(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleAdminNodeCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
-		return
-	}
-	if s.nodes == nil {
-		writeError(w, http.StatusBadRequest, "node service is not configured")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
 		return
 	}
 	nodeID, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
@@ -754,12 +821,7 @@ func (s *Server) handleAdminNodeCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminRoomStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.adminAuthorized(r) {
-		writeError(w, http.StatusUnauthorized, "admin token required")
+	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
 		return
 	}
 	roomID, _ := strconv.ParseInt(r.FormValue("roomID"), 10, 64)
@@ -790,22 +852,23 @@ func (s *Server) adminAuthorized(r *http.Request) bool {
 }
 
 type adminPageData struct {
-	Active  string
-	Title   string
-	Token   string
-	Query   string
-	Status  string
-	Page    int
-	PerPage int
-	HasPrev bool
-	HasNext bool
-	PrevURL string
-	NextURL string
-	Stats   adminStats
-	Nav     []adminNavItem
-	Users   []account.User
-	Rooms   []room.Room
-	Nodes   []node.Node
+	Active   string
+	Title    string
+	Token    string
+	Query    string
+	Status   string
+	Page     int
+	PerPage  int
+	HasPrev  bool
+	HasNext  bool
+	PrevURL  string
+	NextURL  string
+	Stats    adminStats
+	Nav      []adminNavItem
+	Users    []account.User
+	Rooms    []room.Room
+	Nodes    []node.Node
+	Releases []clientrelease.Release
 }
 
 type adminListRequest struct {
@@ -835,6 +898,7 @@ type adminStats struct {
 	Nodes         int
 	OnlineNodes   int
 	PausedNodes   int
+	Releases      int
 }
 
 func (s *Server) adminStats(ctx context.Context) (adminStats, error) {
@@ -879,6 +943,13 @@ func (s *Server) adminStats(ctx context.Context) (adminStats, error) {
 			}
 		}
 	}
+	if s.releases != nil {
+		releases, err := s.releases.List(ctx, clientrelease.Filter{Limit: 1000})
+		if err != nil {
+			return stats, err
+		}
+		stats.Releases = len(releases)
+	}
 	return stats, nil
 }
 
@@ -886,6 +957,37 @@ func (s *Server) adminURL(path string) string {
 	values := url.Values{}
 	values.Set("token", s.adminToken)
 	return path + "?" + values.Encode()
+}
+
+func (s *Server) clientReleaseDownloadURL(r *http.Request, release clientrelease.Release) string {
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := r.Host
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		host = forwardedHost
+	}
+	return scheme + "://" + host + "/downloads/client/" + url.PathEscape(release.StoredFileName)
+}
+
+func (s *Server) publicClientRelease(r *http.Request, release clientrelease.Release) clientrelease.PublicRelease {
+	return clientrelease.PublicRelease{
+		Version:     release.Version,
+		Platform:    release.Platform,
+		Notes:       release.Notes,
+		Mandatory:   release.Mandatory,
+		InstallArgs: release.InstallArgs,
+		DownloadURL: s.clientReleaseDownloadURL(r, release),
+		FileName:    release.FileName,
+		SizeBytes:   release.SizeBytes,
+		SHA256:      release.SHA256,
+		CreatedAt:   release.CreatedAt,
+	}
 }
 
 func (s *Server) adminListPageData(active, title, path string, listReq adminListRequest, hasNext bool) adminPageData {
@@ -1025,20 +1127,16 @@ func filterAdminNodes(nodes []node.Node, query, status string) []node.Node {
 }
 
 func nodeMatchesQuery(n node.Node, query string) bool {
-	fields := []string{
-		strconv.FormatInt(n.ID, 10),
-		n.Name,
-		n.PublicOverlayAddr,
-		n.HealthAddr,
-		n.OverlayPublicKey,
-		n.LastError,
-	}
-	for _, field := range fields {
-		if strings.Contains(strings.ToLower(field), query) {
-			return true
-		}
-	}
-	return false
+	return containsLower(strconv.FormatInt(n.ID, 10), query) ||
+		containsLower(n.Name, query) ||
+		containsLower(n.PublicOverlayAddr, query) ||
+		containsLower(n.HealthAddr, query) ||
+		containsLower(n.OverlayPublicKey, query) ||
+		containsLower(n.LastError, query)
+}
+
+func containsLower(value, query string) bool {
+	return strings.Contains(strings.ToLower(value), query)
 }
 
 func activeClass(active, key string) string {
@@ -1087,4 +1185,19 @@ func timePtrText(t *time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02 15:04")
+}
+
+func formatBytes(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	units := []string{"KB", "MB", "GB"}
+	value := float64(size)
+	for _, unit := range units {
+		value = value / 1024
+		if value < 1024 {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%.1f TB", value/1024)
 }

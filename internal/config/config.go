@@ -19,6 +19,7 @@ type ControlConfig struct {
 	RedisPassword                  string `json:"redisPassword"`
 	TokenSecret                    string `json:"tokenSecret"`
 	AdminToken                     string `json:"adminToken"`
+	ClientReleaseDir               string `json:"clientReleaseDir"`
 	NodeHealthCheckIntervalSeconds int    `json:"nodeHealthCheckIntervalSeconds"`
 	RoomCleanupIntervalSeconds     int    `json:"roomCleanupIntervalSeconds"`
 	RoomEmptyGraceSeconds          int    `json:"roomEmptyGraceSeconds"`
@@ -172,6 +173,9 @@ func applyControlDefaults(cfg *ControlConfig) {
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "127.0.0.1:6379"
 	}
+	if cfg.ClientReleaseDir == "" {
+		cfg.ClientReleaseDir = "data/client-releases"
+	}
 	if cfg.NodeHealthCheckIntervalSeconds <= 0 {
 		cfg.NodeHealthCheckIntervalSeconds = 30
 	}
@@ -221,21 +225,12 @@ func applyControlEnvOverrides(cfg *ControlConfig) {
 	if v := os.Getenv("GAMENET_ADMIN_TOKEN"); v != "" {
 		cfg.AdminToken = v
 	}
-	if v := os.Getenv("GAMENET_NODE_HEALTH_INTERVAL_SECONDS"); v != "" {
-		if seconds, err := strconv.Atoi(v); err == nil {
-			cfg.NodeHealthCheckIntervalSeconds = seconds
-		}
+	if v := os.Getenv("GAMENET_CLIENT_RELEASE_DIR"); v != "" {
+		cfg.ClientReleaseDir = v
 	}
-	if v := os.Getenv("GAMENET_ROOM_CLEANUP_INTERVAL_SECONDS"); v != "" {
-		if seconds, err := strconv.Atoi(v); err == nil {
-			cfg.RoomCleanupIntervalSeconds = seconds
-		}
-	}
-	if v := os.Getenv("GAMENET_ROOM_EMPTY_GRACE_SECONDS"); v != "" {
-		if seconds, err := strconv.Atoi(v); err == nil {
-			cfg.RoomEmptyGraceSeconds = seconds
-		}
-	}
+	applyEnvInt("GAMENET_NODE_HEALTH_INTERVAL_SECONDS", &cfg.NodeHealthCheckIntervalSeconds)
+	applyEnvInt("GAMENET_ROOM_CLEANUP_INTERVAL_SECONDS", &cfg.RoomCleanupIntervalSeconds)
+	applyEnvInt("GAMENET_ROOM_EMPTY_GRACE_SECONDS", &cfg.RoomEmptyGraceSeconds)
 }
 
 func applyNodeEnvOverrides(cfg *NodeConfig) {
@@ -246,11 +241,7 @@ func applyNodeEnvOverrides(cfg *NodeConfig) {
 	if v := os.Getenv("GAMENET_OVERLAY_PRIVATE_KEY"); v != "" {
 		cfg.OverlayPrivateKey = v
 	}
-	if v := os.Getenv("GAMENET_DEFAULT_MTU"); v != "" {
-		if mtu, err := strconv.Atoi(v); err == nil {
-			cfg.DefaultMTU = mtu
-		}
-	}
+	applyEnvInt("GAMENET_DEFAULT_MTU", &cfg.DefaultMTU)
 	if v := os.Getenv("GAMENET_DEFAULT_DNS"); v != "" {
 		cfg.DefaultDNS = splitCSV(v)
 	}
@@ -273,9 +264,19 @@ func applySharedEnvOverrides(mysqlDSN, redisAddr, redisPassword, tokenSecret, ro
 		*roomNetworkBase = v
 	}
 	if v := os.Getenv("GAMENET_ROOM_SUBNET_PREFIX"); v != "" {
-		if prefix, err := strconv.Atoi(v); err == nil {
-			*roomSubnetPrefix = prefix
-		}
+		applyIntValue(v, roomSubnetPrefix)
+	}
+}
+
+func applyEnvInt(name string, target *int) {
+	if v := os.Getenv(name); v != "" {
+		applyIntValue(v, target)
+	}
+}
+
+func applyIntValue(value string, target *int) {
+	if parsed, err := strconv.Atoi(value); err == nil {
+		*target = parsed
 	}
 }
 

@@ -28,11 +28,14 @@ import {
   X,
 } from "lucide-react";
 import {
+  CheckForUpdates,
   ConnectRoom,
   CreateRoom,
   CurrentState,
   DeleteRoom,
   Disconnect,
+  HideToTray,
+  InstallPreparedUpdate,
   JoinRoom,
   KickMember,
   LeaveCurrentRoom,
@@ -44,11 +47,13 @@ import {
   SetSettings,
   TransferOwner,
 } from "../wailsjs/go/main/App";
-import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
+import { EventsOn, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
 import {
   authRuleState,
   errorText,
+  formatBytes,
   formatDate,
+  isConnectionRunning,
   membershipLabel,
   membershipTone,
   pageEyebrow,
@@ -59,6 +64,8 @@ import {
   serverHostFromAPI,
   statusText,
   statusTone,
+  updateStatusText,
+  updateStatusTone,
   type LoginForm,
   type PageKey,
   type RoomForm,
@@ -80,6 +87,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  const [dismissedUpdate, setDismissedUpdate] = useState("");
   const [loginForm, setLoginForm] = useState<LoginForm>({ username: "", password: "", displayName: "" });
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: "8", joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
@@ -111,6 +119,12 @@ export default function App() {
   const currentMember = members.find((member) => member.userID === state.user?.id);
   const isOwner = !!currentRoom && currentRoom.ownerUserID === state.user?.id;
   const connectionTone = statusTone(state.connection.status);
+  const connectionRunning = isConnectionRunning(state.connection.status);
+  const updateTone = updateStatusTone(state.update.status);
+  const showUpdatePrompt =
+    state.update.status === "ready" &&
+    state.update.latestVersion !== "" &&
+    (state.update.mandatory || dismissedUpdate !== state.update.latestVersion);
   const isBusy = busy !== "";
   const authRules = authRuleState(loginForm.username, loginForm.password);
   const canSubmitAuth =
@@ -234,6 +248,19 @@ export default function App() {
     await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: state.interfaceName }));
   }
 
+  async function handleCheckUpdates() {
+    setError("");
+    try {
+      const next = await CheckForUpdates();
+      applyState(next);
+      pushLog("已开始检查更新");
+    } catch (err) {
+      const text = errorText(err);
+      setError(text);
+      pushLog(`检查更新失败: ${text}`);
+    }
+  }
+
   function handleUsernameChange(value: string) {
     setLoginForm((current) => ({ ...current, username: value.trim().toLowerCase() }));
   }
@@ -277,7 +304,7 @@ export default function App() {
           </div>
           <span>{state.connection.ip || state.connection.message || "未连接"}</span>
           <div className="rail-actions">
-            {currentRoom && (state.connection.status === "connected" || state.connection.status === "connecting") ? (
+            {currentRoom && connectionRunning ? (
               <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
                 <Power size={15} />
                 断开
@@ -302,11 +329,11 @@ export default function App() {
                   <strong>LwyV GameNet</strong>
                   <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>
                 </div>
+              </div>
+              <div className="chrome-status">
+                <span className={`status-pill ${connectionTone}`}>{statusText(state.connection.status)}</span>
+              </div>
             </div>
-            <div className="chrome-status">
-              <span className={`status-pill ${connectionTone}`}>{statusText(state.connection.status)}</span>
-            </div>
-          </div>
             <div className="window-controls">
               <button type="button" aria-label="最小化" onClick={WindowMinimise}>
                 <Minus size={16} />
@@ -314,7 +341,7 @@ export default function App() {
               <button type="button" aria-label="最大化" onClick={WindowToggleMaximise}>
                 <Square size={13} />
               </button>
-              <button type="button" aria-label="关闭" className="close" onClick={Quit}>
+              <button type="button" aria-label="关闭" className="close" onClick={() => void HideToTray()}>
                 <X size={16} />
               </button>
             </div>
@@ -350,6 +377,7 @@ export default function App() {
           {page === "account" && renderAccountPage()}
           {page === "room" && renderRoomPage()}
           {page === "settings" && renderSettingsPage()}
+          {showUpdatePrompt && renderUpdatePrompt()}
         </main>
       </section>
     </div>
@@ -557,7 +585,7 @@ export default function App() {
           </div>
 
           <div className="command-actions">
-            {state.connection.status === "connected" || state.connection.status === "connecting" ? (
+            {connectionRunning ? (
               <Button icon={<Power size={16} />} disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
                 断开虚拟网络
               </Button>
@@ -655,7 +683,71 @@ export default function App() {
             {logs.length === 0 ? <span className="muted">暂无日志</span> : logs.map((line) => <code key={line}>{line}</code>)}
           </div>
         </div>
+
+        <div className="surface update-panel">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">更新</span>
+              <h2>客户端版本</h2>
+            </div>
+            <span className={`status-pill ${updateTone}`}>{updateStatusText(state.update.status)}</span>
+          </div>
+          <div className="data-grid">
+            <Metric label="当前版本" value={state.update.currentVersion || "-"} />
+            <Metric label="最新版本" value={state.update.latestVersion || "-"} />
+            <Metric label="平台" value={state.update.platform || "windows-amd64"} />
+            <Metric label="大小" value={state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : "-"} />
+            <Metric label="状态" value={state.update.message || updateStatusText(state.update.status)} wide />
+          </div>
+          <div className="settings-actions">
+            <Button icon={<RefreshCw size={16} />} disabled={isBusy || state.update.status === "downloading"} onClick={handleCheckUpdates}>
+              检查更新
+            </Button>
+            <Button
+              appearance="primary"
+              icon={<Power size={16} />}
+              disabled={isBusy || state.update.status !== "ready"}
+              onClick={() => run("启动更新", InstallPreparedUpdate)}
+            >
+              重启更新
+            </Button>
+          </div>
+        </div>
       </section>
+    );
+  }
+
+  function renderUpdatePrompt() {
+    return (
+      <div className="update-backdrop">
+        <div className="update-dialog">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">Update Ready</span>
+              <h2>新版本 {state.update.latestVersion} 已准备好</h2>
+            </div>
+            <span className={`status-pill ${state.update.mandatory ? "warn" : "good"}`}>{state.update.mandatory ? "强制" : "可选"}</span>
+          </div>
+          <div className="update-body">
+            <div className="update-version-line">
+              <span>当前 {state.update.currentVersion || "-"}</span>
+              <span>目标 {state.update.latestVersion}</span>
+              <span>{state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : ""}</span>
+            </div>
+            {state.update.notes ? <p>{state.update.notes}</p> : <p>更新包已经在后台下载并完成校验。</p>}
+          </div>
+          <div className="update-actions">
+            {!state.update.mandatory && (
+              <Button disabled={isBusy} onClick={() => setDismissedUpdate(state.update.latestVersion)}>
+                稍后
+              </Button>
+            )}
+            <Button appearance="primary" icon={<Power size={16} />} disabled={isBusy} onClick={() => run("启动更新", InstallPreparedUpdate)}>
+              立即重启更新
+            </Button>
+          </div>
+        </div>
+      </div>
     );
   }
 }

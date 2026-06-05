@@ -17,7 +17,7 @@ LwyV-GameNet 是一个从 LwyV-Net 思路拆出来的“游戏虚拟组网后端
 - 玩家创建或加入房间后，可以手动启动 Wintun 虚拟网卡，并通过 vDHCP 自动获得虚拟 IP、网关、DNS、MTU。
 - 房间内玩家的三层 IP 包通过服务端转发，并支持 UDP 广播/组播发现，实现类似局域网游戏联机的效果。
 - 账号管理和房间管理分离，后期方便接入更完整的 Web 管理平台或 Windows UI。
-- Windows UI 使用 Wails + React + TypeScript，控制台客户端保留为测试入口。
+- Windows UI 使用 Wails + React + TypeScript，支持系统托盘、单实例和客户端自动更新；控制台客户端保留为测试入口。
 - Overlay 传输使用从 LwyV-Net 迁入的 `tcpx`，客户端会校验服务端公钥。
 
 ## 当前架构
@@ -145,6 +145,16 @@ go run .\cmd\gamenet-client
 图形客户端位于 `cmd/gamenet-windows-ui`，使用 Wails + React + TypeScript + Fluent UI。默认 API 地址是 `http://64.83.34.53:8080`，也可以在客户端设置页改成其他服务器 IP。Windows 版 EXE 内嵌 `wintun.dll`，启动时会自动释放到 EXE 同目录；连接虚拟网络时仍然需要管理员权限，因为 Wintun 和路由配置需要写入系统网络设置。
 
 图形客户端按 3 个页面组织界面：账号页负责登录、注册和账号状态；房间页负责创建、加入、成员管理、房间聊天和虚拟网卡连接；设置页负责服务器 API、服务器 IP、虚拟网卡名和本地日志。房主可以复制房间公钥、踢出普通成员、转让房主或删除房间；普通成员可以退出房间。断开后仍可在房间页手动重新启动虚拟网卡。
+
+客户端限制同一台电脑只运行一个实例。再次启动会唤醒已有窗口。点击关闭不会直接退出，而是隐藏到 Windows 系统托盘，并弹出一次托盘提示；托盘菜单提供显示主窗口、隐藏到托盘、刷新房间列表、连接/断开当前虚拟网络、检查/安装更新和退出程序。
+
+控制后台提供“客户端”版本管理页面，可以上传新版 Windows 客户端、填写版本号和更新说明。客户端启动后会自动检查 `/api/client/releases/latest`，发现更高版本后在后台下载并校验 SHA256，下载完成才弹出更新提示。上传裸 `LwyV-GameNet.exe` 时安装参数留空，用户点击更新后客户端会启动内置 helper 替换自身并重启；上传安装器时可以填写静默安装参数，例如 `/S`，客户端会启动安装器后退出。
+
+打新版客户端时要同步更新 Go 端版本号，或者在构建时注入：
+
+```powershell
+wails build -ldflags "-X main.AppVersion=0.1.9"
+```
 
 ```powershell
 cd .\cmd\gamenet-windows-ui
@@ -350,7 +360,7 @@ systemctl enable --now lwyv-gamenet-node
 
 ## 后续建议
 
-- Windows UI 后续接入系统托盘、自动更新、配置持久化和后台服务模式。
+- Windows UI 后续接入配置持久化和后台服务模式。
 - 房间增加密码、白名单、房间聊天和邀请链接过期策略。
 - 账号增加邮箱、头像、封禁、角色权限。
 - HTTP API 增加 HTTPS、CSRF 策略和更完整的管理权限。

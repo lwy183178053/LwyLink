@@ -5,6 +5,7 @@
   "redisPassword": "",
   "tokenSecret": "dev-secret-change-before-public-deploy",
   "adminToken": "dev-admin-token",
+  "clientReleaseDir": "data/client-releases",
   "nodeHealthCheckIntervalSeconds": 30,
   "roomCleanupIntervalSeconds": 10,
   "roomEmptyGraceSeconds": 20,

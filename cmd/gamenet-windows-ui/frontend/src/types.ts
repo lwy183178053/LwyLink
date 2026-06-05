@@ -58,6 +58,20 @@ export type ConnectionState = {
   mtu: number;
 };
 
+export type UpdateState = {
+  status: "idle" | "checking" | "downloading" | "ready" | "installing" | "error" | string;
+  message: string;
+  currentVersion: string;
+  latestVersion: string;
+  platform: string;
+  notes: string;
+  mandatory: boolean;
+  installArgs: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+};
+
 export type AppState = {
   apiBaseURL: string;
   interfaceName: string;
@@ -67,6 +81,7 @@ export type AppState = {
   members: RoomMember[];
   chatMessages: ChatMessage[];
   connection: ConnectionState;
+  update: UpdateState;
 };
 
 export const emptyState: AppState = {
@@ -85,5 +100,18 @@ export const emptyState: AppState = {
     ip: "",
     gateway: "",
     mtu: 0,
+  },
+  update: {
+    status: "idle",
+    message: "",
+    currentVersion: "0.1.0",
+    latestVersion: "",
+    platform: "windows-amd64",
+    notes: "",
+    mandatory: false,
+    installArgs: "",
+    fileName: "",
+    sizeBytes: 0,
+    sha256: "",
   },
 };

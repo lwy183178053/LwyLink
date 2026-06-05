@@ -96,6 +96,42 @@ export function statusTone(status: string) {
   }
 }
 
+export function isConnectionRunning(status: string) {
+  return status === "connected" || status === "connecting";
+}
+
+export function updateStatusText(status: string) {
+  switch (status) {
+    case "checking":
+      return "检查中";
+    case "downloading":
+      return "下载中";
+    case "ready":
+      return "可更新";
+    case "installing":
+      return "更新中";
+    case "error":
+      return "更新失败";
+    default:
+      return "无更新";
+  }
+}
+
+export function updateStatusTone(status: string) {
+  switch (status) {
+    case "ready":
+      return "good";
+    case "checking":
+    case "downloading":
+    case "installing":
+      return "warn";
+    case "error":
+      return "bad";
+    default:
+      return "neutral";
+  }
+}
+
 export function membershipLabel(value?: string) {
   return value === "vip" ? "会员" : "普通用户";
 }
@@ -125,6 +161,22 @@ export function formatTime(value?: string) {
     return "";
   }
   return new Date(value).toLocaleTimeString();
+}
+
+export function formatBytes(size?: number) {
+  const value = Number(size || 0);
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  const units = ["KB", "MB", "GB"];
+  let current = value;
+  for (const unit of units) {
+    current /= 1024;
+    if (current < 1024) {
+      return `${current.toFixed(1)} ${unit}`;
+    }
+  }
+  return `${(current / 1024).toFixed(1)} TB`;
 }
 
 export function serverHostFromAPI(apiBaseURL: string) {

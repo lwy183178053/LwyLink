@@ -40,6 +40,8 @@
         {{template "rooms" .}}
       {{else if eq .Active "nodes"}}
         {{template "nodes" .}}
+      {{else if eq .Active "releases"}}
+        {{template "releases" .}}
       {{end}}
     </main>
   </div>
@@ -52,6 +54,7 @@
   <div class="metric"><strong>{{.Stats.ActiveUsers}}</strong><span>正常账号</span></div>
   <div class="metric"><strong>{{.Stats.Rooms}}</strong><span>房间总数</span></div>
   <div class="metric"><strong>{{.Stats.OnlineNodes}}</strong><span>在线节点</span></div>
+  <div class="metric"><strong>{{.Stats.Releases}}</strong><span>客户端版本</span></div>
 </section>
 {{end}}
 
@@ -222,6 +225,77 @@
       </tr>
       {{else}}
       <tr><td colspan="9" class="empty">暂无房间</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "releases"}}
+<section class="panel">
+  <div class="panel-head"><h2>上传客户端版本</h2><span>Windows 客户端更新包</span></div>
+  <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label>版本号<input name="version" placeholder="例如 0.1.9" required></label>
+    <label>平台<input name="platform" value="windows-amd64" required></label>
+    <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
+    <label>强制更新
+      <select name="mandatory">
+        <option value="false">否</option>
+        <option value="true">是</option>
+      </select>
+    </label>
+    <label class="wide">更新包<input name="file" type="file" required></label>
+    <label class="wide">更新说明<textarea name="notes" rows="5" placeholder="写给客户端用户看的更新内容"></textarea></label>
+    <button class="primary" type="submit">上传版本</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>客户端版本</h2><span>{{len .Releases}} 条</span></div>
+  <form class="toolbar release-toolbar" method="get">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label>搜索
+      <input name="q" value="{{.Query}}" placeholder="版本、平台、文件名或 SHA256">
+    </label>
+    <label>每页
+      <select name="perPage">
+        <option value="20" {{if eq .PerPage 20}}selected{{end}}>20</option>
+        <option value="50" {{if eq .PerPage 50}}selected{{end}}>50</option>
+        <option value="100" {{if eq .PerPage 100}}selected{{end}}>100</option>
+        <option value="200" {{if eq .PerPage 200}}selected{{end}}>200</option>
+      </select>
+    </label>
+    <button class="primary" type="submit">筛选</button>
+  </form>
+  {{template "release-table" .}}
+  {{template "pagination" .}}
+</section>
+{{end}}
+
+{{define "release-table"}}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>版本</th><th>平台</th><th>文件</th><th>大小</th><th>强制</th><th>安装参数</th><th>SHA256</th><th>说明</th><th>上传时间</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {{range .Releases}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td class="mono">{{.Version}}</td>
+        <td class="mono">{{.Platform}}</td>
+        <td class="compact">{{.FileName}}</td>
+        <td>{{formatBytes .SizeBytes}}</td>
+        <td><span class="status {{if .Mandatory}}warn{{else}}good{{end}}">{{if .Mandatory}}是{{else}}否{{end}}</span></td>
+        <td class="mono compact">{{.InstallArgs}}</td>
+        <td class="mono compact">{{.SHA256}}</td>
+        <td class="compact">{{.Notes}}</td>
+        <td>{{timeText .CreatedAt}}</td>
+        <td><a class="button" href="/downloads/client/{{.StoredFileName}}">下载</a></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="11" class="empty">暂无客户端版本</td></tr>
       {{end}}
     </tbody>
   </table>

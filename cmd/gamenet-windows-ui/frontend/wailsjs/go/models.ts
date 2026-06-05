@@ -48,6 +48,38 @@ export namespace account {
 
 export namespace main {
 	
+	export class UpdateState {
+	    status: string;
+	    message: string;
+	    currentVersion: string;
+	    latestVersion: string;
+	    platform: string;
+	    notes: string;
+	    mandatory: boolean;
+	    installArgs: string;
+	    fileName: string;
+	    sizeBytes: number;
+	    sha256: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.message = source["message"];
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.platform = source["platform"];
+	        this.notes = source["notes"];
+	        this.mandatory = source["mandatory"];
+	        this.installArgs = source["installArgs"];
+	        this.fileName = source["fileName"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.sha256 = source["sha256"];
+	    }
+	}
 	export class ConnectionState {
 	    status: string;
 	    message: string;
@@ -85,6 +117,7 @@ export namespace main {
 	    members: room.MemberView[];
 	    chatMessages: room.ChatMessage[];
 	    connection: ConnectionState;
+	    update: UpdateState;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -100,6 +133,7 @@ export namespace main {
 	        this.members = this.convertValues(source["members"], room.MemberView);
 	        this.chatMessages = this.convertValues(source["chatMessages"], room.ChatMessage);
 	        this.connection = this.convertValues(source["connection"], ConnectionState);
+	        this.update = this.convertValues(source["update"], UpdateState);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
