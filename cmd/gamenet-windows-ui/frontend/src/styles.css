@@ -138,7 +138,13 @@ code {
   color: #d7e4df;
   background: rgba(255, 255, 255, 0.065);
   font-size: 12px;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.member-chip svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .player-card .member-chip {
@@ -178,6 +184,10 @@ code {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
 }
 
 .nav-button svg {
@@ -199,6 +209,10 @@ code {
 .nav-button.active {
   border-color: rgba(255, 255, 255, 0.1);
   background: #223535;
+}
+
+.nav-button:hover {
+  transform: translateX(2px);
 }
 
 .nav-button.active svg {
@@ -243,6 +257,13 @@ code {
   color: #eafff8;
   background: #237b6e;
   cursor: pointer;
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.rail-actions button:not(:disabled):hover {
+  transform: translateY(-1px);
 }
 
 .rail-actions button:disabled {
@@ -334,6 +355,9 @@ code {
   color: #4e5d59;
   background: transparent;
   cursor: pointer;
+  transition:
+    color 0.14s ease,
+    background 0.14s ease;
 }
 
 .window-controls button:hover {
@@ -429,18 +453,47 @@ code {
   font-size: 12px;
 }
 
-.toast-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  border: 1px solid #e7aaa4;
-  border-radius: 8px;
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 60;
+  max-width: min(560px, calc(100vw - 56px));
+  min-height: 32px;
+  padding: 8px 13px;
+  border: 1px solid #cfd8d4;
+  border-radius: 999px;
+  color: #22302d;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 34px rgba(17, 28, 25, 0.18);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+  transform: translateX(-50%);
+  animation: toast-in 0.18s ease both;
+}
+
+.app-toast.success {
+  color: #145c41;
+  border-color: #98d6bc;
+  background: rgba(239, 250, 244, 0.97);
+}
+
+.app-toast.error {
   color: #ad2f27;
-  background: #fff1ef;
-  font-size: 13px;
+  border-color: #e7aaa4;
+  background: rgba(255, 241, 239, 0.97);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .surface {
@@ -450,6 +503,18 @@ code {
   background: #ffffff;
   box-shadow: 0 10px 28px rgba(28, 42, 39, 0.07);
   overflow: hidden;
+  animation: surface-in 0.18s ease both;
+}
+
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .surface-head {
@@ -472,6 +537,32 @@ code {
   display: grid;
   gap: 11px;
   padding: 14px;
+}
+
+.pretty-input,
+.pretty-textarea {
+  border-radius: 8px;
+  transition:
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.pretty-input:hover,
+.pretty-textarea:hover,
+.pretty-input:focus-within,
+.pretty-textarea:focus-within {
+  transform: translateY(-1px);
+}
+
+.pretty-input:focus-within,
+.pretty-textarea:focus-within {
+  box-shadow: 0 0 0 3px rgba(35, 123, 110, 0.12);
+}
+
+.form-hint {
+  color: #8a6200;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .auth-layout {
@@ -632,6 +723,7 @@ code {
 
 .account-tags {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
@@ -730,6 +822,57 @@ code {
 
 .command-panel {
   min-height: 330px;
+}
+
+.room-size-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.room-size-option {
+  display: grid;
+  gap: 2px;
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid #d8e0dc;
+  border-radius: 8px;
+  color: #2a3734;
+  background: #f8faf8;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.room-size-option strong {
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.room-size-option span {
+  color: #73817c;
+  font-size: 11px;
+}
+
+.room-size-option:hover,
+.room-size-option.active {
+  border-color: #237b6e;
+  background: #ecf8f4;
+  transform: translateY(-1px);
+}
+
+.room-size-option.active {
+  box-shadow: 0 0 0 3px rgba(35, 123, 110, 0.12);
+}
+
+.room-size-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
 }
 
 .room-workspace {
@@ -941,6 +1084,33 @@ code {
   background: #155d55;
 }
 
+.chat-bubble.pending {
+  opacity: 0.88;
+}
+
+.pending-chat-line {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+}
+
+.chat-pending-spinner {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: chat-spin 0.72s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chat-meta {
   display: flex;
   align-items: center;
@@ -975,16 +1145,18 @@ code {
   background: #ffffff;
 }
 
+.chat-input {
+  min-height: 46px;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: minmax(380px, 430px) minmax(0, 1fr);
   grid-template-areas:
-    "settings logs"
-    "update logs";
-  grid-template-rows: auto minmax(0, 1fr);
+    "settings update";
+  grid-template-rows: auto;
   gap: 16px;
-  align-items: stretch;
-  height: calc(100vh - 162px);
+  align-items: start;
   min-height: 0;
   overflow: hidden;
 }
@@ -992,13 +1164,6 @@ code {
 .settings-panel {
   grid-area: settings;
   align-self: start;
-  min-height: 0;
-}
-
-.logs-panel {
-  grid-area: logs;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -1015,23 +1180,6 @@ code {
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 12px 12px;
-}
-
-.logs {
-  display: grid;
-  gap: 6px;
-  min-height: 0;
-  padding: 14px;
-  overflow: auto;
-  color: #d8e9e2;
-  background: #101819;
-}
-
-.logs code {
-  display: block;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 12px;
 }
 
 .muted {
@@ -1104,15 +1252,13 @@ code {
 }
 
 .member-table,
-.chat-list,
-.logs {
+.chat-list {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
 .member-table::-webkit-scrollbar,
-.chat-list::-webkit-scrollbar,
-.logs::-webkit-scrollbar {
+.chat-list::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
@@ -1138,7 +1284,6 @@ code {
   .member-panel,
   .chat-panel,
   .settings-panel,
-  .logs-panel,
   .update-panel {
     grid-area: auto;
   }

@@ -17,6 +17,7 @@ const (
 	RoomEventReopened         = "room_reopened"
 	RoomEventPresenceChanged  = "presence_changed"
 	RoomEventChatMessage      = "chat_message"
+	RoomEventAccountUpdated   = "account_updated"
 )
 
 type ChatMessage struct {

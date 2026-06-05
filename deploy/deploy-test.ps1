@@ -6,7 +6,8 @@ param(
   [switch]$SkipBuild,
   [switch]$UploadConfigs,
   [switch]$BuildWindowsUI,
-  [switch]$SkipSmoke
+  [switch]$SkipSmoke,
+  [string]$AdminToken = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +42,16 @@ $distDir = Join-Path $repoRoot "deploy\dist"
 $remoteRoot = "/opt/lwyv-gamenet"
 $apiURL = "http://${HostName}:8080"
 $overlayAddr = "${HostName}:35768"
+
+if ($AdminToken -eq "" -and $env:LWYV_GAMENET_ADMIN_TOKEN) {
+  $AdminToken = $env:LWYV_GAMENET_ADMIN_TOKEN
+}
+if ($AdminToken -eq "") {
+  $controlProdConfig = Join-Path $repoRoot "configs\control.prod.json"
+  if (Test-Path $controlProdConfig) {
+    $AdminToken = ((Get-Content $controlProdConfig -Raw) | ConvertFrom-Json).adminToken
+  }
+}
 
 function Invoke-LocalStep {
   param(
@@ -149,7 +160,11 @@ ss -ltnp | grep -E ':(443|8080|35768) ' || true
 
 if (-not $SkipSmoke) {
   Invoke-LocalStep "远端功能 Smoke 测试" {
-    go run .\cmd\gamenet-smoke -api $apiURL -overlay $overlayAddr
+    $smokeArgs = @(".\cmd\gamenet-smoke", "-api", $apiURL, "-overlay", $overlayAddr)
+    if ($AdminToken -ne "") {
+      $smokeArgs += @("-admin-token", $AdminToken)
+    }
+    go run @smokeArgs
   }
 }
 

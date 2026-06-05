@@ -21,7 +21,6 @@ type trayController struct {
 	ready      bool
 	show       *systray.MenuItem
 	hide       *systray.MenuItem
-	refresh    *systray.MenuItem
 	connection *systray.MenuItem
 	updateItem *systray.MenuItem
 	quit       *systray.MenuItem
@@ -75,7 +74,6 @@ func (t *trayController) onReady() {
 	show := systray.AddMenuItem("显示主窗口", "显示 LwyV-GameNet 主窗口")
 	hide := systray.AddMenuItem("隐藏到托盘", "隐藏主窗口，后台保持运行")
 	systray.AddSeparator()
-	refresh := systray.AddMenuItem("刷新房间列表", "从服务器刷新房间状态")
 	connection := systray.AddMenuItem("连接虚拟网络", "连接或断开当前房间的虚拟网络")
 	updateItem := systray.AddMenuItem("检查客户端更新", "检查、下载或安装客户端更新")
 	systray.AddSeparator()
@@ -84,7 +82,6 @@ func (t *trayController) onReady() {
 	t.mu.Lock()
 	t.show = show
 	t.hide = hide
-	t.refresh = refresh
 	t.connection = connection
 	t.updateItem = updateItem
 	t.quit = quit
@@ -92,7 +89,7 @@ func (t *trayController) onReady() {
 	t.mu.Unlock()
 
 	t.syncState(t.app.CurrentState())
-	go t.listen(show, hide, refresh, connection, updateItem, quit)
+	go t.listen(show, hide, connection, updateItem, quit)
 }
 
 func (t *trayController) onExit() {
@@ -101,15 +98,13 @@ func (t *trayController) onExit() {
 	})
 }
 
-func (t *trayController) listen(show, hide, refresh, connection, updateItem, quit *systray.MenuItem) {
+func (t *trayController) listen(show, hide, connection, updateItem, quit *systray.MenuItem) {
 	for {
 		select {
 		case <-show.ClickedCh:
 			t.app.showMainWindow()
 		case <-hide.ClickedCh:
 			_ = t.app.HideToTray()
-		case <-refresh.ClickedCh:
-			t.app.refreshRoomsFromTray()
 		case <-connection.ClickedCh:
 			t.app.toggleConnectionFromTray()
 		case <-updateItem.ClickedCh:
@@ -129,7 +124,6 @@ func (t *trayController) syncState(state AppState) {
 		return
 	}
 
-	setEnabled(t.refresh, state.User != nil)
 	if state.CurrentRoom == nil {
 		t.connection.SetTitle("连接虚拟网络")
 		t.connection.Disable()
@@ -167,14 +161,6 @@ func (t *trayController) syncState(state AppState) {
 		t.updateItem.SetTitle("检查客户端更新")
 		t.updateItem.Enable()
 	}
-}
-
-func setEnabled(item *systray.MenuItem, enabled bool) {
-	if enabled {
-		item.Enable()
-		return
-	}
-	item.Disable()
 }
 
 func trayRoomName(name string) string {

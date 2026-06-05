@@ -68,6 +68,12 @@ func (a *API) Login(ctx context.Context, username, password string) (account.Log
 	return out, err
 }
 
+func (a *API) Me(ctx context.Context) (account.PublicUser, error) {
+	var out account.PublicUser
+	err := a.request(ctx, http.MethodGet, "/api/me", nil, &out)
+	return out, err
+}
+
 func (a *API) CreateRoom(ctx context.Context, name string, maxMembers int) (room.Room, error) {
 	var out room.Room
 	err := a.request(ctx, http.MethodPost, "/api/rooms", map[string]any{

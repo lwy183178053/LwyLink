@@ -126,12 +126,6 @@ func (a *App) sendNotification(title, body string) {
 	})
 }
 
-func (a *App) refreshRoomsFromTray() {
-	if _, err := a.RefreshRooms(); err != nil {
-		a.sendNotification("刷新房间失败", err.Error())
-	}
-}
-
 func (a *App) toggleConnectionFromTray() {
 	a.mu.Lock()
 	status := a.connection.Status

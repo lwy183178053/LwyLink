@@ -100,6 +100,22 @@ export function isConnectionRunning(status: string) {
   return status === "connected" || status === "connecting";
 }
 
+export const roomMemberOptions = [2, 4, 6, 8, 16, 32, 50, 100];
+export const freeRoomMemberLimit = 8;
+export const defaultRoomMemberLimit = freeRoomMemberLimit;
+
+export function isVIP(user?: PublicUser) {
+  return user?.membership === "vip";
+}
+
+export function canCreateRoomSize(maxMembers: number, user?: PublicUser) {
+  return maxMembers <= freeRoomMemberLimit || isVIP(user);
+}
+
+export function defaultRoomName(user?: PublicUser) {
+  return `${user ? userLabel(user.displayName, user.username) : "玩家"}的房间`;
+}
+
 export function updateStatusText(status: string) {
   switch (status) {
     case "checking":

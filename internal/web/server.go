@@ -485,6 +485,12 @@ func (s *Server) requireReleases(w http.ResponseWriter, status int) bool {
 	return false
 }
 
+func (s *Server) notifyUserUpdated(ctx context.Context, userID int64) {
+	if s.rooms != nil && userID > 0 {
+		s.rooms.NotifyUserUpdated(ctx, userID)
+	}
+}
+
 func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)
@@ -674,7 +680,16 @@ func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 		{Key: "nodes", Label: "节点", URL: s.adminURL("/admin/nodes")},
 		{Key: "users", Label: "玩家", URL: s.adminURL("/admin/users")},
 		{Key: "rooms", Label: "房间", URL: s.adminURL("/admin/rooms")},
-		{Key: "releases", Label: "客户端", URL: s.adminURL("/admin/releases")},
+		{Key: "releases", Label: "客户端版本", URL: s.adminURL("/admin/releases")},
+	}
+	if data.CurrentURL == "" {
+		data.CurrentURL = data.Nav[0].URL
+		for _, item := range data.Nav {
+			if item.Key == data.Active {
+				data.CurrentURL = item.URL
+				break
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := adminModuleTemplate.Execute(w, data); err != nil {
@@ -724,6 +739,7 @@ func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.notifyUserUpdated(r.Context(), userID)
 	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
 }
 
@@ -740,6 +756,7 @@ func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.notifyUserUpdated(r.Context(), userID)
 	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
 }
 
@@ -762,6 +779,7 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.notifyUserUpdated(r.Context(), userID)
 	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
 }
 
@@ -852,23 +870,24 @@ func (s *Server) adminAuthorized(r *http.Request) bool {
 }
 
 type adminPageData struct {
-	Active   string
-	Title    string
-	Token    string
-	Query    string
-	Status   string
-	Page     int
-	PerPage  int
-	HasPrev  bool
-	HasNext  bool
-	PrevURL  string
-	NextURL  string
-	Stats    adminStats
-	Nav      []adminNavItem
-	Users    []account.User
-	Rooms    []room.Room
-	Nodes    []node.Node
-	Releases []clientrelease.Release
+	Active     string
+	Title      string
+	CurrentURL string
+	Token      string
+	Query      string
+	Status     string
+	Page       int
+	PerPage    int
+	HasPrev    bool
+	HasNext    bool
+	PrevURL    string
+	NextURL    string
+	Stats      adminStats
+	Nav        []adminNavItem
+	Users      []account.User
+	Rooms      []room.Room
+	Nodes      []node.Node
+	Releases   []clientrelease.Release
 }
 
 type adminListRequest struct {
@@ -993,17 +1012,18 @@ func (s *Server) publicClientRelease(r *http.Request, release clientrelease.Rele
 func (s *Server) adminListPageData(active, title, path string, listReq adminListRequest, hasNext bool) adminPageData {
 	prevURL, nextURL := s.adminPageURLs(path, listReq, hasNext)
 	return adminPageData{
-		Active:  active,
-		Title:   title,
-		Token:   s.adminToken,
-		Query:   listReq.Query,
-		Status:  listReq.Status,
-		Page:    listReq.Page,
-		PerPage: listReq.PerPage,
-		HasPrev: listReq.Page > 1,
-		HasNext: hasNext,
-		PrevURL: prevURL,
-		NextURL: nextURL,
+		Active:     active,
+		Title:      title,
+		CurrentURL: s.adminURLWithFilters(path, listReq.Query, listReq.Status, listReq.Page, listReq.PerPage),
+		Token:      s.adminToken,
+		Query:      listReq.Query,
+		Status:     listReq.Status,
+		Page:       listReq.Page,
+		PerPage:    listReq.PerPage,
+		HasPrev:    listReq.Page > 1,
+		HasNext:    hasNext,
+		PrevURL:    prevURL,
+		NextURL:    nextURL,
 	}
 }
 

@@ -27,7 +27,7 @@
           <h1>{{.Title}}</h1>
           <p>控制面板</p>
         </div>
-        <a class="button" href="{{with index .Nav 0}}{{.URL}}{{end}}">刷新</a>
+        <a class="button" href="{{.CurrentURL}}">刷新</a>
       </header>
 
       {{template "metrics" .}}
@@ -72,6 +72,13 @@
 <section class="panel">
   <div class="panel-head"><h2>服务器节点</h2><a href="{{with index .Nav 1}}{{.URL}}{{end}}">管理节点</a></div>
   {{template "node-table" .}}
+</section>
+<section class="panel release-entry">
+  <div>
+    <h2>客户端版本发布</h2>
+    <p>上传打包好的 Windows 客户端，填写版本号和更新说明后，客户端会检查并预下载更新。</p>
+  </div>
+  <a class="button primary" href="{{with index .Nav 4}}{{.URL}}{{end}}">上传客户端版本</a>
 </section>
 {{end}}
 

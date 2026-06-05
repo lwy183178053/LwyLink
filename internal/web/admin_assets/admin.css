@@ -177,6 +177,21 @@ h2 {
   font-size: 13px;
 }
 
+.release-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+}
+
+.release-entry p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) 180px 120px auto;

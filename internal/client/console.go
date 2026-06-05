@@ -110,7 +110,7 @@ func runPlayerMenu(ctx context.Context, reader *bufio.Reader, api *API, ifName s
 				continue
 			}
 			name := prompt(reader, "房间名: ")
-			maxMembers := promptInt(reader, fmt.Sprintf("最大人数(%d-%d，默认%d): ", room.MinMaxMembers, room.MaxMaxMembers, room.DefaultMaxMembers), room.DefaultMaxMembers)
+			maxMembers := promptInt(reader, fmt.Sprintf("最大人数(2/4/6/8/16/32/50/100，默认%d，16人及以上需会员): ", room.DefaultMaxMembers), room.DefaultMaxMembers)
 			r, err := api.CreateRoom(ctx, name, maxMembers)
 			if err != nil {
 				fmt.Println("创建失败:", err)

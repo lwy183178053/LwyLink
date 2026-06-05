@@ -54,10 +54,6 @@ export function Logout() {
   return window['go']['main']['App']['Logout']();
 }
 
-export function RefreshRooms() {
-  return window['go']['main']['App']['RefreshRooms']();
-}
-
 export function Register(arg1) {
   return window['go']['main']['App']['Register'](arg1);
 }

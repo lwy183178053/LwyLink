@@ -67,6 +67,15 @@ func (r *Repository) UserHasMembership(ctx context.Context, userID int64) (bool,
 	return err == nil, err
 }
 
+func (r *Repository) UserMembership(ctx context.Context, userID int64) (string, error) {
+	var membership string
+	err := r.db.QueryRowContext(ctx, `SELECT membership FROM users WHERE id = ?`, userID).Scan(&membership)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New("user not found")
+	}
+	return membership, err
+}
+
 func (r *Repository) FindForUser(ctx context.Context, userID int64) (Room, bool, error) {
 	room, err := scanRoom(r.db.QueryRowContext(ctx,
 		roomColumns()+`

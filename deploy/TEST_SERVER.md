@@ -143,8 +143,11 @@ systemctl restart lwyv-gamenet-node
 本地跑远端 smoke：
 
 ```powershell
+$env:LWYV_GAMENET_ADMIN_TOKEN = "这里填控制端 adminToken"
 go run .\cmd\gamenet-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:35768
 ```
+
+`deploy-test.ps1` 会优先使用 `-AdminToken`、`LWYV_GAMENET_ADMIN_TOKEN`，否则从本地 `configs/control.prod.json` 读取 `adminToken` 传给 smoke。smoke 结束后会通过管理端接口删除本次创建的测试账号。
 
 ## 修改代码后的建议流程
 

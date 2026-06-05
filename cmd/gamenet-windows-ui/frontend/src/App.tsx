@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Field, Input, Spinner, Textarea } from "@fluentui/react-components";
 import {
-  BadgeCheck,
-  CircleX,
   Copy,
   DoorOpen,
   Gamepad2,
@@ -24,7 +22,6 @@ import {
   Trash2,
   UserCircle,
   UserPlus,
-  Users,
   X,
 } from "lucide-react";
 import {
@@ -41,7 +38,6 @@ import {
   LeaveCurrentRoom,
   Login,
   Logout,
-  RefreshRooms,
   Register,
   SendRoomChat,
   SetSettings,
@@ -50,9 +46,13 @@ import {
 import { EventsOn, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
 import {
   authRuleState,
+  canCreateRoomSize,
+  defaultRoomMemberLimit,
+  defaultRoomName,
   errorText,
   formatBytes,
   formatDate,
+  freeRoomMemberLimit,
   isConnectionRunning,
   membershipLabel,
   membershipTone,
@@ -61,6 +61,7 @@ import {
   pageTitle,
   passwordMaxLength,
   passwordMinLength,
+  roomMemberOptions,
   serverHostFromAPI,
   statusText,
   statusTone,
@@ -78,33 +79,48 @@ import { Avatar, ChatBubble, MemberRow, Metric, NavButton, Rule } from "./compon
 import type { AppState } from "./types";
 import { emptyState } from "./types";
 
+type NoticeTone = "info" | "success" | "error";
+type PendingChat = {
+  id: string;
+  message: string;
+};
+
 export default function App() {
   const [page, setPage] = useState<PageKey>("account");
   const [state, setState] = useState<AppState>(emptyState);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [logs, setLogs] = useState<string[]>([]);
+  const [notice, setNotice] = useState<{ id: number; text: string; tone: NoticeTone } | null>(null);
   const [chatText, setChatText] = useState("");
+  const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
   const [chatSending, setChatSending] = useState(false);
   const [dismissedUpdate, setDismissedUpdate] = useState("");
   const [loginForm, setLoginForm] = useState<LoginForm>({ username: "", password: "", displayName: "" });
-  const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: "8", joinKey: "" });
+  const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
   });
   const connectionSignature = useRef("");
   const settingsSignature = useRef("");
   const chatListRef = useRef<HTMLDivElement | null>(null);
+  const noticeTimer = useRef<number | null>(null);
 
   useEffect(() => {
     CurrentState()
       .then((next: AppState) => applyState(next))
-      .catch((err: unknown) => setError(errorText(err)));
+      .catch((err: unknown) => showNotice(errorText(err), "error"));
     const off = EventsOn("state-changed", (next: AppState) => applyState(next));
     return () => {
       if (typeof off === "function") {
         off();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current !== null) {
+        window.clearTimeout(noticeTimer.current);
       }
     };
   }, []);
@@ -131,13 +147,34 @@ export default function App() {
     authMode === "login"
       ? loginForm.username.trim() !== "" && loginForm.password !== ""
       : authRules.usernameLength && authRules.usernameCharset && authRules.passwordLength;
+  const selectedMaxMembers = Number.parseInt(roomForm.maxMembers, 10) || defaultRoomMemberLimit;
+  const roomSizeAllowed = canCreateRoomSize(selectedMaxMembers, state.user);
 
   useEffect(() => {
     if (page !== "room" || !chatListRef.current) {
       return;
     }
     chatListRef.current.scrollTop = chatListRef.current.scrollHeight;
-  }, [chatMessages.length]);
+  }, [chatMessages.length, pendingChats.length]);
+
+  useEffect(() => {
+    setPendingChats([]);
+  }, [currentRoom?.id]);
+
+  useEffect(() => {
+    if (!state.user) {
+      return;
+    }
+    setRoomForm((current) => {
+      const nextName = current.name.trim() === "" ? defaultRoomName(state.user) : current.name;
+      const currentMaxMembers = Number.parseInt(current.maxMembers, 10) || defaultRoomMemberLimit;
+      const nextMaxMembers = canCreateRoomSize(currentMaxMembers, state.user) ? current.maxMembers : String(defaultRoomMemberLimit);
+      if (nextName === current.name && nextMaxMembers === current.maxMembers) {
+        return current;
+      }
+      return { ...current, name: nextName, maxMembers: nextMaxMembers };
+    });
+  }, [state.user?.id, state.user?.username, state.user?.displayName, state.user?.membership]);
 
   function applyState(next: AppState) {
     setState(next);
@@ -151,28 +188,32 @@ export default function App() {
 
     const signature = `${next.connection.status}|${next.connection.message}|${next.connection.ip}`;
     if (connectionSignature.current && signature !== connectionSignature.current) {
-      pushLog(`网络状态: ${statusText(next.connection.status)}${next.connection.message ? ` - ${next.connection.message}` : ""}`);
+      showNotice(
+        `网络状态: ${statusText(next.connection.status)}${next.connection.message ? ` - ${next.connection.message}` : ""}`,
+        next.connection.status === "error" ? "error" : "info",
+      );
     }
     connectionSignature.current = signature;
   }
 
-  function pushLog(line: string) {
-    const stamp = new Date().toLocaleTimeString();
-    setLogs((items) => [`${stamp} ${line}`, ...items].slice(0, 80));
+  function showNotice(text: string, tone: NoticeTone = "info") {
+    if (noticeTimer.current !== null) {
+      window.clearTimeout(noticeTimer.current);
+    }
+    setNotice({ id: Date.now(), text, tone });
+    noticeTimer.current = window.setTimeout(() => setNotice(null), tone === "error" ? 4600 : 2600);
   }
 
   async function run(label: string, task: () => Promise<AppState>) {
     setBusy(label);
-    setError("");
     try {
       const next = await task();
       applyState(next);
-      pushLog(`${label}完成`);
+      showNotice(`${label}完成`, "success");
       return true;
     } catch (err) {
       const text = errorText(err);
-      setError(text);
-      pushLog(`${label}失败: ${text}`);
+      showNotice(text, "error");
       return false;
     } finally {
       setBusy("");
@@ -182,7 +223,7 @@ export default function App() {
   async function handleAuthSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmitAuth) {
-      setError(authMode === "login" ? "请输入用户名和密码" : "请先完成账号规则");
+      showNotice(authMode === "login" ? "请输入用户名和密码" : "请先完成账号规则", "error");
       return;
     }
     const ok =
@@ -202,14 +243,18 @@ export default function App() {
 
   async function handleCreateRoom(event: FormEvent) {
     event.preventDefault();
+    if (!roomSizeAllowed) {
+      showNotice("16人及以上房间需要会员账号", "error");
+      return;
+    }
     const ok = await run("创建房间", () =>
       CreateRoom({
-        name: roomForm.name,
-        maxMembers: Number.parseInt(roomForm.maxMembers, 10) || 8,
+        name: roomForm.name.trim(),
+        maxMembers: selectedMaxMembers,
       }),
     );
     if (ok) {
-      setRoomForm((value) => ({ ...value, name: "" }));
+      setRoomForm((value) => ({ ...value, name: state.user ? defaultRoomName(state.user) : "" }));
     }
   }
 
@@ -221,24 +266,23 @@ export default function App() {
     }
   }
 
-  async function handleSendChat(event: FormEvent) {
-    event.preventDefault();
+  async function handleSendChat() {
     const message = chatText.trim();
     if (!currentRoom || !message) {
       return;
     }
+    const pendingID = `pending-${Date.now()}`;
+    setPendingChats((items) => [...items, { id: pendingID, message }]);
+    setChatText("");
     setChatSending(true);
-    setError("");
     try {
       const next = await SendRoomChat({ roomID: currentRoom.id, message });
       applyState(next);
-      setChatText("");
-      pushLog("发送聊天完成");
     } catch (err) {
       const text = errorText(err);
-      setError(text);
-      pushLog(`发送聊天失败: ${text}`);
+      showNotice(text, "error");
     } finally {
+      setPendingChats((items) => items.filter((item) => item.id !== pendingID));
       setChatSending(false);
     }
   }
@@ -249,15 +293,13 @@ export default function App() {
   }
 
   async function handleCheckUpdates() {
-    setError("");
     try {
       const next = await CheckForUpdates();
       applyState(next);
-      pushLog("已开始检查更新");
+      showNotice("已开始检查更新", "info");
     } catch (err) {
       const text = errorText(err);
-      setError(text);
-      pushLog(`检查更新失败: ${text}`);
+      showNotice(text, "error");
     }
   }
 
@@ -271,10 +313,32 @@ export default function App() {
     }
     try {
       await navigator.clipboard.writeText(text);
-      pushLog(`${label}已复制`);
+      showNotice(`${label}已复制`, "success");
     } catch {
-      setError("复制失败");
+      showNotice("复制失败", "error");
     }
+  }
+
+  function renderRoomSizePicker() {
+    return (
+      <div className="room-size-picker">
+        {roomMemberOptions.map((value) => {
+          const locked = !canCreateRoomSize(value, state.user);
+          return (
+            <button
+              type="button"
+              key={value}
+              className={`room-size-option ${roomForm.maxMembers === String(value) ? "active" : ""}`}
+              disabled={locked}
+              onClick={() => setRoomForm((current) => ({ ...current, maxMembers: String(value) }))}
+            >
+              <strong>{value}</strong>
+              <span>{locked ? "会员" : value <= freeRoomMemberLimit ? "普通" : "会员"}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -359,25 +423,18 @@ export default function App() {
                   {busy}
                 </span>
               )}
-              {page !== "settings" && (
-                <Button icon={<RefreshCw size={16} />} disabled={isBusy || !state.user} onClick={() => run("刷新房间", RefreshRooms)}>
-                  刷新
-                </Button>
-              )}
             </div>
           </div>
-
-          {error && (
-            <div className="toast-error">
-              <CircleX size={16} />
-              <span>{error}</span>
-            </div>
-          )}
 
           {page === "account" && renderAccountPage()}
           {page === "room" && renderRoomPage()}
           {page === "settings" && renderSettingsPage()}
           {showUpdatePrompt && renderUpdatePrompt()}
+          {notice && (
+            <div className={`app-toast ${notice.tone}`} key={notice.id}>
+              {notice.text}
+            </div>
+          )}
         </main>
       </section>
     </div>
@@ -420,15 +477,24 @@ export default function App() {
                 </button>
               </div>
               <Field label="用户名">
-                <Input value={loginForm.username} onChange={(_, data) => handleUsernameChange(data.value)} />
+                <Input className="pretty-input" value={loginForm.username} onChange={(_, data) => handleUsernameChange(data.value)} />
               </Field>
               {authMode === "register" && (
                 <Field label="昵称">
-                  <Input value={loginForm.displayName} onChange={(_, data) => setLoginForm((current) => ({ ...current, displayName: data.value }))} />
+                  <Input
+                    className="pretty-input"
+                    value={loginForm.displayName}
+                    onChange={(_, data) => setLoginForm((current) => ({ ...current, displayName: data.value }))}
+                  />
                 </Field>
               )}
               <Field label="密码">
-                <Input type="password" value={loginForm.password} onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))} />
+                <Input
+                  className="pretty-input"
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))}
+                />
               </Field>
               {authMode === "register" && (
                 <div className="rules">
@@ -455,16 +521,12 @@ export default function App() {
             <h2>{userLabel(state.user.displayName, state.user.username)}</h2>
             <div className="account-tags">
               <span className={`member-chip ${membershipTone(state.user.membership)}`}>
-                <BadgeCheck size={14} />
                 {membershipLabel(state.user.membership)}
               </span>
               <span className="member-chip neutral">{state.user.disabled ? "已禁用" : "账号正常"}</span>
             </div>
           </div>
           <div className="account-actions">
-            <Button icon={<RefreshCw size={16} />} disabled={isBusy} onClick={() => run("刷新房间", RefreshRooms)}>
-              刷新
-            </Button>
             <Button icon={<LogOut size={16} />} disabled={isBusy} onClick={() => run("退出登录", Logout)}>
               退出
             </Button>
@@ -522,12 +584,18 @@ export default function App() {
             </div>
             <div className="form-stack">
               <Field label="房间名">
-                <Input value={roomForm.name} onChange={(_, data) => setRoomForm((current) => ({ ...current, name: data.value }))} />
+                <Input
+                  className="pretty-input"
+                  placeholder={state.user ? defaultRoomName(state.user) : "玩家的房间"}
+                  value={roomForm.name}
+                  onChange={(_, data) => setRoomForm((current) => ({ ...current, name: data.value }))}
+                />
               </Field>
               <Field label="人数上限">
-                <Input type="number" min={2} max={64} value={roomForm.maxMembers} onChange={(_, data) => setRoomForm((current) => ({ ...current, maxMembers: data.value }))} />
+                {renderRoomSizePicker()}
               </Field>
-              <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={isBusy || roomForm.name.trim() === ""}>
+              {!roomSizeAllowed && <span className="form-hint">16 人及以上房间需要会员账号。</span>}
+              <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={isBusy || roomForm.name.trim() === "" || !roomSizeAllowed}>
                 创建
               </Button>
             </div>
@@ -543,7 +611,12 @@ export default function App() {
             </div>
             <div className="form-stack">
               <Field label="房间密钥">
-                <Textarea rows={8} value={roomForm.joinKey} onChange={(_, data) => setRoomForm((current) => ({ ...current, joinKey: data.value }))} />
+                <Textarea
+                  className="pretty-textarea"
+                  rows={8}
+                  value={roomForm.joinKey}
+                  onChange={(_, data) => setRoomForm((current) => ({ ...current, joinKey: data.value }))}
+                />
               </Field>
               <Button appearance="primary" icon={<UserPlus size={16} />} type="submit" disabled={isBusy || roomForm.joinKey.trim() === ""}>
                 加入
@@ -635,14 +708,34 @@ export default function App() {
             {chatMessages.map((message) => (
               <ChatBubble key={message.id} message={message} mine={message.userID === state.user?.id} />
             ))}
-            {chatMessages.length === 0 && <div className="empty-chat">暂无消息</div>}
+            {pendingChats.map((message) => (
+              <div className="chat-bubble mine pending" key={message.id}>
+                <div className="pending-chat-line">
+                  <span className="chat-pending-spinner" />
+                  <p>{message.message}</p>
+                </div>
+              </div>
+            ))}
+            {chatMessages.length === 0 && pendingChats.length === 0 && <div className="empty-chat">暂无消息</div>}
           </div>
-          <form className="chat-form" onSubmit={handleSendChat}>
-            <Textarea rows={2} maxLength={500} value={chatText} onChange={(_, data) => setChatText(data.value)} />
-            <Button appearance="primary" icon={chatSending ? <Spinner size="tiny" /> : <Send size={16} />} type="submit" disabled={chatSending || chatText.trim() === ""}>
+          <div className="chat-form">
+            <Textarea
+              className="pretty-textarea chat-input"
+              rows={2}
+              maxLength={500}
+              value={chatText}
+              onChange={(_, data) => setChatText(data.value)}
+            />
+            <Button
+              appearance="primary"
+              icon={chatSending ? <Spinner size="tiny" /> : <Send size={16} />}
+              type="button"
+              disabled={chatSending || chatText.trim() === ""}
+              onClick={handleSendChat}
+            >
               {chatSending ? "发送中" : "发送"}
             </Button>
-          </form>
+          </div>
         </div>
       </section>
     );
@@ -662,6 +755,7 @@ export default function App() {
           <div className="form-stack">
             <Field label="接口地址">
               <Input
+                className="pretty-input"
                 value={settingsForm.apiBaseURL}
                 onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
               />
@@ -673,16 +767,6 @@ export default function App() {
             </div>
           </div>
         </form>
-
-        <div className="surface logs-panel">
-          <div className="surface-head">
-            <h2>本地日志</h2>
-            <span>{logs.length} 条</span>
-          </div>
-          <div className="logs">
-            {logs.length === 0 ? <span className="muted">暂无日志</span> : logs.map((line) => <code key={line}>{line}</code>)}
-          </div>
-        </div>
 
         <div className="surface update-panel">
           <div className="surface-head">

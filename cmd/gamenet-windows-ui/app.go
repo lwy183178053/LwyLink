@@ -239,22 +239,6 @@ func (a *App) Logout() (AppState, error) {
 	return a.commitStateLocked(), nil
 }
 
-func (a *App) RefreshRooms() (AppState, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	a.mu.Lock()
-	if a.user == nil {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("请先登录")
-	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
-		return AppState{}, err
-	}
-	return a.commitStateLocked(), nil
-}
-
 func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
@@ -597,6 +581,14 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 		a.mu.Unlock()
 		return
 	}
+	if event.Type == room.RoomEventAccountUpdated {
+		if _, err := a.refreshUserStateLocked(ctx); err != nil {
+			a.mu.Unlock()
+			return
+		}
+		a.commitStateLocked()
+		return
+	}
 	if err := a.refreshRoomStateLocked(ctx); err != nil {
 		a.mu.Unlock()
 		return
@@ -647,6 +639,27 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	}
 	a.members = members
 	return nil
+}
+
+func (a *App) refreshUserStateLocked(ctx context.Context) (bool, error) {
+	if a.user == nil {
+		return false, nil
+	}
+	user, err := a.api.Me(ctx)
+	if err != nil {
+		if !isAccountStateError(err) {
+			return false, err
+		}
+		a.cancelConnectionLocked()
+		a.cancelRoomEventsLocked()
+		a.api.ClearToken()
+		a.user = nil
+		a.clearRoomStateLocked()
+		a.connection = ConnectionState{Status: statusDisconnected, Message: "账号状态已变化，请重新登录"}
+		return false, nil
+	}
+	a.user = &user
+	return true, nil
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {
@@ -711,6 +724,15 @@ func findRoom(rooms []room.Room, roomID int64) (room.Room, bool) {
 		}
 	}
 	return room.Room{}, false
+}
+
+func isAccountStateError(err error) bool {
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(lower, "account is disabled") ||
+		strings.Contains(lower, "account has logged in elsewhere") ||
+		strings.Contains(lower, "unauthorized") ||
+		strings.Contains(lower, "user not found") ||
+		strings.Contains(lower, "sql: no rows")
 }
 
 func friendlyConnectionError(err error) string {

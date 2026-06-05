@@ -28,8 +28,6 @@ export function Login(arg1:main.LoginInput):Promise<main.AppState>;
 
 export function Logout():Promise<main.AppState>;
 
-export function RefreshRooms():Promise<main.AppState>;
-
 export function Register(arg1:main.RegisterInput):Promise<main.AppState>;
 
 export function SendRoomChat(arg1:main.SendChatInput):Promise<main.AppState>;

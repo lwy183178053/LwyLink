@@ -12,11 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
 	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
 )
 
 const maxChatMessageRunes = 500
+
+var allowedMaxMembers = []int{2, 4, 6, 8, 16, 32, 50, 100}
 
 type PublicKeyStore interface {
 	PutRoomPublicKey(ctx context.Context, publicKey string, roomID int64) error
@@ -65,7 +68,13 @@ func (s *Service) CreateRoom(ctx context.Context, ownerUserID int64, name string
 	if len(name) < 2 || len(name) > 80 {
 		return Room{}, fmt.Errorf("room name length must be 2-80")
 	}
-	maxMembers = normalizeMaxMembers(maxMembers)
+	maxMembers, err := normalizeMaxMembers(maxMembers)
+	if err != nil {
+		return Room{}, err
+	}
+	if err := s.requireRoomCapacity(ctx, ownerUserID, maxMembers); err != nil {
+		return Room{}, err
+	}
 	hasRoom, err := s.repo.UserHasMembership(ctx, ownerUserID)
 	if err != nil {
 		return Room{}, err
@@ -602,13 +611,21 @@ func (s *Service) SubscribeAllEvents(ctx context.Context) (<-chan RoomEvent, fun
 	return s.runtime.SubscribeAllRoomEvents(ctx)
 }
 
+func (s *Service) NotifyUserUpdated(ctx context.Context, userID int64) {
+	s.publishRoomEvent(ctx, RoomEvent{
+		Type:         RoomEventAccountUpdated,
+		TargetUserID: userID,
+		UserIDs:      []int64{userID},
+	})
+}
+
 func (s *Service) publishRoomEventToMembers(ctx context.Context, event RoomEvent) {
 	event.UserIDs = append(event.UserIDs, s.roomUserIDs(ctx, event.RoomID)...)
 	s.publishRoomEvent(ctx, event)
 }
 
 func (s *Service) publishRoomEvent(ctx context.Context, event RoomEvent) {
-	if s.runtime == nil || event.RoomID <= 0 || event.Type == "" {
+	if s.runtime == nil || event.Type == "" || (event.RoomID <= 0 && len(event.UserIDs) == 0) {
 		return
 	}
 	if event.CreatedAt.IsZero() {
@@ -685,17 +702,38 @@ func randomJoinCode() string {
 	return code
 }
 
-func normalizeMaxMembers(v int) int {
+func (s *Service) requireRoomCapacity(ctx context.Context, ownerUserID int64, maxMembers int) error {
+	if maxMembers <= FreeMaxMembers {
+		return nil
+	}
+	membership, err := s.repo.UserMembership(ctx, ownerUserID)
+	if err != nil {
+		return err
+	}
+	if membership != account.MembershipVIP {
+		return fmt.Errorf("16人及以上房间仅会员可创建")
+	}
+	return nil
+}
+
+func normalizeMaxMembers(v int) (int, error) {
 	if v <= 0 {
-		return DefaultMaxMembers
+		return DefaultMaxMembers, nil
 	}
-	if v < MinMaxMembers {
-		return MinMaxMembers
+	for _, option := range allowedMaxMembers {
+		if v == option {
+			return v, nil
+		}
 	}
-	if v > MaxMaxMembers {
-		return MaxMaxMembers
+	return 0, fmt.Errorf("房间人数只能选择 %s", allowedMaxMembersText())
+}
+
+func allowedMaxMembersText() string {
+	parts := make([]string, 0, len(allowedMaxMembers))
+	for _, option := range allowedMaxMembers {
+		parts = append(parts, fmt.Sprintf("%d", option))
 	}
-	return v
+	return strings.Join(parts, "、")
 }
 
 func ipToUint32(ip net.IP) uint32 {

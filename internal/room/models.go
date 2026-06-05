@@ -9,9 +9,8 @@ const (
 	MemberRoleOwner  = "owner"
 	MemberRoleMember = "member"
 
-	DefaultMaxMembers = 8
-	MinMaxMembers     = 2
-	MaxMaxMembers     = 64
+	FreeMaxMembers    = 8
+	DefaultMaxMembers = FreeMaxMembers
 )
 
 type Room struct {
