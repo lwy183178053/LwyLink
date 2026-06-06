@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 
 	"github.com/redis/go-redis/v9"
@@ -12,7 +11,7 @@ func (s *RedisStore) PutRoomPublicKey(ctx context.Context, publicKey string, roo
 	if err := s.requireRedis("room public key index"); err != nil {
 		return err
 	}
-	key := fmt.Sprintf("gamenet:roomkey:%s", publicKey)
+	key := redisKey("roomkey:%s", publicKey)
 	return s.client.Set(ctx, key, strconv.FormatInt(roomID, 10), 0).Err()
 }
 
@@ -20,7 +19,7 @@ func (s *RedisStore) RoomIDByPublicKey(ctx context.Context, publicKey string) (i
 	if err := s.requireRedis("room public key index"); err != nil {
 		return 0, false, err
 	}
-	key := fmt.Sprintf("gamenet:roomkey:%s", publicKey)
+	key := redisKey("roomkey:%s", publicKey)
 	val, err := s.client.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return 0, false, nil
@@ -39,6 +38,6 @@ func (s *RedisStore) DeleteRoomPublicKey(ctx context.Context, publicKey string) 
 	if err := s.requireRedis("room public key index"); err != nil {
 		return err
 	}
-	key := fmt.Sprintf("gamenet:roomkey:%s", publicKey)
+	key := redisKey("roomkey:%s", publicKey)
 	return s.client.Del(ctx, key).Err()
 }

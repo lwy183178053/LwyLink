@@ -49,10 +49,10 @@ LwyLink Room Node
 ## 目录
 
 ```text
-cmd/gamenet-control  LwyLink 控制中心入口，只运行 HTTP API 和管理后台
-cmd/gamenet-node     LwyLink 房间节点入口，只运行加密 Overlay 和 vDHCP
-cmd/gamenet-client   LwyLink Windows 控制台客户端入口
-cmd/gamenet-windows-ui  LwyLink Wails Windows 图形客户端入口
+cmd/lwylink-control  LwyLink 控制中心入口，只运行 HTTP API 和管理后台
+cmd/lwylink-node     LwyLink 房间节点入口，只运行加密 Overlay 和 vDHCP
+cmd/lwylink-client   LwyLink Windows 控制台客户端入口
+cmd/lwylink-windows-ui  LwyLink Wails Windows 图形客户端入口
 configs/             示例配置
 internal/account     玩家账号、密码、令牌
 internal/room        房间、成员、房间公钥、网段
@@ -80,7 +80,7 @@ docker compose up -d
 
 ```powershell
 Copy-Item .\configs\control.example.json .\configs\control.local.json
-go run .\cmd\gamenet-control -config .\configs\control.local.json
+go run .\cmd\lwylink-control -config .\configs\control.local.json
 ```
 
 控制中心会自动创建 MySQL 表。
@@ -97,7 +97,7 @@ http://127.0.0.1:8080/admin?token=dev-admin-token
 
 ```powershell
 Copy-Item .\configs\node.example.json .\configs\node.local.json
-go run .\cmd\gamenet-node -config .\configs\node.local.json -print-public-key
+go run .\cmd\lwylink-node -config .\configs\node.local.json -print-public-key
 ```
 
 然后在管理页面添加节点：
@@ -110,7 +110,7 @@ go run .\cmd\gamenet-node -config .\configs\node.local.json -print-public-key
 保存后启动房间节点：
 
 ```powershell
-go run .\cmd\gamenet-node -config .\configs\node.local.json
+go run .\cmd\lwylink-node -config .\configs\node.local.json
 ```
 
 ### 4. 启动控制台客户端
@@ -118,7 +118,7 @@ go run .\cmd\gamenet-node -config .\configs\node.local.json
 Windows 请用管理员 PowerShell 运行，因为 Wintun 和路由配置需要权限。
 
 ```powershell
-go run .\cmd\gamenet-client
+go run .\cmd\lwylink-client
 ```
 
 控制台里可以依次选择：
@@ -144,7 +144,7 @@ go run .\cmd\gamenet-client
 
 ### 5. 启动 Wails Windows 客户端
 
-图形客户端位于 `cmd/gamenet-windows-ui`，使用 Wails + React + TypeScript + Fluent UI。默认 API 地址是 `http://64.83.34.53:8080`，也可以在客户端设置页改成其他服务器 IP。Windows 版 EXE 内嵌 `wintun.dll`，启动时会自动释放到 EXE 同目录；连接虚拟网络时仍然需要管理员权限，因为 Wintun 和路由配置需要写入系统网络设置。
+图形客户端位于 `cmd/lwylink-windows-ui`，使用 Wails + React + TypeScript + Fluent UI。默认 API 地址是 `http://64.83.34.53:8080`，也可以在客户端设置页改成其他服务器 IP。Windows 版 EXE 内嵌 `wintun.dll`，启动时会自动释放到 EXE 同目录；连接虚拟网络时仍然需要管理员权限，因为 Wintun 和路由配置需要写入系统网络设置。
 
 图形客户端按 3 个页面组织界面：账号页负责登录、注册和账号状态；房间页负责创建、加入、成员管理、房间聊天和虚拟网卡连接；设置页负责服务器 API、服务器 IP、虚拟网卡名和本地日志。房主可以复制房间公钥、踢出普通成员、转让房主或删除房间；普通成员可以退出房间。断开后仍可在房间页手动重新启动虚拟网卡。
 
@@ -159,7 +159,7 @@ wails build -ldflags "-X main.AppVersion=0.1.9"
 ```
 
 ```powershell
-cd .\cmd\gamenet-windows-ui
+cd .\cmd\lwylink-windows-ui
 npm.cmd install
 wails dev
 ```
@@ -167,14 +167,14 @@ wails dev
 正式打包：
 
 ```powershell
-cd .\cmd\gamenet-windows-ui
+cd .\cmd\lwylink-windows-ui
 wails build
 ```
 
 构建产物：
 
 ```text
-cmd/gamenet-windows-ui/build/bin/LwyLink.exe
+cmd/lwylink-windows-ui/build/bin/LwyLink.exe
 ```
 
 如果 `wails` 不在 PATH，可以使用：
@@ -296,8 +296,8 @@ Windows 客户端连接房间时会临时把房间网段和 IPv4 组播路由指
 
 项目现在固定拆成两个程序：
 
-- `gamenet-control`：LwyLink 控制中心，只跑玩家 API、管理后台、节点调度和健康检查。
-- `gamenet-node`：LwyLink 房间节点，只跑 tcpx Overlay、vDHCP 和房间内 IP 包转发。
+- `lwylink-control`：LwyLink 控制中心，只跑玩家 API、管理后台、节点调度和健康检查。
+- `lwylink-node`：LwyLink 房间节点，只跑 tcpx Overlay、vDHCP 和房间内 IP 包转发。
 
 控制中心的管理页可以添加服务器节点。每个节点包含：
 
@@ -316,11 +316,11 @@ Windows 客户端连接房间时会临时把房间网段和 IPv4 组播路由指
 
 新增节点的大致流程：
 
-1. 在新服务器准备 `/opt/lwyv-gamenet`，放入 `gamenet-node` 和 `configs/node.prod.json`。
+1. 在新服务器准备 `/opt/lwylink`，放入 `lwylink-node` 和 `configs/node.prod.json`。
 2. 在 `configs/node.prod.json` 中把 `overlayPrivateKey` 留空，然后生成并打印该节点的 Overlay 公钥：
 
 ```bash
-/opt/lwyv-gamenet/gamenet-node -config /opt/lwyv-gamenet/configs/node.prod.json -print-public-key
+/opt/lwylink/lwylink-node -config /opt/lwylink/configs/node.prod.json -print-public-key
 ```
 
 这条命令会自动生成 `overlayPrivateKey` 并写回配置文件，同时打印要填入控制后台的 `overlayPublicKey`。
@@ -339,9 +339,9 @@ Windows 客户端连接房间时会临时把房间网段和 IPv4 组播路由指
 5. 安装并启动 systemd：
 
 ```bash
-cp deploy/lwyv-gamenet-node.service /etc/systemd/system/lwyv-gamenet-node.service
+cp deploy/lwylink-node.service /etc/systemd/system/lwylink-node.service
 systemctl daemon-reload
-systemctl enable --now lwyv-gamenet-node
+systemctl enable --now lwylink-node
 ```
 
 6. 回到管理后台点“检查”，状态变成 `online` 后，新创建的房间就会按负载自动分配到这个节点。

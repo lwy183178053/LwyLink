@@ -31,7 +31,7 @@ func main() {
 func run() (code int) {
 	apiURL := flag.String("api", "http://127.0.0.1:8080", "HTTP API base URL")
 	overlayAddr := flag.String("overlay", "127.0.0.1:35768", "Overlay address")
-	adminToken := flag.String("admin-token", os.Getenv("LWYV_GAMENET_ADMIN_TOKEN"), "Admin token used to delete smoke users after the run")
+	adminToken := flag.String("admin-token", os.Getenv("LWYLINK_ADMIN_TOKEN"), "Admin token used to delete smoke users after the run")
 	flag.Parse()
 
 	cleaner := newSmokeCleaner(*apiURL, *adminToken)

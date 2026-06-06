@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -133,19 +132,19 @@ func (s *RedisStore) deleteByPattern(ctx context.Context, pattern string) {
 }
 
 func overlayOnlineKey(roomID, userID int64) string {
-	return fmt.Sprintf("%s%d", overlayOnlinePrefix(roomID), userID)
+	return overlayOnlinePrefix(roomID) + strconv.FormatInt(userID, 10)
 }
 
 func roomAppOnlineKey(roomID, userID int64) string {
-	return fmt.Sprintf("%s%d", roomAppOnlinePrefix(roomID), userID)
+	return roomAppOnlinePrefix(roomID) + strconv.FormatInt(userID, 10)
 }
 
 func overlayOnlinePrefix(roomID int64) string {
-	return fmt.Sprintf("gamenet:online:%d:", roomID)
+	return redisKey("online:%d:", roomID)
 }
 
 func roomAppOnlinePrefix(roomID int64) string {
-	return fmt.Sprintf("gamenet:roomapp:%d:", roomID)
+	return redisKey("roomapp:%d:", roomID)
 }
 
 func overlayOnlinePattern(roomID int64) string {

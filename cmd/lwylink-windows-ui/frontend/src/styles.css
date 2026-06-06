@@ -307,15 +307,11 @@ code {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 34px;
   height: 34px;
   border-radius: 8px;
-  color: #effaf7;
-  background: #155d55;
-  font-size: 12px;
-  font-weight: 800;
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(22, 38, 34, 0.12);
 }
 
 .brand-lockup strong {

@@ -3,8 +3,8 @@
 这个目录放生产部署相关文件：
 
 - `docker-compose.prod.yml`：生产版 MySQL 和 Redis，只绑定 `127.0.0.1`。
-- `lwyv-gamenet-control.service`：控制平面 systemd 服务。
-- `lwyv-gamenet-node.service`：房间节点 systemd 服务。
+- `lwylink-control.service`：控制平面 systemd 服务。
+- `lwylink-node.service`：房间节点 systemd 服务。
 - `TEST_SERVER.md`：当前测试服务器、端口、远端路径和自动部署流程速查。
 - `deploy-test.ps1`：本机 PowerShell 自动构建、上传、重启并 smoke 测试当前测试服务器。
 
@@ -22,8 +22,8 @@
 
 ## 程序分工
 
-- `gamenet-control`：部署在管理服务器上的 LwyLink 控制中心，负责玩家 API、管理后台、节点调度、节点健康检查、空房清理。
-- `gamenet-node`：部署在每台房间节点服务器上的 LwyLink 房间节点，负责 tcpx 加密 Overlay、vDHCP、房间内 IP 包转发。
+- `lwylink-control`：部署在管理服务器上的 LwyLink 控制中心，负责玩家 API、管理后台、节点调度、节点健康检查、空房清理。
+- `lwylink-node`：部署在每台房间节点服务器上的 LwyLink 房间节点，负责 tcpx 加密 Overlay、vDHCP、房间内 IP 包转发。
 
 节点服务器不需要配置 `nodeID`。节点只保存自己的 `overlayPrivateKey`，启动时会派生出 `overlayPublicKey`，再用这个公钥到控制平面数据库里找到自己的节点记录。
 
@@ -32,20 +32,20 @@
 1. 在新服务器创建目录：
 
 ```bash
-mkdir -p /opt/lwyv-gamenet/configs
+mkdir -p /opt/lwylink/configs
 ```
 
-2. 上传 `gamenet-node` 和节点配置到新服务器：
+2. 上传 `lwylink-node` 和节点配置到新服务器：
 
 ```text
-/opt/lwyv-gamenet/gamenet-node
-/opt/lwyv-gamenet/configs/node.prod.json
+/opt/lwylink/lwylink-node
+/opt/lwylink/configs/node.prod.json
 ```
 
 3. 在节点配置中把 `overlayPrivateKey` 留空，然后生成并打印该节点的 Overlay 公钥：
 
 ```bash
-/opt/lwyv-gamenet/gamenet-node -config /opt/lwyv-gamenet/configs/node.prod.json -print-public-key
+/opt/lwylink/lwylink-node -config /opt/lwylink/configs/node.prod.json -print-public-key
 ```
 
 这条命令会自动生成 `overlayPrivateKey` 并写回配置文件，同时打印要填入控制后台的 `overlayPublicKey`。
@@ -68,9 +68,9 @@ mkdir -p /opt/lwyv-gamenet/configs
 6. 安装并启动 systemd：
 
 ```bash
-cp /opt/lwyv-gamenet/deploy/lwyv-gamenet-node.service /etc/systemd/system/lwyv-gamenet-node.service
+cp /opt/lwylink/deploy/lwylink-node.service /etc/systemd/system/lwylink-node.service
 systemctl daemon-reload
-systemctl enable --now lwyv-gamenet-node
+systemctl enable --now lwylink-node
 ```
 
 7. 回到控制后台点“检查”。节点状态变成 `online` 后，新创建的房间就会按负载自动分配到这个节点。

@@ -1,12 +1,12 @@
 services:
   mysql:
     image: mysql:8.4
-    container_name: lwyv-gamenet-mysql
+    container_name: lwylink-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: gamenet
-      MYSQL_USER: gamenet
+      MYSQL_DATABASE: lwylink
+      MYSQL_USER: lwylink
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Shanghai
     ports:
@@ -19,7 +19,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    container_name: lwyv-gamenet-redis
+    container_name: lwylink-redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"

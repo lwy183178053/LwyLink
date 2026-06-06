@@ -76,6 +76,7 @@ import {
   userLabel,
 } from "./client-ui";
 import { Avatar, ChatBubble, MemberRow, Metric, NavButton, Rule } from "./components";
+import appIcon from "./assets/lwylink-icon.png";
 import type { AppState } from "./types";
 import { emptyState } from "./types";
 
@@ -388,7 +389,7 @@ export default function App() {
           <div className="integrated-chrome">
             <div className="chrome-drag">
               <div className="brand-lockup">
-                <span className="brand-mark">LL</span>
+                <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" />
                 <div>
                   <strong>LwyLink</strong>
                   <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>

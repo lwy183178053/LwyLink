@@ -12,6 +12,8 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
+const envPrefix = "LWYLINK_"
+
 type ControlConfig struct {
 	HTTPAddr                       string `json:"httpAddr"`
 	MySQLDSN                       string `json:"mysqlDsn"`
@@ -168,7 +170,7 @@ func applyControlDefaults(cfg *ControlConfig) {
 		cfg.HTTPAddr = "127.0.0.1:8080"
 	}
 	if cfg.MySQLDSN == "" {
-		cfg.MySQLDSN = "gamenet:gamenet@tcp(127.0.0.1:3306)/gamenet?parseTime=true&charset=utf8mb4&loc=Local"
+		cfg.MySQLDSN = "lwylink:lwylink@tcp(127.0.0.1:3306)/lwylink?parseTime=true&charset=utf8mb4&loc=Local"
 	}
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "127.0.0.1:6379"
@@ -198,7 +200,7 @@ func applyNodeDefaults(cfg *NodeConfig) {
 		cfg.OverlayAddr = "0.0.0.0:7777"
 	}
 	if cfg.MySQLDSN == "" {
-		cfg.MySQLDSN = "gamenet:gamenet@tcp(127.0.0.1:3306)/gamenet?parseTime=true&charset=utf8mb4&loc=Local"
+		cfg.MySQLDSN = "lwylink:lwylink@tcp(127.0.0.1:3306)/lwylink?parseTime=true&charset=utf8mb4&loc=Local"
 	}
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "127.0.0.1:6379"
@@ -218,54 +220,58 @@ func applyNodeDefaults(cfg *NodeConfig) {
 }
 
 func applyControlEnvOverrides(cfg *ControlConfig) {
-	if v := os.Getenv("GAMENET_HTTP_ADDR"); v != "" {
+	if v := os.Getenv(envName("HTTP_ADDR")); v != "" {
 		cfg.HTTPAddr = v
 	}
 	applySharedEnvOverrides(&cfg.MySQLDSN, &cfg.RedisAddr, &cfg.RedisPassword, &cfg.TokenSecret, &cfg.RoomNetworkBase, &cfg.RoomSubnetPrefix)
-	if v := os.Getenv("GAMENET_ADMIN_TOKEN"); v != "" {
+	if v := os.Getenv(envName("ADMIN_TOKEN")); v != "" {
 		cfg.AdminToken = v
 	}
-	if v := os.Getenv("GAMENET_CLIENT_RELEASE_DIR"); v != "" {
+	if v := os.Getenv(envName("CLIENT_RELEASE_DIR")); v != "" {
 		cfg.ClientReleaseDir = v
 	}
-	applyEnvInt("GAMENET_NODE_HEALTH_INTERVAL_SECONDS", &cfg.NodeHealthCheckIntervalSeconds)
-	applyEnvInt("GAMENET_ROOM_CLEANUP_INTERVAL_SECONDS", &cfg.RoomCleanupIntervalSeconds)
-	applyEnvInt("GAMENET_ROOM_EMPTY_GRACE_SECONDS", &cfg.RoomEmptyGraceSeconds)
+	applyEnvInt(envName("NODE_HEALTH_INTERVAL_SECONDS"), &cfg.NodeHealthCheckIntervalSeconds)
+	applyEnvInt(envName("ROOM_CLEANUP_INTERVAL_SECONDS"), &cfg.RoomCleanupIntervalSeconds)
+	applyEnvInt(envName("ROOM_EMPTY_GRACE_SECONDS"), &cfg.RoomEmptyGraceSeconds)
 }
 
 func applyNodeEnvOverrides(cfg *NodeConfig) {
-	if v := os.Getenv("GAMENET_OVERLAY_ADDR"); v != "" {
+	if v := os.Getenv(envName("OVERLAY_ADDR")); v != "" {
 		cfg.OverlayAddr = v
 	}
 	applySharedEnvOverrides(&cfg.MySQLDSN, &cfg.RedisAddr, &cfg.RedisPassword, &cfg.TokenSecret, &cfg.RoomNetworkBase, &cfg.RoomSubnetPrefix)
-	if v := os.Getenv("GAMENET_OVERLAY_PRIVATE_KEY"); v != "" {
+	if v := os.Getenv(envName("OVERLAY_PRIVATE_KEY")); v != "" {
 		cfg.OverlayPrivateKey = v
 	}
-	applyEnvInt("GAMENET_DEFAULT_MTU", &cfg.DefaultMTU)
-	if v := os.Getenv("GAMENET_DEFAULT_DNS"); v != "" {
+	applyEnvInt(envName("DEFAULT_MTU"), &cfg.DefaultMTU)
+	if v := os.Getenv(envName("DEFAULT_DNS")); v != "" {
 		cfg.DefaultDNS = splitCSV(v)
 	}
 }
 
 func applySharedEnvOverrides(mysqlDSN, redisAddr, redisPassword, tokenSecret, roomNetworkBase *string, roomSubnetPrefix *int) {
-	if v := os.Getenv("GAMENET_MYSQL_DSN"); v != "" {
+	if v := os.Getenv(envName("MYSQL_DSN")); v != "" {
 		*mysqlDSN = v
 	}
-	if v := os.Getenv("GAMENET_REDIS_ADDR"); v != "" {
+	if v := os.Getenv(envName("REDIS_ADDR")); v != "" {
 		*redisAddr = v
 	}
-	if v := os.Getenv("GAMENET_REDIS_PASSWORD"); v != "" {
+	if v := os.Getenv(envName("REDIS_PASSWORD")); v != "" {
 		*redisPassword = v
 	}
-	if v := os.Getenv("GAMENET_TOKEN_SECRET"); v != "" {
+	if v := os.Getenv(envName("TOKEN_SECRET")); v != "" {
 		*tokenSecret = v
 	}
-	if v := os.Getenv("GAMENET_ROOM_NETWORK_BASE"); v != "" {
+	if v := os.Getenv(envName("ROOM_NETWORK_BASE")); v != "" {
 		*roomNetworkBase = v
 	}
-	if v := os.Getenv("GAMENET_ROOM_SUBNET_PREFIX"); v != "" {
+	if v := os.Getenv(envName("ROOM_SUBNET_PREFIX")); v != "" {
 		applyIntValue(v, roomSubnetPrefix)
 	}
+}
+
+func envName(name string) string {
+	return envPrefix + name
 }
 
 func applyEnvInt(name string, target *int) {

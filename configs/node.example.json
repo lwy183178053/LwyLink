@@ -1,6 +1,6 @@
 {
   "overlayAddr": "0.0.0.0:7777",
-  "mysqlDsn": "gamenet:gamenet@tcp(127.0.0.1:3306)/gamenet?parseTime=true&charset=utf8mb4&loc=Local",
+  "mysqlDsn": "lwylink:lwylink@tcp(127.0.0.1:3306)/lwylink?parseTime=true&charset=utf8mb4&loc=Local",
   "redisAddr": "127.0.0.1:6379",
   "redisPassword": "",
   "tokenSecret": "dev-secret-change-before-public-deploy",

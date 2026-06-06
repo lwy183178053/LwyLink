@@ -1,12 +1,12 @@
 [Unit]
-Description=LwyLink control plane
+Description=LwyLink room node
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/lwyv-gamenet
-ExecStart=/opt/lwyv-gamenet/gamenet-control -config /opt/lwyv-gamenet/configs/control.prod.json
+WorkingDirectory=/opt/lwylink
+ExecStart=/opt/lwylink/lwylink-node -config /opt/lwylink/configs/node.prod.json
 Restart=always
 RestartSec=3
 LimitNOFILE=65535

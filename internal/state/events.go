@@ -3,7 +3,6 @@ package state
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/room"
@@ -45,7 +44,7 @@ func (s *RedisStore) SubscribeAllRoomEvents(ctx context.Context) (<-chan room.Ro
 	if err := s.requireRedis("room events"); err != nil {
 		return nil, nil, err
 	}
-	return s.subscribeRoomEvents(ctx, true, "gamenet:room-events:room:*")
+	return s.subscribeRoomEvents(ctx, true, redisKey("room-events:room:*"))
 }
 
 func (s *RedisStore) subscribeRoomEvents(ctx context.Context, pattern bool, channel string) (<-chan room.RoomEvent, func(), error) {
@@ -78,11 +77,11 @@ func (s *RedisStore) subscribeRoomEvents(ctx context.Context, pattern bool, chan
 }
 
 func roomEventRoomChannel(roomID int64) string {
-	return fmt.Sprintf("gamenet:room-events:room:%d", roomID)
+	return redisKey("room-events:room:%d", roomID)
 }
 
 func roomEventUserChannel(userID int64) string {
-	return fmt.Sprintf("gamenet:room-events:user:%d", userID)
+	return redisKey("room-events:user:%d", userID)
 }
 
 func uniquePositiveIDs(ids []int64) []int64 {
