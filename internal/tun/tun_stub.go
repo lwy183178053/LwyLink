@@ -23,3 +23,7 @@ func ConfigureAddressAndRoute(ifName, ip, mask, roomCIDR, gateway string) error 
 func CleanupRoute(ifName, roomCIDR string) error {
 	return nil
 }
+
+func EnableFirewallProfiles() error {
+	return nil
+}

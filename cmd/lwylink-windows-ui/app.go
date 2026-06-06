@@ -29,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.8"
+var AppVersion = "0.1.9"
 
 type App struct {
 	ctx context.Context
@@ -243,6 +243,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.cancelConnectionLocked()
 	a.cancelRoomEventsLocked()
 	a.mu.Unlock()
+	_ = tun.EnableFirewallProfiles()
 	a.cleanupNotifications(ctx)
 	a.stopTray()
 }

@@ -60,6 +60,8 @@ Start-Sleep -Milliseconds 500
 $ifIndex = (Get-NetIPInterface -AddressFamily IPv4 -InterfaceAlias $alias -ErrorAction Stop | Select-Object -First 1).InterfaceIndex
 Set-NetIPInterface -AddressFamily IPv4 -InterfaceIndex $ifIndex -AutomaticMetric Disabled -InterfaceMetric 5 -ErrorAction Stop
 Set-NetIPInterface -AddressFamily IPv4 -InterfaceIndex $ifIndex -WeakHostSend Enabled -WeakHostReceive Enabled -ErrorAction SilentlyContinue
+Get-NetConnectionProfile -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue |
+  Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
 Disable-NetAdapterBinding -Name $alias -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Out-Null
 
 foreach ($store in @("ActiveStore", "PersistentStore")) {
@@ -85,6 +87,7 @@ Get-NetFirewallRule -DisplayName $firewallRule -ErrorAction SilentlyContinue | R
 Get-NetFirewallRule -DisplayName $firewallOutRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName $firewallRule -Direction Inbound -Action Allow -InterfaceAlias $alias -Profile Any -Protocol Any -Enabled True -ErrorAction SilentlyContinue | Out-Null
 New-NetFirewallRule -DisplayName $firewallOutRule -Direction Outbound -Action Allow -InterfaceAlias $alias -Profile Any -Protocol Any -Enabled True -ErrorAction SilentlyContinue | Out-Null
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False -ErrorAction Stop
 `, ifName, dst, multicastDst, limitedBroadcastDst, gateway)
 	return runPowerShell(ps)
 }
@@ -124,8 +127,13 @@ if ($if) {
 }
 Get-NetFirewallRule -DisplayName $firewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 Get-NetFirewallRule -DisplayName $firewallOutRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True -ErrorAction SilentlyContinue
 `, ifName, dst, multicastDst, limitedBroadcastDst)
 	return runPowerShell(ps)
+}
+
+func EnableFirewallProfiles() error {
+	return runPowerShell(`Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True -ErrorAction SilentlyContinue`)
 }
 
 func runPowerShell(script string) error {
