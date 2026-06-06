@@ -17,17 +17,74 @@ import (
 )
 
 type ConnectOptions struct {
-	OverlayAddr     string
-	ServerPublicKey string
-	IfName          string
-	Token           string
-	Room            room.Room
-	OnConnected     func(overlay.DHCPResponse)
+	OverlayAddr      string
+	ServerPublicKey  string
+	IfName           string
+	Token            string
+	UserID           int64
+	Room             room.Room
+	OnConnected      func(overlay.DHCPResponse)
+	OnTransportState func(TransportStatus)
+}
+
+type connectionRuntime struct {
+	mu          sync.RWMutex
+	secureReady bool
+	tunnel      *tun.Tunnel
+	udp         *udpManager
+}
+
+func (r *connectionRuntime) setSecureReady(ready bool) {
+	r.mu.Lock()
+	r.secureReady = ready
+	r.mu.Unlock()
+}
+
+func (r *connectionRuntime) isSecureReady() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.secureReady
+}
+
+func (r *connectionRuntime) setTunnel(t *tun.Tunnel) {
+	r.mu.Lock()
+	r.tunnel = t
+	r.mu.Unlock()
+}
+
+func (r *connectionRuntime) writeTunnel(pkt []byte) {
+	r.mu.RLock()
+	t := r.tunnel
+	r.mu.RUnlock()
+	if t != nil {
+		_ = t.Write(pkt)
+	}
+}
+
+func (r *connectionRuntime) setUDP(manager *udpManager) {
+	r.mu.Lock()
+	r.udp = manager
+	r.mu.Unlock()
+}
+
+func (r *connectionRuntime) udpManager() *udpManager {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.udp
+}
+
+func (r *connectionRuntime) closeUDP() {
+	if manager := r.udpManager(); manager != nil {
+		_ = manager.Close()
+	}
 }
 
 func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	if opts.Token == "" {
 		return fmt.Errorf("not logged in")
+	}
+	if opts.UserID <= 0 {
+		return fmt.Errorf("bad user")
 	}
 	if opts.Room.ID <= 0 {
 		return fmt.Errorf("bad room")
@@ -53,11 +110,11 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	}
 	requestID := newRequestID()
 
+	runtimeState := &connectionRuntime{}
 	var (
-		mu          sync.RWMutex
-		secureReady bool
-		tunnel      *tun.Tunnel
 		dhcpCh      = make(chan overlay.DHCPResponse, 1)
+		udpConfigCh = make(chan overlay.UDPControl, 4)
+		udpPeerCh   = make(chan overlay.UDPPeerCandidate, 64)
 		errCh       = make(chan error, 1)
 	)
 
@@ -97,9 +154,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 			if err != nil {
 				log.Printf("overlay disconnected, tcpx will retry: %v", err)
 			}
-			mu.Lock()
-			secureReady = false
-			mu.Unlock()
+			runtimeState.setSecureReady(false)
 		},
 		OnMessage: func(conn *tcpx.SecureConn, raw []byte) {
 			typ, payload, err := overlay.UnpackFrame(raw)
@@ -123,20 +178,13 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 					_ = conn.Close()
 					return
 				}
-				mu.Lock()
-				secureReady = true
-				mu.Unlock()
+				runtimeState.setSecureReady(true)
 				select {
 				case dhcpCh <- lease:
 				default:
 				}
 			case overlay.FrameIP:
-				mu.RLock()
-				t := tunnel
-				mu.RUnlock()
-				if t != nil {
-					_ = t.Write(payload)
-				}
+				runtimeState.writeTunnel(payload)
 			case overlay.FrameError:
 				var e map[string]string
 				_ = json.Unmarshal(payload, &e)
@@ -146,6 +194,25 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				pushErr(errCh, fmt.Errorf("overlay error: %s", e["error"]))
 				_ = conn.Close()
 			case overlay.FramePing:
+			case overlay.FrameUDPControl:
+				var control overlay.UDPControl
+				if err := json.Unmarshal(payload, &control); err != nil {
+					return
+				}
+				switch control.Type {
+				case overlay.UDPControlConfig:
+					select {
+					case udpConfigCh <- control:
+					default:
+					}
+				case overlay.UDPControlPeer:
+					if control.Peer != nil {
+						select {
+						case udpPeerCh <- *control.Peer:
+						default:
+						}
+					}
+				}
 			default:
 				log.Printf("unknown overlay frame: %d", typ)
 			}
@@ -179,9 +246,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	}
 	defer t.Close()
 	defer tun.CleanupRoute(opts.IfName, opts.Room.NetworkCIDR)
-	mu.Lock()
-	tunnel = t
-	mu.Unlock()
+	runtimeState.setTunnel(t)
 
 	// Route configuration happens only after the server has authenticated this
 	// token and assigned a lease. On non-Windows builds this returns a stub error.
@@ -191,16 +256,20 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	if opts.OnConnected != nil {
 		opts.OnConnected(lease)
 	}
+	if opts.OnTransportState != nil {
+		opts.OnTransportState(TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接"})
+	}
 
 	log.Printf("虚拟网络已连接: room=%s ip=%s cidr=%s if=%s", opts.Room.Name, lease.IP, opts.Room.NetworkCIDR, opts.IfName)
 
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go manageUDPTransport(childCtx, opts, lease, runtimeState, udpConfigCh, udpPeerCh)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		tunToOverlay(childCtx, transport, t, &mu, &secureReady)
+		tunToOverlay(childCtx, transport, t, runtimeState)
 		cancel()
 	}()
 	go func() {
@@ -209,13 +278,65 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 		cancel()
 	}()
 	<-childCtx.Done()
+	runtimeState.closeUDP()
 	_ = transport.Close()
 	_ = t.Close()
 	wg.Wait()
 	return nil
 }
 
-func tunToOverlay(ctx context.Context, transport *tcpx.Client, t *tun.Tunnel, mu *sync.RWMutex, secureReady *bool) {
+func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.DHCPResponse, runtimeState *connectionRuntime, udpConfigCh <-chan overlay.UDPControl, udpPeerCh <-chan overlay.UDPPeerCandidate) {
+	var manager *udpManager
+	pendingPeers := make([]overlay.UDPPeerCandidate, 0, 8)
+	for {
+		select {
+		case <-ctx.Done():
+			if manager != nil {
+				_ = manager.Close()
+			}
+			return
+		case peer := <-udpPeerCh:
+			if manager != nil {
+				manager.AddPeer(peer)
+			} else {
+				pendingPeers = append(pendingPeers, peer)
+			}
+		case config := <-udpConfigCh:
+			if manager != nil {
+				continue
+			}
+			key, err := overlay.DecodeUDPKey(config.Key)
+			if err != nil {
+				continue
+			}
+			manager, err = startUDPManager(ctx, udpManagerConfig{
+				ServerAddr: opts.OverlayAddr,
+				Token:      config.Token,
+				Key:        key,
+				RoomID:     opts.Room.ID,
+				UserID:     opts.UserID,
+				VirtualIP:  lease.IP,
+				OnPacket: func(pkt []byte) {
+					runtimeState.writeTunnel(pkt)
+				},
+				OnStatus: opts.OnTransportState,
+			})
+			if err != nil {
+				if opts.OnTransportState != nil {
+					opts.OnTransportState(TransportStatus{Mode: TransportModeUDPDisabled, Message: "稳定连接"})
+				}
+				continue
+			}
+			runtimeState.setUDP(manager)
+			for _, peer := range pendingPeers {
+				manager.AddPeer(peer)
+			}
+			pendingPeers = nil
+		}
+	}
+}
+
+func tunToOverlay(ctx context.Context, transport *tcpx.Client, t *tun.Tunnel, runtimeState *connectionRuntime) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -224,13 +345,16 @@ func tunToOverlay(ctx context.Context, transport *tcpx.Client, t *tun.Tunnel, mu
 			if !ok {
 				return
 			}
-			mu.RLock()
-			ready := *secureReady
-			mu.RUnlock()
 			// Drop packets while tcpx is reconnecting; the game can retransmit,
 			// and this avoids writing traffic before the session is authenticated.
-			if !ready {
+			if !runtimeState.isSecureReady() {
 				continue
+			}
+			_, dst, err := overlay.IPv4SrcDst(pkt)
+			if err == nil {
+				if manager := runtimeState.udpManager(); manager != nil && manager.SendToPeer(dst, pkt) {
+					continue
+				}
 			}
 			if err := transport.Write(overlay.PackFrame(overlay.FrameIP, pkt)); err != nil {
 				return

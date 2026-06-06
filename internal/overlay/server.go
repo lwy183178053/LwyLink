@@ -37,6 +37,19 @@ type Server struct {
 	mu       sync.RWMutex
 	byConn   map[*tcpx.SecureConn]*session
 	byRoomIP map[int64]map[string]*session
+	byUDP    map[string]*session
+	udpPairs map[udpPairKey]udpPair
+}
+
+type udpPairKey struct {
+	roomID  int64
+	leftIP  string
+	rightIP string
+}
+
+type udpPair struct {
+	SessionID string
+	Key       []byte
 }
 
 func NewServer(addr string, nodeID int64, privateKey string, accounts *account.Service, rooms *room.Service, leases *vdhcp.Manager, presence PresenceStore, defaultDNS []string, defaultMTU int) *Server {
@@ -52,6 +65,8 @@ func NewServer(addr string, nodeID int64, privateKey string, accounts *account.S
 		defaultMTU: defaultMTU,
 		byConn:     make(map[*tcpx.SecureConn]*session),
 		byRoomIP:   make(map[int64]map[string]*session),
+		byUDP:      make(map[string]*session),
+		udpPairs:   make(map[udpPairKey]udpPair),
 	}
 }
 
@@ -82,6 +97,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	go s.watchRoomEvents(ctx)
+	go s.listenAndServeUDP(ctx)
 	log.Printf("encrypted overlay listening on %s", s.addr)
 	return server.ListenAndServe(ctx)
 }
@@ -136,6 +152,11 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 	// Register first, then send DHCP. If the client starts sending packets
 	// immediately after DHCP, the server can already route by room/IP.
 	sess := newSession(conn, user.ID, user.Username, claims.SessionID, roomInfo.ID, lease)
+	if err := s.prepareUDP(sess); err != nil {
+		_ = s.writeJSON(conn, FrameError, map[string]string{"error": err.Error()})
+		_ = conn.Close()
+		return
+	}
 	old := s.register(sess)
 	if old != nil {
 		old.close()
@@ -151,6 +172,14 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 		DNS:          lease.DNS,
 		MTU:          lease.MTU,
 		LeaseSeconds: lease.LeaseSeconds,
+	}); err != nil {
+		sess.close()
+		return
+	}
+	if err := s.writeJSON(conn, FrameUDPControl, UDPControl{
+		Type:  UDPControlConfig,
+		Token: sess.udpToken,
+		Key:   EncodeUDPKey(sess.udpKey),
 	}); err != nil {
 		sess.close()
 		return
@@ -199,7 +228,7 @@ func (s *Server) onDisconnect(conn *tcpx.SecureConn, err error) {
 }
 
 func (s *Server) forwardIP(from *session, pkt []byte) {
-	src, dst, err := ipv4SrcDst(pkt)
+	src, dst, err := IPv4SrcDst(pkt)
 	if err != nil {
 		return
 	}
@@ -231,6 +260,9 @@ func (s *Server) register(sess *session) *session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.byConn[sess.conn] = sess
+	if sess.udpToken != "" {
+		s.byUDP[sess.udpToken] = sess
+	}
 	roomMap := s.byRoomIP[sess.roomID]
 	if roomMap == nil {
 		roomMap = make(map[string]*session)
@@ -296,6 +328,12 @@ func (s *Server) unregister(ctx context.Context, sess *session) {
 		delete(s.byConn, sess.conn)
 		removedConn = true
 	}
+	if sess.udpToken != "" {
+		if current := s.byUDP[sess.udpToken]; current == sess {
+			delete(s.byUDP, sess.udpToken)
+		}
+	}
+	s.deleteUDPPairsLocked(sess)
 	roomMap := s.byRoomIP[sess.roomID]
 	if roomMap != nil && roomMap[sess.lease.IP] == sess {
 		delete(roomMap, sess.lease.IP)

@@ -56,6 +56,9 @@ export type ConnectionState = {
   ip: string;
   gateway: string;
   mtu: number;
+  transportMode: string;
+  transportMessage: string;
+  directPeers: number;
 };
 
 export type UpdateState = {
@@ -100,11 +103,14 @@ export const emptyState: AppState = {
     ip: "",
     gateway: "",
     mtu: 0,
+    transportMode: "tcp-relay",
+    transportMessage: "稳定连接",
+    directPeers: 0,
   },
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.1",
+    currentVersion: "0.1.2",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

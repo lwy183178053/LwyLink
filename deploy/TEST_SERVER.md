@@ -8,7 +8,7 @@
 - 系统：Ubuntu
 - SSH：`root@64.83.34.53:22`
 - LwyLink 控制 API：`http://64.83.34.53:8080`
-- LwyLink Overlay：`64.83.34.53:35768`
+- LwyLink Overlay：`64.83.34.53:35768`（TCP 控制/中继 + UDP 打洞协商）
 - LwyLink 远端目录：`/opt/lwylink`
 
 重要：服务器上的 `443` 端口被旧的 LwyV-Net 服务占用，进程通常显示为 `lwyvnet-linux-a`。不要停止、重启、覆盖或抢占这个 443 服务。LwyLink 测试只使用 `8080` 和 `35768`。
@@ -50,13 +50,14 @@ systemctl status lwylink-node
 监听端口检查：
 
 ```bash
-ss -ltnp | grep -E ':(443|8080|35768) '
+ss -ltnup | grep -E ':(443|8080|35768) '
 ```
 
 期望结果：
 
 - `8080`：`lwylink-control`
-- `35768`：`lwylink-node`
+- `35768/tcp`：`lwylink-node` 控制/中继
+- `35768/udp`：`lwylink-node` UDP 打洞协商
 - `443`：旧服务，不属于 LwyLink
 
 ## 一键部署
@@ -76,7 +77,7 @@ $env:LWYLINK_TEST_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 3. 上传到 `/opt/lwylink/deploy/dist`
 4. 安装到 `/opt/lwylink`
 5. 重启 `lwylink-control` 和 `lwylink-node`
-6. 检查 `8080`、`35768`、`443`
+6. 检查 `8080`、`35768/tcp`、`35768/udp`、`443`
 7. 跑远端 smoke 测试
 
 只上传二进制，不覆盖远端配置：
@@ -174,7 +175,7 @@ go test -p 1 ./...
 ```bash
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnp | grep -E ':(443|8080|35768) '
+ss -ltnup | grep -E ':(443|8080|35768) '
 journalctl -u lwylink-control -n 50 --no-pager
 journalctl -u lwylink-node -n 50 --no-pager
 ```

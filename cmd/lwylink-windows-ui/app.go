@@ -28,7 +28,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.1"
+var AppVersion = "0.1.2"
 
 type App struct {
 	ctx context.Context
@@ -108,15 +108,18 @@ type AppState struct {
 }
 
 type ConnectionState struct {
-	Status      string `json:"status"`
-	Message     string `json:"message"`
-	RoomID      int64  `json:"roomID"`
-	RoomName    string `json:"roomName"`
-	NetworkCIDR string `json:"networkCIDR"`
-	OverlayAddr string `json:"overlayAddr"`
-	IP          string `json:"ip"`
-	Gateway     string `json:"gateway"`
-	MTU         int    `json:"mtu"`
+	Status           string `json:"status"`
+	Message          string `json:"message"`
+	RoomID           int64  `json:"roomID"`
+	RoomName         string `json:"roomName"`
+	NetworkCIDR      string `json:"networkCIDR"`
+	OverlayAddr      string `json:"overlayAddr"`
+	IP               string `json:"ip"`
+	Gateway          string `json:"gateway"`
+	MTU              int    `json:"mtu"`
+	TransportMode    string `json:"transportMode"`
+	TransportMessage string `json:"transportMessage"`
+	DirectPeers      int    `json:"directPeers"`
 }
 
 func NewApp() *App {
@@ -124,9 +127,35 @@ func NewApp() *App {
 		api:        client.NewAPI(defaultAPIBaseURL),
 		apiBaseURL: defaultAPIBaseURL,
 		ifName:     defaultIfName,
-		connection: ConnectionState{Status: statusDisconnected, Message: "未连接"},
+		connection: newConnectionState(statusDisconnected, "未连接"),
 		update:     UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
+}
+
+func newConnectionState(status, message string) ConnectionState {
+	return ConnectionState{
+		Status:           status,
+		Message:          message,
+		TransportMode:    client.TransportModeTCPRelay,
+		TransportMessage: "稳定连接",
+	}
+}
+
+func newRoomConnectionState(status, message string, selected room.Room) ConnectionState {
+	state := newConnectionState(status, message)
+	state.RoomID = selected.ID
+	state.RoomName = selected.Name
+	state.NetworkCIDR = selected.NetworkCIDR
+	state.OverlayAddr = selected.NodeOverlayAddr
+	return state
+}
+
+func newConnectedState(selected room.Room, lease overlay.DHCPResponse) ConnectionState {
+	state := newRoomConnectionState(statusConnected, "已连接", selected)
+	state.IP = lease.IP
+	state.Gateway = lease.Gateway
+	state.MTU = lease.MTU
+	return state
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -135,7 +164,7 @@ func (a *App) startup(ctx context.Context) {
 	a.registerTray()
 	if err := tun.EnsureWintunDLL(); err != nil {
 		a.mu.Lock()
-		a.connection = ConnectionState{Status: statusError, Message: friendlyConnectionError(err)}
+		a.connection = newConnectionState(statusError, friendlyConnectionError(err))
 		a.commitStateLocked()
 		return
 	}
@@ -184,7 +213,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		a.api = client.NewAPI(apiBaseURL)
 		a.user = nil
 		a.clearRoomStateLocked()
-		a.connection = ConnectionState{Status: statusDisconnected, Message: "切换服务器后已退出登录"}
+		a.connection = newConnectionState(statusDisconnected, "切换服务器后已退出登录")
 		a.resetUpdateLocked()
 		a.startUpdateCheckLocked("正在检查更新")
 	}
@@ -235,7 +264,7 @@ func (a *App) Logout() (AppState, error) {
 	a.api.ClearToken()
 	a.user = nil
 	a.clearRoomStateLocked()
-	a.connection = ConnectionState{Status: statusDisconnected, Message: "已退出登录"}
+	a.connection = newConnectionState(statusDisconnected, "已退出登录")
 	return a.commitStateLocked(), nil
 }
 
@@ -260,7 +289,7 @@ func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	a.connection = ConnectionState{Status: statusDisconnected, Message: "房间已创建，请手动启动虚拟网卡"}
+	a.connection = newConnectionState(statusDisconnected, "房间已创建，请手动启动虚拟网卡")
 	return a.commitStateLocked(), nil
 }
 
@@ -285,7 +314,7 @@ func (a *App) JoinRoom(input JoinRoomInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
-	a.connection = ConnectionState{Status: statusDisconnected, Message: "已加入房间，请手动启动虚拟网卡"}
+	a.connection = newConnectionState(statusDisconnected, "已加入房间，请手动启动虚拟网卡")
 	return a.commitStateLocked(), nil
 }
 
@@ -441,23 +470,17 @@ func (a *App) startRoomConnectionLocked(selected room.Room, message string) erro
 	seq := a.connectSeq
 	token := a.api.Token()
 	ifName := a.ifName
+	userID := a.user.ID
 	a.connectCancel = cancel
-	a.connection = ConnectionState{
-		Status:      statusConnecting,
-		Message:     message,
-		RoomID:      selected.ID,
-		RoomName:    selected.Name,
-		NetworkCIDR: selected.NetworkCIDR,
-		OverlayAddr: selected.NodeOverlayAddr,
-	}
-	go a.runConnection(seq, connectCtx, selected, token, ifName)
+	a.connection = newRoomConnectionState(statusConnecting, message, selected)
+	go a.runConnection(seq, connectCtx, selected, token, userID, ifName)
 	return nil
 }
 
 func (a *App) Disconnect() (AppState, error) {
 	a.mu.Lock()
 	if a.connectCancel == nil {
-		a.connection = ConnectionState{Status: statusDisconnected, Message: "未连接"}
+		a.connection = newConnectionState(statusDisconnected, "未连接")
 		return a.commitStateLocked(), nil
 	}
 	a.connection.Status = statusDisconnecting
@@ -466,31 +489,25 @@ func (a *App) Disconnect() (AppState, error) {
 	return a.commitStateLocked(), nil
 }
 
-func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, token, ifName string) {
+func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, token string, userID int64, ifName string) {
 	err := client.ConnectRoom(ctx, client.ConnectOptions{
 		OverlayAddr:     selected.NodeOverlayAddr,
 		ServerPublicKey: selected.NodePublicKey,
 		IfName:          ifName,
 		Token:           token,
+		UserID:          userID,
 		Room:            selected,
 		OnConnected: func(lease overlay.DHCPResponse) {
-			a.mu.Lock()
-			if a.connectSeq == seq {
-				a.connection = ConnectionState{
-					Status:      statusConnected,
-					Message:     "已连接",
-					RoomID:      selected.ID,
-					RoomName:    selected.Name,
-					NetworkCIDR: selected.NetworkCIDR,
-					OverlayAddr: selected.NodeOverlayAddr,
-					IP:          lease.IP,
-					Gateway:     lease.Gateway,
-					MTU:         lease.MTU,
-				}
-				a.commitStateLocked()
-				return
-			}
-			a.mu.Unlock()
+			a.updateConnection(seq, func(state *ConnectionState) {
+				*state = newConnectedState(selected, lease)
+			})
+		},
+		OnTransportState: func(status client.TransportStatus) {
+			a.updateConnection(seq, func(state *ConnectionState) {
+				state.TransportMode = status.Mode
+				state.TransportMessage = status.Message
+				state.DirectPeers = status.DirectPeers
+			})
 		},
 	})
 
@@ -504,8 +521,18 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		a.connection.Status = statusError
 		a.connection.Message = friendlyConnectionError(err)
 	} else {
-		a.connection = ConnectionState{Status: statusDisconnected, Message: "已断开"}
+		a.connection = newConnectionState(statusDisconnected, "已断开")
 	}
+	a.commitStateLocked()
+}
+
+func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) {
+	a.mu.Lock()
+	if a.connectSeq != seq {
+		a.mu.Unlock()
+		return
+	}
+	apply(&a.connection)
 	a.commitStateLocked()
 }
 
@@ -620,7 +647,7 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 		a.chatMessages = nil
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
-			a.connection = ConnectionState{Status: statusDisconnected, Message: "已离开房间，虚拟网卡已断开"}
+			a.connection = newConnectionState(statusDisconnected, "已离开房间，虚拟网卡已断开")
 		}
 		return nil
 	}
@@ -631,7 +658,7 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 	}
 	if activeRoomID > 0 && activeRoomID != current.ID {
 		a.cancelConnectionLocked()
-		a.connection = ConnectionState{Status: statusDisconnected, Message: "当前房间已变化，虚拟网卡已断开"}
+		a.connection = newConnectionState(statusDisconnected, "当前房间已变化，虚拟网卡已断开")
 	}
 	members, err := a.api.RoomMembers(ctx, current.ID)
 	if err != nil {
@@ -655,7 +682,7 @@ func (a *App) refreshUserStateLocked(ctx context.Context) (bool, error) {
 		a.api.ClearToken()
 		a.user = nil
 		a.clearRoomStateLocked()
-		a.connection = ConnectionState{Status: statusDisconnected, Message: "账号状态已变化，请重新登录"}
+		a.connection = newConnectionState(statusDisconnected, "账号状态已变化，请重新登录")
 		return false, nil
 	}
 	a.user = &user

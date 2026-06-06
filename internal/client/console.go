@@ -209,6 +209,10 @@ func connectSelectedRoom(ctx context.Context, reader *bufio.Reader, api *API, se
 	if overlayTarget == "" || serverPublicKey == "" {
 		return fmt.Errorf("房间缺少节点连接信息，请确认控制中心已配置可用房间节点")
 	}
+	user, err := api.Me(ctx)
+	if err != nil {
+		return err
+	}
 	connectCtx, cancel := context.WithCancel(ctx)
 	errCh := make(chan error, 1)
 	go func() {
@@ -217,6 +221,7 @@ func connectSelectedRoom(ctx context.Context, reader *bufio.Reader, api *API, se
 			ServerPublicKey: serverPublicKey,
 			IfName:          ifName,
 			Token:           api.Token(),
+			UserID:          user.ID,
 			Room:            selected,
 		})
 	}()

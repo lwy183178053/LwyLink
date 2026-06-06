@@ -18,12 +18,12 @@
 公网 HTTP API 和 Overlay 监听端口分别配置。当前建议：
 
 - 控制 API：`0.0.0.0:8080`，Windows 客户端通过这个端口登录、创建房间、加入房间。
-- 房间 Overlay：`0.0.0.0:35768`，因为 443 已经被旧服务占用，LwyLink 不要抢占 443。
+- 房间 Overlay：`0.0.0.0:35768`，TCP 用于控制/中继，UDP 用于打洞协商；因为 443 已经被旧服务占用，LwyLink 不要抢占 443。
 
 ## 程序分工
 
 - `lwylink-control`：部署在管理服务器上的 LwyLink 控制中心，负责玩家 API、管理后台、节点调度、节点健康检查、空房清理。
-- `lwylink-node`：部署在每台房间节点服务器上的 LwyLink 房间节点，负责 tcpx 加密 Overlay、vDHCP、房间内 IP 包转发。
+- `lwylink-node`：部署在每台房间节点服务器上的 LwyLink 房间节点，负责 tcpx 加密 Overlay、UDP 打洞协商、vDHCP、房间内 IP 包转发。
 
 节点服务器不需要配置 `nodeID`。节点只保存自己的 `overlayPrivateKey`，启动时会派生出 `overlayPublicKey`，再用这个公钥到控制平面数据库里找到自己的节点记录。
 

@@ -12,11 +12,12 @@ import (
 type FrameType byte
 
 const (
-	FrameAuth  FrameType = 1
-	FrameDHCP  FrameType = 2
-	FrameIP    FrameType = 3
-	FrameError FrameType = 4
-	FramePing  FrameType = 5
+	FrameAuth       FrameType = 1
+	FrameDHCP       FrameType = 2
+	FrameIP         FrameType = 3
+	FrameError      FrameType = 4
+	FramePing       FrameType = 5
+	FrameUDPControl FrameType = 6
 )
 
 // AuthRequest is the first overlay frame a client must send after tcpx is ready.
@@ -41,6 +42,31 @@ type DHCPResponse struct {
 	LeaseSeconds int64    `json:"leaseSeconds"`
 }
 
+const (
+	UDPControlConfig = "config"
+	UDPControlPeer   = "peer"
+)
+
+type UDPControl struct {
+	Type  string            `json:"type"`
+	Token string            `json:"token,omitempty"`
+	Key   string            `json:"key,omitempty"`
+	Peer  *UDPPeerCandidate `json:"peer,omitempty"`
+}
+
+type UDPPeerCandidate struct {
+	VirtualIP string `json:"virtualIP"`
+	Endpoint  string `json:"endpoint"`
+	SessionID string `json:"sessionID"`
+	Key       string `json:"key"`
+}
+
+type UDPRegisterPayload struct {
+	RoomID    int64  `json:"roomID"`
+	UserID    int64  `json:"userID"`
+	VirtualIP string `json:"virtualIP"`
+}
+
 // PackFrame wraps an overlay payload for transport through tcpx.SecureConn.
 // It does not include a length header because tcpx already frames encrypted
 // messages.
@@ -58,7 +84,7 @@ func UnpackFrame(raw []byte) (FrameType, []byte, error) {
 	}
 	typ := FrameType(raw[0])
 	switch typ {
-	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing:
+	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing, FrameUDPControl:
 		return typ, raw[1:], nil
 	default:
 		return 0, nil, fmt.Errorf("unknown overlay frame: %d", raw[0])
@@ -74,7 +100,7 @@ func PackJSON(typ FrameType, v any) ([]byte, error) {
 	return PackFrame(typ, b), nil
 }
 
-func ipv4SrcDst(pkt []byte) (src, dst string, err error) {
+func IPv4SrcDst(pkt []byte) (src, dst string, err error) {
 	if len(pkt) < 20 {
 		return "", "", fmt.Errorf("short ipv4 packet")
 	}

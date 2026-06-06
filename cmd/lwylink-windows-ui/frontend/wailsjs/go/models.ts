@@ -90,6 +90,9 @@ export namespace main {
 	    ip: string;
 	    gateway: string;
 	    mtu: number;
+	    transportMode: string;
+	    transportMessage: string;
+	    directPeers: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionState(source);
@@ -106,6 +109,9 @@ export namespace main {
 	        this.ip = source["ip"];
 	        this.gateway = source["gateway"];
 	        this.mtu = source["mtu"];
+	        this.transportMode = source["transportMode"];
+	        this.transportMessage = source["transportMessage"];
+	        this.directPeers = source["directPeers"];
 	    }
 	}
 	export class AppState {

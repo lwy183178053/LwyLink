@@ -52,6 +52,29 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 	assertNoPacket(t, from, "sender")
 }
 
+func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
+	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
+	sess := testSession(1, "10.66.1.10")
+	deleteKey := newUDPPairKey(1, "10.66.1.10", "10.66.1.11")
+	keepSameRoomKey := newUDPPairKey(1, "10.66.1.12", "10.66.1.13")
+	keepOtherRoomKey := newUDPPairKey(2, "10.66.1.10", "10.66.1.11")
+	srv.udpPairs[deleteKey] = udpPair{SessionID: "delete"}
+	srv.udpPairs[keepSameRoomKey] = udpPair{SessionID: "same-room"}
+	srv.udpPairs[keepOtherRoomKey] = udpPair{SessionID: "other-room"}
+
+	srv.deleteUDPPairsLocked(sess)
+
+	if _, ok := srv.udpPairs[deleteKey]; ok {
+		t.Fatalf("deleted session pair remained")
+	}
+	if _, ok := srv.udpPairs[keepSameRoomKey]; !ok {
+		t.Fatalf("unrelated same-room pair was deleted")
+	}
+	if _, ok := srv.udpPairs[keepOtherRoomKey]; !ok {
+		t.Fatalf("other-room pair was deleted")
+	}
+}
+
 func newForwardTestServer() (*Server, *session, *session, *session) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
 	from := testSession(1, "10.66.1.10")

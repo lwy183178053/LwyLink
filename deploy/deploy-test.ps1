@@ -170,7 +170,7 @@ systemctl restart lwylink-node
 sleep 2
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnp | grep -E ':(443|8080|35768) ' || true
+ss -ltnup | grep -E ':(443|8080|35768) ' || true
 "@
   Invoke-Remote $cmd 90
 }

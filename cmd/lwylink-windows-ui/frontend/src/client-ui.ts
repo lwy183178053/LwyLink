@@ -100,6 +100,35 @@ export function isConnectionRunning(status: string) {
   return status === "connected" || status === "connecting";
 }
 
+export function transportText(mode?: string, message?: string, directPeers?: number) {
+  if (message && !/tcp|udp|打洞|中继/i.test(message)) {
+    return message;
+  }
+  switch (mode) {
+    case "udp-direct":
+      return `智能加速已开启${directPeers ? ` · ${directPeers} 人` : ""}`;
+    case "udp-probing":
+      return "正在优化连接";
+    case "udp-disabled":
+      return "稳定连接";
+    default:
+      return "稳定连接";
+  }
+}
+
+export function transportTone(mode?: string) {
+  switch (mode) {
+    case "udp-direct":
+      return "good";
+    case "udp-probing":
+      return "warn";
+    case "udp-disabled":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
+
 export const roomMemberOptions = [2, 4, 6, 8, 16, 32, 50, 100];
 export const freeRoomMemberLimit = 8;
 export const defaultRoomMemberLimit = freeRoomMemberLimit;

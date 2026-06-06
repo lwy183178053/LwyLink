@@ -65,6 +65,8 @@ import {
   serverHostFromAPI,
   statusText,
   statusTone,
+  transportText,
+  transportTone,
   updateStatusText,
   updateStatusTone,
   type LoginForm,
@@ -136,6 +138,8 @@ export default function App() {
   const currentMember = members.find((member) => member.userID === state.user?.id);
   const isOwner = !!currentRoom && currentRoom.ownerUserID === state.user?.id;
   const connectionTone = statusTone(state.connection.status);
+  const currentTransportTone = transportTone(state.connection.transportMode);
+  const currentTransportText = transportText(state.connection.transportMode, state.connection.transportMessage, state.connection.directPeers);
   const connectionRunning = isConnectionRunning(state.connection.status);
   const updateTone = updateStatusTone(state.update.status);
   const showUpdatePrompt =
@@ -368,6 +372,7 @@ export default function App() {
             <strong>{statusText(state.connection.status)}</strong>
           </div>
           <span>{state.connection.ip || state.connection.message || "未连接"}</span>
+          {connectionRunning && <span>{currentTransportText}</span>}
           <div className="rail-actions">
             {currentRoom && connectionRunning ? (
               <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
@@ -555,6 +560,7 @@ export default function App() {
           <div className="data-grid">
             <Metric label="连接" value={statusText(state.connection.status)} />
             <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
+            <Metric label="连接质量" value={currentTransportText} />
             <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
           </div>
         </div>
@@ -644,6 +650,14 @@ export default function App() {
             <Metric label="在线" value={`${onlineCount} / ${members.length}`} />
             <Metric label="节点" value={currentRoom.nodeName || "未分配"} />
           </div>
+
+          {connectionRunning && (
+            <div className={`transport-line ${currentTransportTone}`}>
+              <span className={`status-light ${currentTransportTone}`} />
+              <span>连接质量</span>
+              <strong>{currentTransportText}</strong>
+            </div>
+          )}
 
           <div className="room-network-line">
             <Network size={15} />

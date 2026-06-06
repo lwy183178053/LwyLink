@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"net"
 	"sync"
 
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
@@ -15,6 +16,10 @@ type session struct {
 	sessionID string
 	roomID    int64
 	lease     vdhcp.Lease
+
+	udpToken string
+	udpKey   []byte
+	udpAddr  *net.UDPAddr
 
 	send     chan []byte
 	done     chan struct{}
