@@ -294,6 +294,7 @@ func (s *Server) consumeRelayTraffic(sess *session, bytes int64) bool {
 		sess.close()
 		return false
 	}
+	s.notifyUserUpdated(context.Background(), sess.userID)
 	return true
 }
 
@@ -403,6 +404,14 @@ func (s *Server) flushRelayTraffic(ctx context.Context, sess *session) {
 	}
 	if err := s.accounts.ConsumeRelayTraffic(ctx, sess.userID, pending); err != nil {
 		log.Printf("flush relay traffic failed room=%d user=%s ip=%s bytes=%d: %v", sess.roomID, sess.username, sess.lease.IP, pending, err)
+		return
+	}
+	s.notifyUserUpdated(ctx, sess.userID)
+}
+
+func (s *Server) notifyUserUpdated(ctx context.Context, userID int64) {
+	if s.rooms != nil && userID > 0 {
+		s.rooms.NotifyUserUpdated(ctx, userID)
 	}
 }
 

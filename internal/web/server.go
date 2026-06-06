@@ -79,6 +79,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/admin/nodes/check", s.handleAdminNodeCheck)
 	mux.HandleFunc("/admin/releases", s.handleAdminReleases)
 	mux.HandleFunc("/admin/releases/upload", s.handleAdminReleaseUpload)
+	mux.HandleFunc("/admin/releases/delete", s.handleAdminReleaseDelete)
 
 	s.httpServer = &http.Server{
 		Addr:              s.addr,
@@ -599,6 +600,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		Stats:        stats,
 		Users:        users,
 		Rooms:        rooms,
+		ReadOnlyRows: true,
 		Announcement: appsettings.DefaultAnnouncement,
 	}
 	if s.settings != nil {
@@ -777,6 +779,21 @@ func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, s.adminURL("/admin/releases"), http.StatusSeeOther)
 }
 
+func (s *Server) handleAdminReleaseDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPost(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
+		return
+	}
+	releaseID, ok := formInt64(w, r, "releaseID", "bad releaseID")
+	if !ok {
+		return
+	}
+	if err := s.releases.Delete(r.Context(), releaseID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.redirectAdminFromForm(w, r, "/admin/releases", "status")
+}
+
 func (s *Server) handleAdminAnnouncement(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPost(w, r) || !s.requireSettings(w) {
 		return
@@ -829,7 +846,7 @@ func (s *Server) handleAdminUserTraffic(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	bytes, err := parseTrafficGrantBytes(r.FormValue("amountGB"))
+	bytes, err := parseTrafficGrantBytes(r.FormValue("amountMB"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -967,6 +984,7 @@ type adminPageData struct {
 	Nodes        []node.Node
 	Releases     []clientrelease.Release
 	Announcement string
+	ReadOnlyRows bool
 }
 
 type adminListRequest struct {
@@ -1291,14 +1309,14 @@ func parseTrafficGrantBytes(value string) (int64, error) {
 	if value == "" {
 		return 0, fmt.Errorf("请输入要增加的流量")
 	}
-	gb, err := strconv.ParseFloat(value, 64)
-	if err != nil || gb <= 0 {
-		return 0, fmt.Errorf("流量必须是大于 0 的 GB 数值")
+	mb, err := strconv.ParseFloat(value, 64)
+	if err != nil || mb <= 0 {
+		return 0, fmt.Errorf("流量必须是大于 0 的 MB 数值")
 	}
-	if gb > 1024 {
-		return 0, fmt.Errorf("单次最多增加 1024 GB")
+	if mb > 1024*1024 {
+		return 0, fmt.Errorf("单次最多增加 1048576 MB")
 	}
-	bytes := int64(gb * 1024 * 1024 * 1024)
+	bytes := int64(mb * 1024 * 1024)
 	if bytes <= 0 {
 		return 0, fmt.Errorf("流量数值太小")
 	}

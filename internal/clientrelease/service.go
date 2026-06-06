@@ -123,6 +123,20 @@ func (s *Service) FindByStoredFileName(ctx context.Context, storedFileName strin
 	return s.repo.FindByStoredFileName(ctx, storedFileName)
 }
 
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return fmt.Errorf("bad release id")
+	}
+	release, err := s.repo.Delete(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(s.FilePath(release)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) FilePath(release Release) string {
 	return filepath.Join(s.storageDir, filepath.Base(release.StoredFileName))
 }

@@ -66,6 +66,8 @@ import {
   serverHostFromAPI,
   statusText,
   statusTone,
+  trafficPeriodLabel,
+  trafficUsedPercent,
   transportText,
   transportTone,
   updateStatusText,
@@ -156,6 +158,8 @@ export default function App() {
       : authRules.usernameLength && authRules.usernameCharset && authRules.passwordLength;
   const selectedMaxMembers = Number.parseInt(roomForm.maxMembers, 10) || defaultRoomMemberLimit;
   const roomSizeAllowed = canCreateRoomSize(selectedMaxMembers, state.user);
+  const trafficPercent = trafficUsedPercent(state.user);
+  const trafficCritical = !!state.user && state.user.relayTrafficRemainingBytes <= 0;
 
   useEffect(() => {
     if (page !== "room" || !chatListRef.current) {
@@ -363,6 +367,25 @@ export default function App() {
           </span>
         </div>
 
+        {state.user && (
+          <div className="traffic-card">
+            <div className="traffic-card-head">
+              <span>中继流量</span>
+              <strong>{trafficPeriodLabel(state.user.relayTrafficPeriod)}</strong>
+            </div>
+            <div className={`traffic-bar ${trafficCritical ? "bad" : ""}`}>
+              <span style={{ width: `${trafficPercent}%` }} />
+            </div>
+            <div className="traffic-card-stats">
+              <span>
+                {formatBytes(state.user.relayTrafficUsedBytes)} / {formatBytes(state.user.relayTrafficQuotaBytes)}
+              </span>
+              <strong>剩余 {formatBytes(state.user.relayTrafficRemainingBytes)}</strong>
+            </div>
+            {state.user.relayTrafficExtraBytes > 0 && <small>加购 {formatBytes(state.user.relayTrafficExtraBytes)}</small>}
+          </div>
+        )}
+
         <nav className="rail-nav">
           <NavButton active={page === "account"} icon={<UserCircle size={18} />} label="账号" detail={state.user ? "已登录" : "未登录"} onClick={() => setPage("account")} />
           <NavButton active={page === "room"} icon={<Gamepad2 size={18} />} label="房间" detail={currentRoom?.name ?? "未加入"} onClick={() => setPage("room")} />
@@ -393,33 +416,33 @@ export default function App() {
       </aside>
 
       <section className="app-frame">
-        <main className="stage">
-          <div className="integrated-chrome">
-            <div className="chrome-drag">
-              <div className="brand-lockup">
-                <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" />
-                <div>
-                  <strong>LwyLink</strong>
-                  <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>
-                </div>
-              </div>
-              <div className="chrome-status">
-                <span className={`status-pill ${connectionTone}`}>{statusText(state.connection.status)}</span>
+        <div className="integrated-chrome">
+          <div className="chrome-drag">
+            <div className="brand-lockup">
+              <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" />
+              <div>
+                <strong>LwyLink</strong>
+                <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>
               </div>
             </div>
-            <div className="window-controls">
-              <button type="button" aria-label="最小化" onClick={WindowMinimise}>
-                <Minus size={16} />
-              </button>
-              <button type="button" aria-label="最大化" onClick={WindowToggleMaximise}>
-                <Square size={13} />
-              </button>
-              <button type="button" aria-label="关闭" className="close" onClick={() => void HideToTray()}>
-                <X size={16} />
-              </button>
+            <div className="chrome-status">
+              <span className={`status-pill ${connectionTone}`}>{statusText(state.connection.status)}</span>
             </div>
           </div>
+          <div className="window-controls">
+            <button type="button" aria-label="最小化" onClick={WindowMinimise}>
+              <Minus size={16} />
+            </button>
+            <button type="button" aria-label="最大化" onClick={WindowToggleMaximise}>
+              <Square size={13} />
+            </button>
+            <button type="button" aria-label="关闭" className="close" onClick={() => void HideToTray()}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
 
+        <main className="stage">
           <div className="stage-head">
             <div>
               <span className="eyebrow">{pageEyebrow(page)}</span>
@@ -552,6 +575,9 @@ export default function App() {
             <Metric label="权限" value={state.user.role} />
             <Metric label="中继已用" value={formatBytes(state.user.relayTrafficUsedBytes)} />
             <Metric label="中继剩余" value={formatBytes(state.user.relayTrafficRemainingBytes)} />
+            <Metric label="中继总额" value={formatBytes(state.user.relayTrafficQuotaBytes)} />
+            <Metric label="加购流量" value={formatBytes(state.user.relayTrafficExtraBytes)} />
+            <Metric label="计费周期" value={trafficPeriodLabel(state.user.relayTrafficPeriod)} wide />
             <Metric label="创建时间" value={formatDate(state.user.createdAt)} wide />
             <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
           </div>
@@ -654,6 +680,7 @@ export default function App() {
             <Metric label="成员" value={`${currentRoom.memberCount} / ${currentRoom.maxMembers}`} />
             <Metric label="在线" value={`${onlineCount} / ${members.length}`} />
             <Metric label="节点" value={currentRoom.nodeName || "未分配"} />
+            <Metric label="中继剩余" value={state.user ? formatBytes(state.user.relayTrafficRemainingBytes) : "-"} />
           </div>
 
           {connectionRunning && (

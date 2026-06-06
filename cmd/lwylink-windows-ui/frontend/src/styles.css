@@ -152,6 +152,75 @@ code {
   justify-self: start;
 }
 
+.traffic-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(143, 224, 204, 0.18);
+  border-radius: 8px;
+  background: #192a2a;
+}
+
+.traffic-card-head,
+.traffic-card-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.traffic-card span,
+.traffic-card small {
+  color: #9fb3ac;
+  font-size: 12px;
+}
+
+.traffic-card strong {
+  min-width: 0;
+  color: #eef5ef;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traffic-card-stats {
+  align-items: flex-start;
+}
+
+.traffic-card-stats span,
+.traffic-card-stats strong {
+  display: block;
+  min-width: 0;
+}
+
+.traffic-card-stats span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traffic-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.traffic-bar span {
+  display: block;
+  min-width: 3px;
+  height: 100%;
+  border-radius: inherit;
+  background: #8fe0cc;
+}
+
+.traffic-bar.bad span {
+  background: #ef8b81;
+}
+
 .member-chip.vip {
   color: #3b2a0a;
   border-color: #e3c16d;
@@ -274,7 +343,10 @@ code {
 
 .app-frame {
   position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
   height: 100vh;
   overflow: hidden;
   background:
@@ -288,7 +360,8 @@ code {
   align-items: center;
   min-width: 0;
   gap: 14px;
-  margin-bottom: 16px;
+  padding: 18px 26px 0;
+  z-index: 4;
 }
 
 .chrome-drag {
@@ -371,8 +444,8 @@ code {
 .stage {
   min-width: 0;
   min-height: 0;
-  height: 100%;
-  padding: 18px 26px 24px;
+  height: auto;
+  padding: 12px 26px 24px;
   overflow: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -939,7 +1012,7 @@ code {
 }
 
 .room-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 8px;
 }

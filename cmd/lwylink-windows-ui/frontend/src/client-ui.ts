@@ -208,6 +208,24 @@ export function formatBytes(size?: number) {
   return `${(current / 1024).toFixed(1)} TB`;
 }
 
+export function trafficUsedPercent(user?: PublicUser) {
+  if (!user || user.relayTrafficQuotaBytes <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round((user.relayTrafficUsedBytes / user.relayTrafficQuotaBytes) * 100)));
+}
+
+export function trafficPeriodLabel(value?: string) {
+  if (!value) {
+    return "本期";
+  }
+  const [year, month] = value.split("-");
+  if (!year || !month) {
+    return value;
+  }
+  return `${year}年${Number(month)}月`;
+}
+
 export function serverHostFromAPI(apiBaseURL: string) {
   try {
     const parsed = new URL(apiBaseURL);

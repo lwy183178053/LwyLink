@@ -75,24 +75,17 @@
 </section>
 <section class="split">
   <div class="panel">
-    <div class="panel-head"><h2>最近账号</h2><a href="{{with index .Nav 2}}{{.URL}}{{end}}">查看全部</a></div>
+    <div class="panel-head"><h2>最近账号</h2></div>
     {{template "user-table" .}}
   </div>
   <div class="panel">
-    <div class="panel-head"><h2>最近房间</h2><a href="{{with index .Nav 3}}{{.URL}}{{end}}">查看全部</a></div>
+    <div class="panel-head"><h2>最近房间</h2></div>
     {{template "room-table" .}}
   </div>
 </section>
 <section class="panel">
-  <div class="panel-head"><h2>服务器节点</h2><a href="{{with index .Nav 1}}{{.URL}}{{end}}">管理节点</a></div>
+  <div class="panel-head"><h2>服务器节点</h2></div>
   {{template "node-table" .}}
-</section>
-<section class="panel release-entry">
-  <div>
-    <h2>更新发布</h2>
-    <p>上传打包好的 LwyLink Windows 客户端或安装器，填写版本号和更新说明后，客户端会检查并预下载更新。</p>
-  </div>
-  <a class="button primary" href="{{with index .Nav 4}}{{.URL}}{{end}}">上传更新包</a>
 </section>
 {{end}}
 
@@ -163,7 +156,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>账号</th><th>昵称</th><th>角色</th><th>会员</th><th>中继流量</th><th>状态</th><th>创建时间</th><th>更新时间</th><th>操作</th></tr>
+      <tr><th>ID</th><th>账号</th><th>昵称</th><th>角色</th><th>会员</th><th>中继流量</th><th>状态</th><th>创建时间</th><th>更新时间</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
     </thead>
     <tbody>
       {{range .Users}}
@@ -173,6 +166,9 @@
         <td>{{.DisplayName}}</td>
         <td>{{.Role}}</td>
         <td>
+          {{if $.ReadOnlyRows}}
+          {{if eq .Membership "vip"}}会员{{else}}普通{{end}}
+          {{else}}
           <form class="inline-select" method="post" action="/admin/users/membership">
             {{template "context-inputs" $}}
             <input type="hidden" name="userID" value="{{.ID}}">
@@ -181,22 +177,26 @@
               <option value="vip" {{if eq .Membership "vip"}}selected{{end}}>会员</option>
             </select>
           </form>
+          {{end}}
         </td>
         <td class="traffic-cell">
           <div class="traffic-summary">
             <strong>{{formatBytes .RelayTrafficUsedBytes}} / {{formatBytes .RelayTrafficQuotaBytes}}</strong>
             <span>{{.RelayTrafficPeriod}} 剩余 {{formatBytes .RelayTrafficRemainingBytes}}，额外余额 {{formatBytes .RelayTrafficExtraBytes}}</span>
           </div>
+          {{if not $.ReadOnlyRows}}
           <form class="traffic-form" method="post" action="/admin/users/traffic">
             {{template "context-inputs" $}}
             <input type="hidden" name="userID" value="{{.ID}}">
-            <input name="amountGB" type="number" min="0.1" max="1024" step="0.1" placeholder="GB">
+            <input name="amountMB" type="number" min="1" max="1048576" step="1" placeholder="MB">
             <button type="submit">加流量</button>
           </form>
+          {{end}}
         </td>
         <td><span class="status {{userStatusClass .Disabled}}">{{userStatusText .Disabled}}</span></td>
         <td>{{timeText .CreatedAt}}</td>
         <td>{{timeText .UpdatedAt}}</td>
+        {{if not $.ReadOnlyRows}}
         <td>
           <div class="row-actions">
             <form method="post" action="/admin/users/status">
@@ -212,9 +212,10 @@
             </form>
           </div>
         </td>
+        {{end}}
       </tr>
       {{else}}
-      <tr><td colspan="10" class="empty">暂无账号</td></tr>
+      <tr><td colspan="{{if .ReadOnlyRows}}9{{else}}10{{end}}" class="empty">暂无账号</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -234,7 +235,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>名称</th><th>房主</th><th>成员</th><th>状态</th><th>网络</th><th>节点</th><th>密钥</th><th>操作</th></tr>
+      <tr><th>ID</th><th>名称</th><th>房主</th><th>成员</th><th>状态</th><th>网络</th><th>节点</th><th>密钥</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
     </thead>
     <tbody>
       {{range .Rooms}}
@@ -247,17 +248,17 @@
         <td class="mono">{{.NetworkCIDR}}</td>
         <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="muted">未分配</span>{{end}}</td>
         <td class="mono compact">{{.RoomPublicKey}}</td>
-        <td>
+        {{if not $.ReadOnlyRows}}<td>
           <form method="post" action="/admin/rooms/status">
             {{template "context-inputs" $}}
             <input type="hidden" name="roomID" value="{{.ID}}">
             <input type="hidden" name="newStatus" value="{{if eq .Status "open"}}closed{{else}}open{{end}}">
             <button type="submit">{{if eq .Status "open"}}关闭{{else}}开放{{end}}</button>
           </form>
-        </td>
+        </td>{{end}}
       </tr>
       {{else}}
-      <tr><td colspan="9" class="empty">暂无房间</td></tr>
+      <tr><td colspan="{{if .ReadOnlyRows}}8{{else}}9{{end}}" class="empty">暂无房间</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -275,7 +276,7 @@
   </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
-    <label>版本号<input name="version" placeholder="例如 0.1.10" required></label>
+    <label>版本号<input name="version" placeholder="例如 0.1.11" required></label>
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新
@@ -331,7 +332,16 @@
         <td class="mono compact">{{.SHA256}}</td>
         <td class="compact">{{.Notes}}</td>
         <td>{{timeText .CreatedAt}}</td>
-        <td><a class="button" href="/downloads/client/{{.StoredFileName}}">下载</a></td>
+        <td>
+          <div class="row-actions">
+            <a class="button" href="/downloads/client/{{.StoredFileName}}">下载</a>
+            <form method="post" action="/admin/releases/delete" data-confirm="确认删除该版本？客户端将不再收到这个更新包。">
+              {{template "context-inputs" $}}
+              <input type="hidden" name="releaseID" value="{{.ID}}">
+              <button class="danger" type="submit">删除</button>
+            </form>
+          </div>
+        </td>
       </tr>
       {{else}}
       <tr><td colspan="11" class="empty">暂无更新版本</td></tr>
@@ -374,7 +384,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>名称</th><th>状态</th><th>房间</th><th>Overlay</th><th>健康检查</th><th>最后在线</th><th>错误</th><th>操作</th></tr>
+      <tr><th>ID</th><th>名称</th><th>状态</th><th>房间</th><th>Overlay</th><th>健康检查</th><th>最后在线</th><th>错误</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
     </thead>
     <tbody>
       {{range .Nodes}}
@@ -387,7 +397,7 @@
         <td class="mono compact">{{.HealthAddr}}</td>
         <td>{{timePtrText .LastSeenAt}}</td>
         <td class="compact">{{.LastError}}</td>
-        <td>
+        {{if not $.ReadOnlyRows}}<td>
           <div class="row-actions">
             <button type="button"
               data-fill-node
@@ -410,10 +420,10 @@
               <button type="submit">检查</button>
             </form>
           </div>
-        </td>
+        </td>{{end}}
       </tr>
       {{else}}
-      <tr><td colspan="9" class="empty">暂无节点</td></tr>
+      <tr><td colspan="{{if .ReadOnlyRows}}8{{else}}9{{end}}" class="empty">暂无节点</td></tr>
       {{end}}
     </tbody>
   </table>

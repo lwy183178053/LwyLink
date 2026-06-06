@@ -3,7 +3,7 @@ package web
 import "testing"
 
 func TestParseTrafficGrantBytes(t *testing.T) {
-	got, err := parseTrafficGrantBytes("1.5")
+	got, err := parseTrafficGrantBytes("1536")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -17,7 +17,7 @@ func TestParseTrafficGrantBytesRejectsInvalidValue(t *testing.T) {
 	if _, err := parseTrafficGrantBytes("0"); err == nil {
 		t.Fatalf("expected zero traffic grant to fail")
 	}
-	if _, err := parseTrafficGrantBytes("2048"); err == nil {
+	if _, err := parseTrafficGrantBytes("1048577"); err == nil {
 		t.Fatalf("expected oversized traffic grant to fail")
 	}
 }

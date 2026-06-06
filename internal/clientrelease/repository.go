@@ -55,6 +55,25 @@ func (r *Repository) FindByStoredFileName(ctx context.Context, storedFileName st
 	))
 }
 
+func (r *Repository) Delete(ctx context.Context, id int64) (Release, error) {
+	release, err := r.FindByID(ctx, id)
+	if err != nil {
+		return Release{}, err
+	}
+	res, err := r.db.ExecContext(ctx, `DELETE FROM client_releases WHERE id = ?`, id)
+	if err != nil {
+		return Release{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Release{}, err
+	}
+	if affected == 0 {
+		return Release{}, ErrNotFound
+	}
+	return release, nil
+}
+
 func (r *Repository) List(ctx context.Context, filter Filter) ([]Release, error) {
 	where, args := releaseWhere(filter)
 	limit := normalizeLimit(filter.Limit, 200, 1000)

@@ -145,7 +145,7 @@ func (a *API) SubscribeRoomEvents(ctx context.Context, onEvent func(room.RoomEve
 	if a.token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{Timeout: 0}).Do(req)
 	if err != nil {
 		return err
 	}
