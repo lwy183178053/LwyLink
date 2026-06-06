@@ -73,6 +73,12 @@ func (r *Repository) List(ctx context.Context, filter Filter) ([]Release, error)
 	return scanReleases(rows)
 }
 
+func (r *Repository) Count(ctx context.Context) (int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM client_releases`).Scan(&total)
+	return total, err
+}
+
 func releaseWhere(filter Filter) (string, []any) {
 	var parts []string
 	var args []any

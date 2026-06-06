@@ -1,13 +1,76 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"net"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/overlay"
 )
+
+func TestUDPManagerCloseCancelsWorkerAndWaits(t *testing.T) {
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &udpManager{ctx: ctx, cancel: cancel, conn: conn}
+	entered := make(chan struct{})
+	var released atomic.Bool
+
+	if !m.run(func() {
+		close(entered)
+		<-m.ctx.Done()
+		released.Store(true)
+	}) {
+		t.Fatalf("worker did not start")
+	}
+	<-entered
+
+	if err := m.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if !released.Load() {
+		t.Fatalf("Close returned before worker observed cancellation")
+	}
+	if m.ctx.Err() == nil {
+		t.Fatalf("manager context was not canceled")
+	}
+	if m.run(func() {}) {
+		t.Fatalf("worker started after manager was closed")
+	}
+}
+
+func TestUDPDirectionalKeysAreReciprocalAndDistinct(t *testing.T) {
+	pairKey := testUDPKey(7)
+	aSend, aRecv := udpDirectionalKeys(pairKey, "172.16.1.10", "172.16.1.11")
+	bSend, bRecv := udpDirectionalKeys(pairKey, "172.16.1.11", "172.16.1.10")
+
+	if !bytes.Equal(aSend, bRecv) {
+		t.Fatalf("A send key does not match B receive key")
+	}
+	if !bytes.Equal(aRecv, bSend) {
+		t.Fatalf("A receive key does not match B send key")
+	}
+	if bytes.Equal(aSend, aRecv) {
+		t.Fatalf("directional keys should differ")
+	}
+
+	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypePing, "pair-1", aSend, 1, []byte("ping"))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := overlay.DecodeUDPPacket(raw, bRecv); err != nil {
+		t.Fatalf("decode with reciprocal key: %v", err)
+	}
+	if _, err := overlay.DecodeUDPPacket(raw, bSend); err == nil {
+		t.Fatalf("decode with opposite direction key unexpectedly succeeded")
+	}
+}
 
 func TestUDPPeerPathDeduplicatesCandidateWhileProbing(t *testing.T) {
 	m := newTestUDPManager()
@@ -168,6 +231,7 @@ func TestResolvePeerCandidateEndpointsSkipsVirtualIP(t *testing.T) {
 
 func newTestUDPManager() *udpManager {
 	return &udpManager{
+		cfg:       udpManagerConfig{VirtualIP: "172.16.1.10"},
 		pathsByIP: make(map[string]*udpPeerPath),
 		pathsByID: make(map[string]*udpPeerPath),
 	}

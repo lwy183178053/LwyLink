@@ -227,6 +227,24 @@ func (r *Repository) List(ctx context.Context, filter Filter) ([]Room, error) {
 	return scanRooms(rows)
 }
 
+type Stats struct {
+	Total  int
+	Open   int
+	Closed int
+}
+
+func (r *Repository) Stats(ctx context.Context) (Stats, error) {
+	var stats Stats
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
+		   FROM rooms`,
+		StatusOpen, StatusClosed,
+	).Scan(&stats.Total, &stats.Open, &stats.Closed)
+	return stats, err
+}
+
 func (r *Repository) ListOwnedByOwner(ctx context.Context, ownerUserID int64) ([]Room, error) {
 	rows, err := r.db.QueryContext(ctx,
 		roomSelect()+` WHERE r.owner_user_id = ? ORDER BY r.id DESC`,

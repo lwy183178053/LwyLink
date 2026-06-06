@@ -59,6 +59,20 @@
 {{end}}
 
 {{define "overview"}}
+<section class="panel announcement-panel">
+  <div class="panel-head">
+    <div>
+      <h2>客户端公告</h2>
+      <p>这段内容会显示在 Windows 客户端设置页。</p>
+    </div>
+    <span>公共信息</span>
+  </div>
+  <form class="announcement-form" method="post" action="/admin/settings/announcement">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label>公告内容<textarea name="announcement" rows="4">{{.Announcement}}</textarea></label>
+    <button class="primary" type="submit">保存公告</button>
+  </form>
+</section>
 <section class="split">
   <div class="panel">
     <div class="panel-head"><h2>最近账号</h2><a href="{{with index .Nav 2}}{{.URL}}{{end}}">查看全部</a></div>

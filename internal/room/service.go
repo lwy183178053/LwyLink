@@ -302,6 +302,10 @@ func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
 	return s.repo.List(ctx, filter)
 }
 
+func (s *Service) Stats(ctx context.Context) (Stats, error) {
+	return s.repo.Stats(ctx)
+}
+
 func (s *Service) SyncOpenRoomKeys(ctx context.Context) error {
 	rooms, err := s.repo.ListOpen(ctx)
 	if err != nil {

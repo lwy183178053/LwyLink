@@ -7,6 +7,7 @@ import {
   KeyRound,
   LogIn,
   LogOut,
+  Megaphone,
   MessageSquare,
   Minus,
   Network,
@@ -789,6 +790,24 @@ export default function App() {
             </div>
           </div>
         </form>
+
+        <div className="surface announcement-panel">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">公告</span>
+              <h2>官方信息</h2>
+            </div>
+            <Megaphone size={18} />
+          </div>
+          <div className="announcement-body">
+            <p>{state.announcement || "官方 QQ 群：715516422"}</p>
+          </div>
+          <div className="settings-actions">
+            <Button icon={<Copy size={16} />} onClick={() => copyText(state.announcement || "官方 QQ 群：715516422", "公告")}>
+              复制
+            </Button>
+          </div>
+        </div>
 
         <div className="surface update-panel">
           <div className="surface-head">

@@ -74,6 +74,14 @@ func (a *API) Me(ctx context.Context) (account.PublicUser, error) {
 	return out, err
 }
 
+func (a *API) Announcement(ctx context.Context) (string, error) {
+	var out struct {
+		Announcement string `json:"announcement"`
+	}
+	err := a.request(ctx, http.MethodGet, "/api/announcement", nil, &out)
+	return out.Announcement, err
+}
+
 func (a *API) CreateRoom(ctx context.Context, name string, maxMembers int) (room.Room, error) {
 	var out room.Room
 	err := a.request(ctx, http.MethodPost, "/api/rooms", map[string]any{

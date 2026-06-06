@@ -125,6 +125,7 @@ export namespace main {
 	    chatMessages: room.ChatMessage[];
 	    connection: ConnectionState;
 	    update: UpdateState;
+	    announcement: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -142,6 +143,7 @@ export namespace main {
 	        this.chatMessages = this.convertValues(source["chatMessages"], room.ChatMessage);
 	        this.connection = this.convertValues(source["connection"], ConnectionState);
 	        this.update = this.convertValues(source["update"], UpdateState);
+	        this.announcement = source["announcement"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

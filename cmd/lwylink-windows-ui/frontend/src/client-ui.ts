@@ -26,6 +26,48 @@ export type SettingsForm = {
   p2pEnabled: boolean;
 };
 
+const pageTitles: Record<PageKey, string> = {
+  account: "账号中心",
+  room: "房间",
+  settings: "设置",
+};
+
+const pageEyebrows: Record<PageKey, string> = {
+  account: "Profile",
+  room: "Lobby",
+  settings: "Preferences",
+};
+
+const statusTexts: Record<string, string> = {
+  connected: "已连接",
+  connecting: "连接中",
+  disconnecting: "断开中",
+  error: "错误",
+};
+
+const statusTones: Record<string, string> = {
+  connected: "good",
+  connecting: "warn",
+  disconnecting: "warn",
+  error: "bad",
+};
+
+const updateStatusTexts: Record<string, string> = {
+  checking: "检查中",
+  downloading: "下载中",
+  ready: "可更新",
+  installing: "更新中",
+  error: "更新失败",
+};
+
+const updateStatusTones: Record<string, string> = {
+  ready: "good",
+  checking: "warn",
+  downloading: "warn",
+  installing: "warn",
+  error: "bad",
+};
+
 export function authRuleState(username: string, password: string) {
   const name = username.trim();
   return {
@@ -36,25 +78,11 @@ export function authRuleState(username: string, password: string) {
 }
 
 export function pageTitle(page: PageKey) {
-  switch (page) {
-    case "account":
-      return "账号中心";
-    case "room":
-      return "房间";
-    case "settings":
-      return "设置";
-  }
+  return pageTitles[page];
 }
 
 export function pageEyebrow(page: PageKey) {
-  switch (page) {
-    case "account":
-      return "Profile";
-    case "room":
-      return "Lobby";
-    case "settings":
-      return "Preferences";
-  }
+  return pageEyebrows[page];
 }
 
 export function pageSubtitle(page: PageKey, user?: PublicUser, roomName?: string) {
@@ -69,32 +97,11 @@ export function pageSubtitle(page: PageKey, user?: PublicUser, roomName?: string
 }
 
 export function statusText(status: string) {
-  switch (status) {
-    case "connected":
-      return "已连接";
-    case "connecting":
-      return "连接中";
-    case "disconnecting":
-      return "断开中";
-    case "error":
-      return "错误";
-    default:
-      return "未连接";
-  }
+  return statusTexts[status] ?? "未连接";
 }
 
 export function statusTone(status: string) {
-  switch (status) {
-    case "connected":
-      return "good";
-    case "connecting":
-    case "disconnecting":
-      return "warn";
-    case "error":
-      return "bad";
-    default:
-      return "neutral";
-  }
+  return statusTones[status] ?? "neutral";
 }
 
 export function isConnectionRunning(status: string) {
@@ -147,35 +154,11 @@ export function defaultRoomName(user?: PublicUser) {
 }
 
 export function updateStatusText(status: string) {
-  switch (status) {
-    case "checking":
-      return "检查中";
-    case "downloading":
-      return "下载中";
-    case "ready":
-      return "可更新";
-    case "installing":
-      return "更新中";
-    case "error":
-      return "更新失败";
-    default:
-      return "无更新";
-  }
+  return updateStatusTexts[status] ?? "无更新";
 }
 
 export function updateStatusTone(status: string) {
-  switch (status) {
-    case "ready":
-      return "good";
-    case "checking":
-    case "downloading":
-    case "installing":
-      return "warn";
-    case "error":
-      return "bad";
-    default:
-      return "neutral";
-  }
+  return updateStatusTones[status] ?? "neutral";
 }
 
 export function membershipLabel(value?: string) {

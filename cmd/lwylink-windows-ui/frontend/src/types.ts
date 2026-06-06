@@ -86,6 +86,7 @@ export type AppState = {
   chatMessages: ChatMessage[];
   connection: ConnectionState;
   update: UpdateState;
+  announcement: string;
 };
 
 export const emptyState: AppState = {
@@ -95,6 +96,7 @@ export const emptyState: AppState = {
   rooms: [],
   members: [],
   chatMessages: [],
+  announcement: "官方 QQ 群：715516422",
   connection: {
     status: "disconnected",
     message: "未连接",
@@ -112,7 +114,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.7",
+    currentVersion: "0.1.8",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

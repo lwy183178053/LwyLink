@@ -18,8 +18,8 @@ const (
 	UDPTypePong     byte = 6
 
 	udpPacketVersion byte = 1
-	udpHeaderLen          = 16
-	maxUDPIDLen           = 120
+	udpHeaderLen     int  = 16
+	maxUDPIDLen      int  = 120
 )
 
 var udpMagic = [4]byte{'L', 'W', 'Y', 'U'}

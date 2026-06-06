@@ -1225,8 +1225,9 @@ code {
   display: grid;
   grid-template-columns: minmax(380px, 430px) minmax(0, 1fr);
   grid-template-areas:
-    "settings update";
-  grid-template-rows: auto;
+    "settings update"
+    "announcement update";
+  grid-template-rows: auto auto;
   gap: 16px;
   align-items: start;
   min-height: 0;
@@ -1237,6 +1238,23 @@ code {
   grid-area: settings;
   align-self: start;
   min-height: 0;
+}
+
+.announcement-panel {
+  grid-area: announcement;
+  align-self: start;
+}
+
+.announcement-body {
+  padding: 14px;
+}
+
+.announcement-body p {
+  color: #263631;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
 }
 
 .update-panel {
@@ -1356,6 +1374,7 @@ code {
   .member-panel,
   .chat-panel,
   .settings-panel,
+  .announcement-panel,
   .update-panel {
     grid-area: auto;
   }

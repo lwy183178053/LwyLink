@@ -150,6 +150,10 @@ func (s *Service) SearchUsers(ctx context.Context, filter UserFilter) ([]User, e
 	return s.repo.List(ctx, filter)
 }
 
+func (s *Service) Stats(ctx context.Context) (Stats, error) {
+	return s.repo.Stats(ctx)
+}
+
 func (s *Service) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
 	if err := s.repo.SetDisabled(ctx, userID, disabled); err != nil {
 		return err

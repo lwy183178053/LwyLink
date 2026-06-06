@@ -3,6 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net"
@@ -47,6 +49,8 @@ type udpManagerConfig struct {
 
 type udpManager struct {
 	cfg    udpManagerConfig
+	ctx    context.Context
+	cancel context.CancelFunc
 	conn   *net.UDPConn
 	server *net.UDPAddr
 
@@ -58,6 +62,9 @@ type udpManager struct {
 	closeErr   error
 	hasStatus  bool
 	lastStatus TransportStatus
+	lifecycle  sync.Mutex
+	closed     bool
+	wg         sync.WaitGroup
 }
 
 type udpPeerPath struct {
@@ -65,7 +72,9 @@ type udpPeerPath struct {
 	endpoint           *net.UDPAddr
 	candidateEndpoints []*net.UDPAddr
 	sessionID          string
-	key                []byte
+	pairKey            []byte
+	sendKey            []byte
+	recvKey            []byte
 
 	active   bool
 	probing  bool
@@ -101,25 +110,49 @@ func startUDPManager(ctx context.Context, cfg udpManagerConfig) (*udpManager, er
 	if err != nil {
 		return nil, err
 	}
+	managerCtx, cancel := context.WithCancel(ctx)
 	m := &udpManager{
 		cfg:       cfg,
+		ctx:       managerCtx,
+		cancel:    cancel,
 		conn:      conn,
 		server:    server,
 		pathsByIP: make(map[string]*udpPeerPath),
 		pathsByID: make(map[string]*udpPeerPath),
 	}
 	m.emitStatusLocked()
-	go m.readLoop(ctx)
-	go m.registerLoop(ctx)
-	go m.keepaliveLoop(ctx)
+	m.run(m.readLoop)
+	m.run(m.registerLoop)
+	m.run(m.keepaliveLoop)
 	return m, nil
 }
 
 func (m *udpManager) Close() error {
 	m.closeOnce.Do(func() {
+		m.lifecycle.Lock()
+		m.closed = true
+		if m.cancel != nil {
+			m.cancel()
+		}
 		m.closeErr = m.conn.Close()
+		m.lifecycle.Unlock()
+		m.wg.Wait()
 	})
 	return m.closeErr
+}
+
+func (m *udpManager) run(fn func()) bool {
+	m.lifecycle.Lock()
+	defer m.lifecycle.Unlock()
+	if m.closed {
+		return false
+	}
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		fn()
+	}()
+	return true
 }
 
 func (m *udpManager) AddPeer(candidate overlay.UDPPeerCandidate) {
@@ -169,7 +202,7 @@ func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
 	}
 	endpoint := path.endpoint
 	sessionID := path.sessionID
-	key := cloneBytes(path.key)
+	key := cloneBytes(path.sendKey)
 	seq := m.nextSeqLocked()
 	m.mu.Unlock()
 	if err := m.sendEncrypted(endpoint, overlay.UDPTypeIP, sessionID, key, seq, pkt); err != nil {
@@ -179,13 +212,13 @@ func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
 	return true
 }
 
-func (m *udpManager) readLoop(ctx context.Context) {
+func (m *udpManager) readLoop() {
 	buf := make([]byte, 64*1024)
 	for {
 		_ = m.conn.SetReadDeadline(time.Now().Add(time.Second))
 		n, remote, err := m.conn.ReadFromUDP(buf)
 		if err != nil {
-			if ctx.Err() != nil {
+			if m.ctx.Err() != nil {
 				return
 			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
@@ -211,7 +244,7 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 		m.mu.Unlock()
 		return
 	}
-	key := cloneBytes(path.key)
+	key := cloneBytes(path.recvKey)
 	m.mu.Unlock()
 	packet, err := overlay.DecodeUDPPacket(raw, key)
 	if err != nil {
@@ -232,13 +265,13 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 	}
 }
 
-func (m *udpManager) registerLoop(ctx context.Context) {
+func (m *udpManager) registerLoop() {
 	ticker := time.NewTicker(udpRegisterInterval)
 	defer ticker.Stop()
 	for {
 		m.sendRegister()
 		select {
-		case <-ctx.Done():
+		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 		}
@@ -272,7 +305,7 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 			return
 		}
 		endpoints := cloneUDPAddrs(path.candidateEndpoints)
-		key := cloneBytes(path.key)
+		key := cloneBytes(path.sendKey)
 		seqs := make([]uint64, len(endpoints))
 		for i := range seqs {
 			seqs[i] = m.nextSeqLocked()
@@ -281,7 +314,13 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 		for i, endpoint := range endpoints {
 			_ = m.sendEncrypted(endpoint, overlay.UDPTypeProbe, sessionID, key, seqs[i], []byte("probe"))
 		}
-		time.Sleep(udpProbeInterval)
+		timer := time.NewTimer(udpProbeInterval)
+		select {
+		case <-m.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
 	m.mu.Lock()
 	if path := m.pathsByIP[virtualIP]; path != nil && path.sessionID == sessionID && !path.active && path.probeGeneration == generation {
@@ -293,12 +332,12 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 	m.mu.Unlock()
 }
 
-func (m *udpManager) keepaliveLoop(ctx context.Context) {
+func (m *udpManager) keepaliveLoop() {
 	ticker := time.NewTicker(udpKeepaliveEvery)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 		}
@@ -320,7 +359,7 @@ func (m *udpManager) keepaliveLoop(ctx context.Context) {
 				pings = append(pings, udpPingTarget{
 					endpoint:  path.endpoint,
 					sessionID: path.sessionID,
-					key:       cloneBytes(path.key),
+					key:       cloneBytes(path.sendKey),
 					seq:       m.nextSeqLocked(),
 				})
 				continue
@@ -349,7 +388,7 @@ func (m *udpManager) replyControl(sessionID string, packetType byte) {
 	}
 	endpoint := current.endpoint
 	peerSessionID := current.sessionID
-	key := cloneBytes(current.key)
+	key := cloneBytes(current.sendKey)
 	seq := m.nextSeqLocked()
 	m.mu.Unlock()
 	_ = m.sendEncrypted(endpoint, packetType, peerSessionID, key, seq, []byte("ok"))
@@ -398,7 +437,8 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 		m.pathsByIP[virtualIP] = path
 	}
 
-	changed := path.sessionID != sessionID || !udpAddrSlicesEqual(path.candidateEndpoints, endpoints) || !bytes.Equal(path.key, key)
+	sendKey, recvKey := udpDirectionalKeys(key, m.cfg.VirtualIP, virtualIP)
+	changed := path.sessionID != sessionID || !udpAddrSlicesEqual(path.candidateEndpoints, endpoints) || !bytes.Equal(path.pairKey, key)
 	if changed {
 		if path.sessionID != "" && path.sessionID != sessionID {
 			delete(m.pathsByID, path.sessionID)
@@ -406,7 +446,9 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 		path.endpoint = cloneUDPAddr(endpoints[0])
 		path.candidateEndpoints = cloneUDPAddrs(endpoints)
 		path.sessionID = sessionID
-		path.key = cloneBytes(key)
+		path.pairKey = cloneBytes(key)
+		path.sendKey = sendKey
+		path.recvKey = recvKey
 		path.active = false
 		path.probing = false
 		path.failedProbes = 0
@@ -418,7 +460,7 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 }
 
 func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (udpProbeTarget, bool) {
-	if path == nil || path.active || path.probing || len(path.candidateEndpoints) == 0 || path.sessionID == "" || len(path.key) != 32 {
+	if path == nil || path.active || path.probing || len(path.candidateEndpoints) == 0 || path.sessionID == "" || len(path.sendKey) != 32 || len(path.recvKey) != 32 {
 		return udpProbeTarget{}, false
 	}
 	if !path.nextProbeAt.IsZero() && now.Before(path.nextProbeAt) {
@@ -430,7 +472,9 @@ func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (u
 }
 
 func (m *udpManager) launchProbe(probe udpProbeTarget) {
-	go m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+	m.run(func() {
+		m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+	})
 }
 
 func udpPathDirectReady(path *udpPeerPath, now time.Time) bool {
@@ -459,6 +503,20 @@ func udpProbeRetryDelay(failures int) time.Duration {
 		}
 	}
 	return delay
+}
+
+func udpDirectionalKeys(pairKey []byte, localIP, peerIP string) (sendKey, recvKey []byte) {
+	return udpDirectionalKey(pairKey, localIP, peerIP), udpDirectionalKey(pairKey, peerIP, localIP)
+}
+
+func udpDirectionalKey(pairKey []byte, fromIP, toIP string) []byte {
+	mac := hmac.New(sha256.New, pairKey)
+	_, _ = mac.Write([]byte("LwyLink UDP directional key v1"))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write([]byte(fromIP))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write([]byte(toIP))
+	return mac.Sum(nil)
 }
 
 func (m *udpManager) sendEncrypted(endpoint *net.UDPAddr, packetType byte, id string, key []byte, seq uint64, payload []byte) error {

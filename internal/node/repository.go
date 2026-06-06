@@ -69,6 +69,24 @@ func (r *Repository) List(ctx context.Context) ([]Node, error) {
 	return scanNodes(rows)
 }
 
+type Stats struct {
+	Total  int
+	Online int
+	Paused int
+}
+
+func (r *Repository) Stats(ctx context.Context) (Stats, error) {
+	var stats Stats
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
+		   FROM server_nodes`,
+		StatusOnline, StatusPaused,
+	).Scan(&stats.Total, &stats.Online, &stats.Paused)
+	return stats, err
+}
+
 func (r *Repository) SetEnabled(ctx context.Context, id int64, enabled bool) error {
 	status := StatusUnknown
 	if !enabled {

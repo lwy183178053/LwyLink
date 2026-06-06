@@ -225,6 +225,14 @@ h2 {
   padding: 16px;
 }
 
+.announcement-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+}
+
 .node-form .wide {
   grid-column: span 4;
 }
@@ -441,6 +449,7 @@ tbody tr:hover {
   .metrics,
   .split,
   .toolbar,
+  .announcement-form,
   .node-form,
   .release-form {
     grid-template-columns: 1fr;

@@ -77,6 +77,23 @@ func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error
 	return out, rows.Err()
 }
 
+type Stats struct {
+	Total    int
+	Active   int
+	Disabled int
+}
+
+func (r *Repository) Stats(ctx context.Context) (Stats, error) {
+	var stats Stats
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*),
+		        COALESCE(SUM(CASE WHEN disabled = FALSE THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN disabled = TRUE THEN 1 ELSE 0 END), 0)
+		   FROM users`,
+	).Scan(&stats.Total, &stats.Active, &stats.Disabled)
+	return stats, err
+}
+
 func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
 	res, err := r.db.ExecContext(ctx, `UPDATE users SET disabled = ? WHERE id = ?`, disabled, userID)
 	if err != nil {

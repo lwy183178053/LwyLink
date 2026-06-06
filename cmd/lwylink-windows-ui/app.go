@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/appsettings"
 	"github.com/LwyV-Labs/LwyLink/internal/client"
 	"github.com/LwyV-Labs/LwyLink/internal/overlay"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
@@ -28,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.7"
+var AppVersion = "0.1.8"
 
 type App struct {
 	ctx context.Context
@@ -44,6 +45,7 @@ type App struct {
 	currentRoom  *room.Room
 	members      []room.MemberView
 	chatMessages []room.ChatMessage
+	announcement string
 
 	connectSeq    int64
 	connectCancel context.CancelFunc
@@ -108,6 +110,7 @@ type AppState struct {
 	ChatMessages  []room.ChatMessage  `json:"chatMessages"`
 	Connection    ConnectionState     `json:"connection"`
 	Update        UpdateState         `json:"update"`
+	Announcement  string              `json:"announcement"`
 }
 
 type ConnectionState struct {
@@ -125,15 +128,22 @@ type ConnectionState struct {
 	DirectPeers      int    `json:"directPeers"`
 }
 
+type fetchedRoomState struct {
+	rooms       []room.Room
+	currentRoom *room.Room
+	members     []room.MemberView
+}
+
 func NewApp() *App {
 	prefs := loadClientPreferences()
 	return &App{
-		api:        client.NewAPI(defaultAPIBaseURL),
-		apiBaseURL: defaultAPIBaseURL,
-		ifName:     defaultIfName,
-		p2pEnabled: prefs.P2PEnabled,
-		connection: newConnectionState(statusDisconnected, "未连接"),
-		update:     UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
+		api:          client.NewAPI(defaultAPIBaseURL),
+		apiBaseURL:   defaultAPIBaseURL,
+		ifName:       defaultIfName,
+		p2pEnabled:   prefs.P2PEnabled,
+		announcement: appsettings.DefaultAnnouncement,
+		connection:   newConnectionState(statusDisconnected, "未连接"),
+		update:       UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
 
@@ -163,6 +173,36 @@ func newConnectedState(selected room.Room, lease overlay.DHCPResponse) Connectio
 	return state
 }
 
+func fetchRoomState(ctx context.Context, api *client.API) (fetchedRoomState, error) {
+	rooms, err := api.Rooms(ctx)
+	if err != nil {
+		return fetchedRoomState{}, err
+	}
+	state := fetchedRoomState{rooms: rooms}
+	if len(rooms) == 0 {
+		return state, nil
+	}
+	current := rooms[0]
+	state.currentRoom = &current
+	members, err := api.RoomMembers(ctx, current.ID)
+	if err != nil {
+		return fetchedRoomState{}, err
+	}
+	state.members = members
+	return state, nil
+}
+
+func fetchAnnouncement(ctx context.Context, api *client.API) (string, error) {
+	announcement, err := api.Announcement(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(announcement) == "" {
+		announcement = appsettings.DefaultAnnouncement
+	}
+	return announcement, nil
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.initializeNotifications(ctx)
@@ -178,6 +218,18 @@ func (a *App) startup(ctx context.Context) {
 	if hasSaved {
 		a.apiBaseURL = saved.APIBaseURL
 		a.api = client.NewAPI(saved.APIBaseURL)
+	}
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	announcementCtx, announcementCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	announcement, _ := fetchAnnouncement(announcementCtx, api)
+	announcementCancel()
+
+	a.mu.Lock()
+	if a.apiBaseURL == apiBaseURL && announcement != "" {
+		a.announcement = announcement
 	}
 	a.startUpdateCheckLocked("正在检查更新")
 	a.commitStateLocked()
@@ -219,6 +271,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 	}
 
 	a.mu.Lock()
+	var announcementAPI *client.API
 	if a.apiBaseURL != apiBaseURL {
 		a.cancelConnectionLocked()
 		a.cancelRoomEventsLocked()
@@ -229,7 +282,8 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		a.clearRoomStateLocked()
 		a.connection = newConnectionState(statusDisconnected, "切换服务器后已退出登录")
 		a.resetUpdateLocked()
-		a.startUpdateCheckLocked("正在检查更新")
+		a.announcement = appsettings.DefaultAnnouncement
+		announcementAPI = a.api.Clone()
 	}
 	a.ifName = ifName
 	if input.P2PEnabled != nil && a.p2pEnabled != *input.P2PEnabled {
@@ -242,6 +296,20 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		}
 	}
 	a.startRoomEventsLocked()
+	if announcementAPI == nil {
+		return a.commitStateLocked(), nil
+	}
+	a.mu.Unlock()
+
+	announcementCtx, announcementCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	announcement, _ := fetchAnnouncement(announcementCtx, announcementAPI)
+	announcementCancel()
+
+	a.mu.Lock()
+	if a.apiBaseURL == apiBaseURL && announcement != "" {
+		a.announcement = announcement
+	}
+	a.startUpdateCheckLocked("正在检查更新")
 	return a.commitStateLocked(), nil
 }
 
@@ -252,16 +320,26 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	defer cancel()
 
 	a.mu.Lock()
-	res, err := a.api.Register(ctx, input.Username, input.Password, input.DisplayName)
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	res, err := api.Register(ctx, input.Username, input.Password, input.DisplayName)
 	if err != nil {
-		a.mu.Unlock()
 		return AppState{}, err
 	}
-	_ = saveSavedLogin(savedLogin{APIBaseURL: a.apiBaseURL, Username: input.Username, Password: input.Password})
-	a.user = &res.User
-	_ = a.refreshRoomStateLocked(ctx)
-	a.startRoomEventsLocked()
-	return a.commitStateLocked(), nil
+	roomState, roomErr := fetchRoomState(ctx, api)
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("服务器设置已变化，请重试")
+	}
+	a.api = api
+	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
+	state := a.commitStateLocked()
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Username, Password: input.Password})
+	return state, nil
 }
 
 func (a *App) Login(input LoginInput) (AppState, error) {
@@ -270,16 +348,26 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 	defer cancel()
 
 	a.mu.Lock()
-	res, err := a.api.Login(ctx, input.Username, input.Password)
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	res, err := api.Login(ctx, input.Username, input.Password)
 	if err != nil {
-		a.mu.Unlock()
 		return AppState{}, err
 	}
-	_ = saveSavedLogin(savedLogin{APIBaseURL: a.apiBaseURL, Username: input.Username, Password: input.Password})
-	a.user = &res.User
-	_ = a.refreshRoomStateLocked(ctx)
-	a.startRoomEventsLocked()
-	return a.commitStateLocked(), nil
+	roomState, roomErr := fetchRoomState(ctx, api)
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("服务器设置已变化，请重试")
+	}
+	a.api = api
+	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
+	state := a.commitStateLocked()
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Username, Password: input.Password})
+	return state, nil
 }
 
 func (a *App) Logout() (AppState, error) {
@@ -300,6 +388,11 @@ func (a *App) autoLogin(saved savedLogin) {
 
 	api := client.NewAPI(saved.APIBaseURL)
 	res, err := api.Login(ctx, saved.Username, saved.Password)
+	var roomState fetchedRoomState
+	var roomErr error
+	if err == nil {
+		roomState, roomErr = fetchRoomState(ctx, api)
+	}
 
 	a.mu.Lock()
 	if a.user != nil || a.apiBaseURL != saved.APIBaseURL {
@@ -314,10 +407,16 @@ func (a *App) autoLogin(saved savedLogin) {
 		return
 	}
 	a.api = api
-	a.user = &res.User
-	_ = a.refreshRoomStateLocked(ctx)
-	a.startRoomEventsLocked()
+	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
 	a.commitStateLocked()
+}
+
+func (a *App) applyAuthenticatedUserLocked(user account.PublicUser, roomState fetchedRoomState, hasRoomState bool) {
+	a.user = &user
+	if hasRoomState {
+		a.applyRoomStateLocked(roomState)
+	}
+	a.startRoomEventsLocked()
 }
 
 func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
@@ -333,14 +432,24 @@ func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("你已经在一个房间中，请先退出或删除当前房间")
 	}
-	if _, err := a.api.CreateRoom(ctx, strings.TrimSpace(input.Name), input.MaxMembers); err != nil {
-		a.mu.Unlock()
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if _, err := api.CreateRoom(ctx, strings.TrimSpace(input.Name), input.MaxMembers); err != nil {
 		return AppState{}, err
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
 		return AppState{}, err
 	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.user == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("账号或服务器状态已变化，请重试")
+	}
+	a.applyRoomStateLocked(roomState)
 	a.connection = newConnectionState(statusDisconnected, "房间已创建，请手动启动虚拟网卡")
 	return a.commitStateLocked(), nil
 }
@@ -358,14 +467,24 @@ func (a *App) JoinRoom(input JoinRoomInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("你已经在一个房间中，请先退出当前房间")
 	}
-	if _, err := a.api.JoinRoom(ctx, strings.TrimSpace(input.RoomPublicKey)); err != nil {
-		a.mu.Unlock()
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if _, err := api.JoinRoom(ctx, strings.TrimSpace(input.RoomPublicKey)); err != nil {
 		return AppState{}, err
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
 		return AppState{}, err
 	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.user == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("账号或服务器状态已变化，请重试")
+	}
+	a.applyRoomStateLocked(roomState)
 	a.connection = newConnectionState(statusDisconnected, "已加入房间，请手动启动虚拟网卡")
 	return a.commitStateLocked(), nil
 }
@@ -392,10 +511,19 @@ func (a *App) SendRoomChat(input SendChatInput) (AppState, error) {
 		return AppState{}, fmt.Errorf("只能在当前房间发送聊天")
 	}
 	message := strings.TrimSpace(input.Message)
-	chat, err := a.api.SendRoomChat(ctx, roomID, message)
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	chat, err := api.SendRoomChat(ctx, roomID, message)
 	if err != nil {
-		a.mu.Unlock()
 		return AppState{}, err
+	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
 	}
 	a.appendChatMessageLocked(chat)
 	return a.commitStateLocked(), nil
@@ -414,17 +542,27 @@ func (a *App) DeleteRoom(roomID int64) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("请选择房间")
 	}
-	if err := a.api.DeleteRoom(ctx, roomID); err != nil {
-		a.mu.Unlock()
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if err := api.DeleteRoom(ctx, roomID); err != nil {
 		return AppState{}, err
+	}
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
+		return AppState{}, err
+	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.user == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("账号或服务器状态已变化，请重试")
 	}
 	if a.connection.RoomID == roomID {
 		a.cancelConnectionLocked()
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
-		return AppState{}, err
-	}
+	a.applyRoomStateLocked(roomState)
 	return a.commitStateLocked(), nil
 }
 
@@ -438,17 +576,27 @@ func (a *App) LeaveCurrentRoom() (AppState, error) {
 		return AppState{}, fmt.Errorf("当前没有加入房间")
 	}
 	roomID := a.currentRoom.ID
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if err := api.LeaveRoom(ctx, roomID); err != nil {
+		return AppState{}, err
+	}
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
+		return AppState{}, err
+	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.user == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("账号或服务器状态已变化，请重试")
+	}
 	if a.connection.RoomID == roomID {
 		a.cancelConnectionLocked()
 	}
-	if err := a.api.LeaveRoom(ctx, roomID); err != nil {
-		a.mu.Unlock()
-		return AppState{}, err
-	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
-		return AppState{}, err
-	}
+	a.applyRoomStateLocked(roomState)
 	return a.commitStateLocked(), nil
 }
 
@@ -461,14 +609,25 @@ func (a *App) KickMember(input MemberActionInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("当前没有加入房间")
 	}
-	if err := a.api.KickMember(ctx, a.currentRoom.ID, input.UserID); err != nil {
-		a.mu.Unlock()
+	roomID := a.currentRoom.ID
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if err := api.KickMember(ctx, roomID, input.UserID); err != nil {
 		return AppState{}, err
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
 		return AppState{}, err
 	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
+	}
+	a.applyRoomStateLocked(roomState)
 	return a.commitStateLocked(), nil
 }
 
@@ -481,14 +640,25 @@ func (a *App) TransferOwner(input MemberActionInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("当前没有加入房间")
 	}
-	if _, err := a.api.TransferOwner(ctx, a.currentRoom.ID, input.UserID); err != nil {
-		a.mu.Unlock()
+	roomID := a.currentRoom.ID
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	if _, err := api.TransferOwner(ctx, roomID, input.UserID); err != nil {
 		return AppState{}, err
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
-		a.mu.Unlock()
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
 		return AppState{}, err
 	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
+	}
+	a.applyRoomStateLocked(roomState)
 	return a.commitStateLocked(), nil
 }
 
@@ -656,23 +826,53 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+
 	a.mu.Lock()
 	if a.roomEventsSeq != seq || a.user == nil {
 		a.mu.Unlock()
 		return
 	}
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
 	if event.Type == room.RoomEventAccountUpdated {
-		if _, err := a.refreshUserStateLocked(ctx); err != nil {
+		user, err := api.Me(ctx)
+		a.mu.Lock()
+		if a.roomEventsSeq != seq || a.apiBaseURL != apiBaseURL || a.user == nil {
 			a.mu.Unlock()
 			return
 		}
+		if err != nil {
+			if !isAccountStateError(err) {
+				a.mu.Unlock()
+				return
+			}
+			a.cancelConnectionLocked()
+			a.cancelRoomEventsLocked()
+			a.api.ClearToken()
+			a.user = nil
+			a.clearRoomStateLocked()
+			a.connection = newConnectionState(statusDisconnected, "账号状态已变化，请重新登录")
+			a.commitStateLocked()
+			return
+		}
+		a.user = &user
 		a.commitStateLocked()
 		return
 	}
-	if err := a.refreshRoomStateLocked(ctx); err != nil {
+
+	roomState, err := fetchRoomState(ctx, api)
+	if err != nil {
+		return
+	}
+
+	a.mu.Lock()
+	if a.roomEventsSeq != seq || a.apiBaseURL != apiBaseURL || a.user == nil {
 		a.mu.Unlock()
 		return
 	}
+	a.applyRoomStateLocked(roomState)
 	a.commitStateLocked()
 }
 
@@ -683,28 +883,25 @@ func (a *App) clearRoomStateLocked() {
 	a.chatMessages = nil
 }
 
-func (a *App) refreshRoomStateLocked(ctx context.Context) error {
+func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	activeRoomID := a.connection.RoomID
 	previousRoomID := int64(0)
 	if a.currentRoom != nil {
 		previousRoomID = a.currentRoom.ID
 	}
-	rooms, err := a.api.Rooms(ctx)
-	if err != nil {
-		return err
-	}
-	a.rooms = rooms
+
+	a.rooms = next.rooms
 	a.currentRoom = nil
 	a.members = nil
-	if len(rooms) == 0 {
+	if next.currentRoom == nil {
 		a.chatMessages = nil
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
 			a.connection = newConnectionState(statusDisconnected, "已离开房间，虚拟网卡已断开")
 		}
-		return nil
+		return
 	}
-	current := rooms[0]
+	current := *next.currentRoom
 	a.currentRoom = &current
 	if previousRoomID > 0 && previousRoomID != current.ID {
 		a.chatMessages = nil
@@ -713,33 +910,7 @@ func (a *App) refreshRoomStateLocked(ctx context.Context) error {
 		a.cancelConnectionLocked()
 		a.connection = newConnectionState(statusDisconnected, "当前房间已变化，虚拟网卡已断开")
 	}
-	members, err := a.api.RoomMembers(ctx, current.ID)
-	if err != nil {
-		return err
-	}
-	a.members = members
-	return nil
-}
-
-func (a *App) refreshUserStateLocked(ctx context.Context) (bool, error) {
-	if a.user == nil {
-		return false, nil
-	}
-	user, err := a.api.Me(ctx)
-	if err != nil {
-		if !isAccountStateError(err) {
-			return false, err
-		}
-		a.cancelConnectionLocked()
-		a.cancelRoomEventsLocked()
-		a.api.ClearToken()
-		a.user = nil
-		a.clearRoomStateLocked()
-		a.connection = newConnectionState(statusDisconnected, "账号状态已变化，请重新登录")
-		return false, nil
-	}
-	a.user = &user
-	return true, nil
+	a.members = next.members
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {
@@ -788,6 +959,7 @@ func (a *App) stateLocked() AppState {
 		ChatMessages:  chatMessages,
 		Connection:    a.connection,
 		Update:        a.update,
+		Announcement:  a.announcement,
 	}
 }
 

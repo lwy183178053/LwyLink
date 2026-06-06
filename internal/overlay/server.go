@@ -117,14 +117,12 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 	// Before a session is registered, the only valid message is auth. This keeps
 	// unauthenticated clients from sending IP packets or consuming vDHCP leases.
 	if typ != FrameAuth {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": "first frame must be auth"})
-		_ = conn.Close()
+		s.rejectConn(conn, "first frame must be auth")
 		return
 	}
 	var req AuthRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": "bad auth payload"})
-		_ = conn.Close()
+		s.rejectConn(conn, "bad auth payload")
 		return
 	}
 
@@ -132,20 +130,17 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 	// so deleted or closed rooms stop accepting joins and overlay connects.
 	user, claims, err := s.accounts.AuthenticateTokenClaims(context.Background(), req.Token)
 	if err != nil {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": "invalid token"})
-		_ = conn.Close()
+		s.rejectConn(conn, "invalid token")
 		return
 	}
 	roomInfo, err := s.rooms.EnsureMemberByRoomKey(context.Background(), s.nodeID, req.RoomID, user.ID, req.RoomPublicKey)
 	if err != nil {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": err.Error()})
-		_ = conn.Close()
+		s.rejectConn(conn, err.Error())
 		return
 	}
 	lease, err := s.leases.Acquire(roomInfo.ID, user.ID, roomInfo.NetworkCIDR, s.defaultDNS, s.defaultMTU)
 	if err != nil {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": err.Error()})
-		_ = conn.Close()
+		s.rejectConn(conn, err.Error())
 		return
 	}
 
@@ -153,8 +148,7 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 	// immediately after DHCP, the server can already route by room/IP.
 	sess := newSession(conn, user.ID, user.Username, claims.SessionID, roomInfo.ID, lease)
 	if err := s.prepareUDP(sess); err != nil {
-		_ = s.writeJSON(conn, FrameError, map[string]string{"error": err.Error()})
-		_ = conn.Close()
+		s.rejectConn(conn, err.Error())
 		return
 	}
 	old := s.register(sess)
@@ -198,6 +192,11 @@ func (s *Server) handleSessionFrame(sess *session, typ FrameType, payload []byte
 		_ = s.writeJSON(sess.conn, FrameError, map[string]string{"error": fmt.Sprintf("unsupported frame %d", typ)})
 		sess.close()
 	}
+}
+
+func (s *Server) rejectConn(conn *tcpx.SecureConn, message string) {
+	_ = s.writeJSON(conn, FrameError, map[string]string{"error": message})
+	_ = conn.Close()
 }
 
 func (s *Server) writeLoop(sess *session) {

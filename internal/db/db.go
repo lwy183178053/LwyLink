@@ -97,6 +97,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			UNIQUE INDEX uniq_client_releases_platform_version (platform, version),
 			INDEX idx_client_releases_platform_created (platform, created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			setting_key VARCHAR(64) NOT NULL PRIMARY KEY,
+			setting_value TEXT NOT NULL,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`INSERT IGNORE INTO app_settings (setting_key, setting_value)
+		 VALUES ('announcement', '官方 QQ 群：715516422')`,
 	}
 
 	for _, stmt := range stmts {

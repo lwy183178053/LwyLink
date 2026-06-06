@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/appsettings"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
@@ -23,6 +24,7 @@ type Server struct {
 	addr       string
 	adminToken string
 	accounts   *account.Service
+	settings   *appsettings.Service
 	rooms      *room.Service
 	nodes      *node.Service
 	releases   *clientrelease.Service
@@ -30,11 +32,12 @@ type Server struct {
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
-func NewServer(addr, adminToken string, accounts *account.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service) *Server {
+func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service) *Server {
 	return &Server{
 		addr:       addr,
 		adminToken: adminToken,
 		accounts:   accounts,
+		settings:   settings,
 		rooms:      rooms,
 		nodes:      nodes,
 		releases:   releases,
@@ -48,6 +51,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/register", s.handleRegister)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/me", s.handleMe)
+	mux.HandleFunc("/api/announcement", s.handleAnnouncement)
 	mux.HandleFunc("/api/rooms", s.handleRooms)
 	mux.HandleFunc("/api/rooms/join", s.handleJoinRoom)
 	mux.HandleFunc("/api/rooms/delete", s.handleDeleteRoom)
@@ -68,6 +72,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/admin/users/delete", s.handleAdminUserDelete)
 	mux.HandleFunc("/admin/rooms", s.handleAdminRooms)
 	mux.HandleFunc("/admin/rooms/status", s.handleAdminRoomStatus)
+	mux.HandleFunc("/admin/settings/announcement", s.handleAdminAnnouncement)
 	mux.HandleFunc("/admin/nodes/save", s.handleAdminNodeSave)
 	mux.HandleFunc("/admin/nodes/enabled", s.handleAdminNodeEnabled)
 	mux.HandleFunc("/admin/nodes/check", s.handleAdminNodeCheck)
@@ -146,6 +151,18 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user.Public())
+}
+
+func (s *Server) handleAnnouncement(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) || !s.requireSettings(w) {
+		return
+	}
+	announcement, err := s.settings.Announcement(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"announcement": announcement})
 }
 
 func (s *Server) handleRooms(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +486,10 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+func (s *Server) requireAdminPost(w http.ResponseWriter, r *http.Request) bool {
+	return requireMethod(w, r, http.MethodPost) && s.requireAdmin(w, r)
+}
+
 func (s *Server) requireNodes(w http.ResponseWriter) bool {
 	if s.nodes != nil {
 		return true
@@ -485,10 +506,31 @@ func (s *Server) requireReleases(w http.ResponseWriter, status int) bool {
 	return false
 }
 
+func (s *Server) requireSettings(w http.ResponseWriter) bool {
+	if s.settings != nil {
+		return true
+	}
+	writeError(w, http.StatusBadRequest, "app settings service is not configured")
+	return false
+}
+
 func (s *Server) notifyUserUpdated(ctx context.Context, userID int64) {
 	if s.rooms != nil && userID > 0 {
 		s.rooms.NotifyUserUpdated(ctx, userID)
 	}
+}
+
+func (s *Server) redirectAdminFromForm(w http.ResponseWriter, r *http.Request, path, statusField string) {
+	http.Redirect(w, r, s.adminURLFromForm(path, r, statusField), http.StatusSeeOther)
+}
+
+func formInt64(w http.ResponseWriter, r *http.Request, field, errorMessage string) (int64, bool) {
+	value, _ := strconv.ParseInt(r.FormValue(field), 10, 64)
+	if value <= 0 {
+		writeError(w, http.StatusBadRequest, errorMessage)
+		return 0, false
+	}
+	return value, true
 }
 
 func readJSON(r *http.Request, v any) error {
@@ -550,12 +592,21 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := adminPageData{
-		Active: "overview",
-		Title:  "概览",
-		Token:  s.adminToken,
-		Stats:  stats,
-		Users:  users,
-		Rooms:  rooms,
+		Active:       "overview",
+		Title:        "概览",
+		Token:        s.adminToken,
+		Stats:        stats,
+		Users:        users,
+		Rooms:        rooms,
+		Announcement: appsettings.DefaultAnnouncement,
+	}
+	if s.settings != nil {
+		announcement, err := s.settings.Announcement(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		data.Announcement = announcement
 	}
 	if s.nodes != nil {
 		nodes, err := s.nodes.List(r.Context())
@@ -698,7 +749,7 @@ func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 }
 
 func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
+	if !s.requireAdminPost(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
@@ -725,31 +776,40 @@ func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, s.adminURL("/admin/releases"), http.StatusSeeOther)
 }
 
+func (s *Server) handleAdminAnnouncement(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPost(w, r) || !s.requireSettings(w) {
+		return
+	}
+	if err := s.settings.SetAnnouncement(r.Context(), r.FormValue("announcement")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, s.adminURL("/admin"), http.StatusSeeOther)
+}
+
 func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
+	if !s.requireAdminPost(w, r) {
 		return
 	}
-	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
+	userID, ok := formInt64(w, r, "userID", "bad userID")
+	if !ok {
+		return
+	}
 	disabled := r.FormValue("disabled") == "true"
-	if userID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad userID")
-		return
-	}
 	if err := s.accounts.SetDisabled(r.Context(), userID, disabled); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.notifyUserUpdated(r.Context(), userID)
-	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/users", "status")
 }
 
 func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
+	if !s.requireAdminPost(w, r) {
 		return
 	}
-	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
-	if userID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad userID")
+	userID, ok := formInt64(w, r, "userID", "bad userID")
+	if !ok {
 		return
 	}
 	if err := s.accounts.SetMembership(r.Context(), userID, r.FormValue("membership")); err != nil {
@@ -757,16 +817,15 @@ func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.notifyUserUpdated(r.Context(), userID)
-	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/users", "status")
 }
 
 func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
+	if !s.requireAdminPost(w, r) {
 		return
 	}
-	userID, _ := strconv.ParseInt(r.FormValue("userID"), 10, 64)
-	if userID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad userID")
+	userID, ok := formInt64(w, r, "userID", "bad userID")
+	if !ok {
 		return
 	}
 	if s.rooms != nil {
@@ -780,11 +839,11 @@ func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyUserUpdated(r.Context(), userID)
-	http.Redirect(w, r, s.adminURLFromForm("/admin/users", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/users", "status")
 }
 
 func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
+	if !s.requireAdminPost(w, r) || !s.requireNodes(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
@@ -803,48 +862,45 @@ func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/nodes", "status")
 }
 
 func (s *Server) handleAdminNodeEnabled(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
+	if !s.requireAdminPost(w, r) || !s.requireNodes(w) {
 		return
 	}
-	nodeID, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
+	nodeID, ok := formInt64(w, r, "nodeID", "bad nodeID")
+	if !ok {
+		return
+	}
 	enabled := r.FormValue("enabled") == "true"
-	if nodeID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad nodeID")
-		return
-	}
 	if err := s.nodes.SetEnabled(r.Context(), nodeID, enabled); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/nodes", "status")
 }
 
 func (s *Server) handleAdminNodeCheck(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) || !s.requireNodes(w) {
+	if !s.requireAdminPost(w, r) || !s.requireNodes(w) {
 		return
 	}
-	nodeID, _ := strconv.ParseInt(r.FormValue("nodeID"), 10, 64)
-	if nodeID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad nodeID")
+	nodeID, ok := formInt64(w, r, "nodeID", "bad nodeID")
+	if !ok {
 		return
 	}
 	if err := s.nodes.CheckNow(r.Context(), nodeID); err != nil {
 		log.Printf("manual node check failed node=%d: %v", nodeID, err)
 	}
-	http.Redirect(w, r, s.adminURLFromForm("/admin/nodes", r, "status"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/nodes", "status")
 }
 
 func (s *Server) handleAdminRoomStatus(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) || !s.requireAdmin(w, r) {
+	if !s.requireAdminPost(w, r) {
 		return
 	}
-	roomID, _ := strconv.ParseInt(r.FormValue("roomID"), 10, 64)
-	if roomID <= 0 {
-		writeError(w, http.StatusBadRequest, "bad roomID")
+	roomID, ok := formInt64(w, r, "roomID", "bad roomID")
+	if !ok {
 		return
 	}
 	var err error
@@ -858,7 +914,7 @@ func (s *Server) handleAdminRoomStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	http.Redirect(w, r, s.adminURLFromForm("/admin/rooms", r, "filterStatus"), http.StatusSeeOther)
+	s.redirectAdminFromForm(w, r, "/admin/rooms", "filterStatus")
 }
 
 func (s *Server) adminAuthorized(r *http.Request) bool {
@@ -870,24 +926,25 @@ func (s *Server) adminAuthorized(r *http.Request) bool {
 }
 
 type adminPageData struct {
-	Active     string
-	Title      string
-	CurrentURL string
-	Token      string
-	Query      string
-	Status     string
-	Page       int
-	PerPage    int
-	HasPrev    bool
-	HasNext    bool
-	PrevURL    string
-	NextURL    string
-	Stats      adminStats
-	Nav        []adminNavItem
-	Users      []account.User
-	Rooms      []room.Room
-	Nodes      []node.Node
-	Releases   []clientrelease.Release
+	Active       string
+	Title        string
+	CurrentURL   string
+	Token        string
+	Query        string
+	Status       string
+	Page         int
+	PerPage      int
+	HasPrev      bool
+	HasNext      bool
+	PrevURL      string
+	NextURL      string
+	Stats        adminStats
+	Nav          []adminNavItem
+	Users        []account.User
+	Rooms        []room.Room
+	Nodes        []node.Node
+	Releases     []clientrelease.Release
+	Announcement string
 }
 
 type adminListRequest struct {
@@ -922,52 +979,37 @@ type adminStats struct {
 
 func (s *Server) adminStats(ctx context.Context) (adminStats, error) {
 	stats := adminStats{}
-	users, err := s.accounts.SearchUsers(ctx, account.UserFilter{Limit: 1000})
+	userStats, err := s.accounts.Stats(ctx)
 	if err != nil {
 		return stats, err
 	}
-	for _, u := range users {
-		stats.Users++
-		if u.Disabled {
-			stats.DisabledUsers++
-		} else {
-			stats.ActiveUsers++
-		}
-	}
-	rooms, err := s.rooms.Search(ctx, room.Filter{Limit: 1000})
+	stats.Users = userStats.Total
+	stats.ActiveUsers = userStats.Active
+	stats.DisabledUsers = userStats.Disabled
+
+	roomStats, err := s.rooms.Stats(ctx)
 	if err != nil {
 		return stats, err
 	}
-	for _, r := range rooms {
-		stats.Rooms++
-		switch r.Status {
-		case room.StatusOpen:
-			stats.OpenRooms++
-		case room.StatusClosed:
-			stats.ClosedRooms++
-		}
-	}
+	stats.Rooms = roomStats.Total
+	stats.OpenRooms = roomStats.Open
+	stats.ClosedRooms = roomStats.Closed
+
 	if s.nodes != nil {
-		nodes, err := s.nodes.List(ctx)
+		nodeStats, err := s.nodes.Stats(ctx)
 		if err != nil {
 			return stats, err
 		}
-		for _, n := range nodes {
-			stats.Nodes++
-			switch n.Status {
-			case node.StatusOnline:
-				stats.OnlineNodes++
-			case node.StatusPaused:
-				stats.PausedNodes++
-			}
-		}
+		stats.Nodes = nodeStats.Total
+		stats.OnlineNodes = nodeStats.Online
+		stats.PausedNodes = nodeStats.Paused
 	}
 	if s.releases != nil {
-		releases, err := s.releases.List(ctx, clientrelease.Filter{Limit: 1000})
+		releases, err := s.releases.Count(ctx)
 		if err != nil {
 			return stats, err
 		}
-		stats.Releases = len(releases)
+		stats.Releases = releases
 	}
 	return stats, nil
 }

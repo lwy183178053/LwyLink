@@ -93,6 +93,10 @@ func (s *Service) List(ctx context.Context, filter Filter) ([]Release, error) {
 	return s.repo.List(ctx, filter)
 }
 
+func (s *Service) Count(ctx context.Context) (int, error) {
+	return s.repo.Count(ctx)
+}
+
 func (s *Service) Latest(ctx context.Context, platform string) (Release, error) {
 	platform = NormalizePlatform(platform)
 	releases, err := s.repo.List(ctx, Filter{Platform: platform, Limit: 1000})
