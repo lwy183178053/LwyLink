@@ -9,14 +9,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/clientrelease"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/config"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/db"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/state"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/web"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/config"
+	"github.com/LwyV-Labs/LwyLink/internal/db"
+	"github.com/LwyV-Labs/LwyLink/internal/node"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/state"
+	"github.com/LwyV-Labs/LwyLink/internal/web"
 )
 
 func main() {

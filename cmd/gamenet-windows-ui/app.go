@@ -8,17 +8,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/client"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/overlay"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tun"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/client"
+	"github.com/LwyV-Labs/LwyLink/internal/overlay"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/tun"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
 	defaultAPIBaseURL = "http://64.83.34.53:8080"
-	defaultIfName     = "LwyV-GameNet"
+	defaultIfName     = "LwyLink"
 	maxChatMessages   = 120
 
 	statusDisconnected  = "disconnected"

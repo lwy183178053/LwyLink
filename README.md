@@ -1,6 +1,8 @@
-# LwyV-GameNet
+# LwyLink
 
-LwyV-GameNet 是一个从 LwyV-Net 思路拆出来的“游戏虚拟组网后端 + Windows 客户端”原型。
+LwyLink，中文名“联微互联”，是一个面向小团队、朋友小队、小型私服和宿舍网络的轻量虚拟组网项目。
+
+其中 Lwy 可理解为“联、微、易”：联，连接不同网络环境下的玩家与设备；微，面向微型网络场景；易，让虚拟组网和局域网联机变得简单易用。Link 代表连接与互联。
 
 它保留三层虚拟组网的关键能力：Wintun、虚拟 DHCP、房间内 IP 包转发和 `tcpx` 加密传输；同时去掉复杂的防火墙、全局代理、服务端 NAT 等生产 VPN 逻辑，把重点放到游戏联机房间、玩家账号和房间隔离上。
 
@@ -12,7 +14,7 @@ LwyV-GameNet 是一个从 LwyV-Net 思路拆出来的“游戏虚拟组网后端
 - 玩家可以创建房间、通过房间公钥加入房间。
 - 服务端限制每个玩家同一时间只能处在一个房间中；没有加入房间时才可以创建或加入。
 - 房间内只有两种权限：房主和普通成员。房主可以踢出普通成员，也可以把房主转让给房间内其他玩家。
-- 房间默认最多 8 人，创建时可设置 2-64 人。
+- 房间默认最多 8 人，创建时可选择 2、4、6、8、16、32、50、100 人；16 人及以上需要会员账号。
 - 每个房间对应一个独立虚拟网段和一个房间公钥。
 - 玩家创建或加入房间后，可以手动启动 Wintun 虚拟网卡，并通过 vDHCP 自动获得虚拟 IP、网关、DNS、MTU。
 - 房间内玩家的三层 IP 包通过服务端转发，并支持 UDP 广播/组播发现，实现类似局域网游戏联机的效果。
@@ -27,9 +29,9 @@ Windows 控制台客户端
   -> HTTP API 注册/登录/创建房间/通过房间公钥加入房间
   -> Wintun 虚拟网卡
   -> tcpx 加密 Overlay 隧道
-  -> GameNet Room Node
+  -> LwyLink Room Node
 
-GameNet Control Plane
+LwyLink Control Plane
        -> account 账号域
        -> room 房间域
        -> node 服务器节点域
@@ -37,7 +39,7 @@ GameNet Control Plane
        -> MySQL 持久化账号/房间
        -> Redis 记录当前有效登录会话、在线状态、房间公钥和房间事件 Pub/Sub
 
-GameNet Room Node
+LwyLink Room Node
        -> vdhcp 虚拟地址域
        -> overlay 房间内 IP 包转发
        -> tcpx 加密传输
@@ -47,10 +49,10 @@ GameNet Room Node
 ## 目录
 
 ```text
-cmd/gamenet-control  控制中心入口，只运行 HTTP API 和管理后台
-cmd/gamenet-node     房间节点入口，只运行加密 Overlay 和 vDHCP
-cmd/gamenet-client   Windows 控制台客户端入口
-cmd/gamenet-windows-ui  Wails Windows 图形客户端入口
+cmd/gamenet-control  LwyLink 控制中心入口，只运行 HTTP API 和管理后台
+cmd/gamenet-node     LwyLink 房间节点入口，只运行加密 Overlay 和 vDHCP
+cmd/gamenet-client   LwyLink Windows 控制台客户端入口
+cmd/gamenet-windows-ui  LwyLink Wails Windows 图形客户端入口
 configs/             示例配置
 internal/account     玩家账号、密码、令牌
 internal/room        房间、成员、房间公钥、网段
@@ -64,7 +66,7 @@ internal/db          MySQL 连接和表结构迁移
 internal/state       Redis 运行态：登录会话、在线状态、房间公钥索引和事件
 ```
 
-测试服务器、自动部署和远端服务维护说明见 `deploy/TEST_SERVER.md`。新会话接手部署前请先读这个文件，尤其注意测试服务器上的 `443` 端口属于旧服务，GameNet 只使用 `8080` 和 `35768`。
+测试服务器、自动部署和远端服务维护说明见 `deploy/TEST_SERVER.md`。新会话接手部署前请先读这个文件，尤其注意测试服务器上的 `443` 端口属于旧服务，LwyLink 只使用 `8080` 和 `35768`。
 
 ## 快速开始
 
@@ -148,7 +150,7 @@ go run .\cmd\gamenet-client
 
 客户端限制同一台电脑只运行一个实例。再次启动会唤醒已有窗口。点击关闭不会直接退出，而是隐藏到 Windows 系统托盘，并弹出一次托盘提示；托盘菜单提供显示主窗口、隐藏到托盘、刷新房间列表、连接/断开当前虚拟网络、检查/安装更新和退出程序。
 
-控制后台提供“客户端”版本管理页面，可以上传新版 Windows 客户端、填写版本号和更新说明。客户端启动后会自动检查 `/api/client/releases/latest`，发现更高版本后在后台下载并校验 SHA256，下载完成才弹出更新提示。上传裸 `LwyV-GameNet.exe` 时安装参数留空，用户点击更新后客户端会启动内置 helper 替换自身并重启；上传安装器时可以填写静默安装参数，例如 `/S`，客户端会启动安装器后退出。
+控制后台提供“客户端”版本管理页面，可以上传新版 Windows 客户端、填写版本号和更新说明。客户端启动后会自动检查 `/api/client/releases/latest`，发现更高版本后在后台下载并校验 SHA256，下载完成才弹出更新提示。上传裸 `LwyLink.exe` 时安装参数留空，用户点击更新后客户端会启动内置 helper 替换自身并重启；上传安装器时可以填写静默安装参数，例如 `/S`，客户端会启动安装器后退出。
 
 打新版客户端时要同步更新 Go 端版本号，或者在构建时注入：
 
@@ -172,7 +174,7 @@ wails build
 构建产物：
 
 ```text
-cmd/gamenet-windows-ui/build/bin/LwyV-GameNet.exe
+cmd/gamenet-windows-ui/build/bin/LwyLink.exe
 ```
 
 如果 `wails` 不在 PATH，可以使用：
@@ -254,7 +256,7 @@ Windows 客户端连接房间时会临时把房间网段和 IPv4 组播路由指
 
 为了提高游戏大厅自动发现的成功率，Windows 客户端还会在连接期间把 `255.255.255.255/32` 有限广播路由到 Wintun，打开虚拟适配器入站/出站防火墙规则，并临时关闭该虚拟适配器的 IPv6 绑定，避免只支持 IPv4 的房间 overlay 被游戏优先使用 IPv6 link-local 发现绕开。
 
-仍有一类情况需要注意：如果游戏强制绑定物理网卡，或者只向物理局域网广播地址例如 `192.168.1.255` 发包，这些包不会进入 Wintun。遇到这种游戏时，先连接 LwyV-GameNet 再启动游戏，并在游戏或启动器里选择 `LwyV-GameNet` / Wintun 虚拟网卡，成功率会高很多。
+仍有一类情况需要注意：如果游戏强制绑定物理网卡，或者只向物理局域网广播地址例如 `192.168.1.255` 发包，这些包不会进入 Wintun。遇到这种游戏时，先连接 LwyLink 再启动游戏，并在游戏或启动器里选择 `LwyLink` / Wintun 虚拟网卡，成功率会高很多。
 
 ## 房间公钥策略
 
@@ -294,8 +296,8 @@ Windows 客户端连接房间时会临时把房间网段和 IPv4 组播路由指
 
 项目现在固定拆成两个程序：
 
-- `gamenet-control`：控制中心，只跑玩家 API、管理后台、节点调度和健康检查。
-- `gamenet-node`：房间节点，只跑 tcpx Overlay、vDHCP 和房间内 IP 包转发。
+- `gamenet-control`：LwyLink 控制中心，只跑玩家 API、管理后台、节点调度和健康检查。
+- `gamenet-node`：LwyLink 房间节点，只跑 tcpx Overlay、vDHCP 和房间内 IP 包转发。
 
 控制中心的管理页可以添加服务器节点。每个节点包含：
 

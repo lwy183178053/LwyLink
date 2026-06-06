@@ -1,5 +1,5 @@
 [Unit]
-Description=LwyV GameNet control plane
+Description=LwyLink control plane
 After=network-online.target docker.service
 Wants=network-online.target
 

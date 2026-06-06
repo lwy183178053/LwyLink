@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/clientrelease"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/node"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
 type Server struct {
@@ -668,7 +668,7 @@ func (s *Server) handleAdminReleases(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	data := s.adminListPageData("releases", "客户端版本", "/admin/releases", listReq, hasNext)
+	data := s.adminListPageData("releases", "更新发布", "/admin/releases", listReq, hasNext)
 	data.Stats = stats
 	data.Releases = releases
 	s.renderAdmin(w, data)
@@ -680,7 +680,7 @@ func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 		{Key: "nodes", Label: "节点", URL: s.adminURL("/admin/nodes")},
 		{Key: "users", Label: "玩家", URL: s.adminURL("/admin/users")},
 		{Key: "rooms", Label: "房间", URL: s.adminURL("/admin/rooms")},
-		{Key: "releases", Label: "客户端版本", URL: s.adminURL("/admin/releases")},
+		{Key: "releases", Label: "更新发布", URL: s.adminURL("/admin/releases")},
 	}
 	if data.CurrentURL == "" {
 		data.CurrentURL = data.Nav[0].URL
@@ -707,7 +707,7 @@ func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "请选择客户端安装包")
+		writeError(w, http.StatusBadRequest, "请选择更新包")
 		return
 	}
 	defer file.Close()

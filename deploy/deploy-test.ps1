@@ -141,7 +141,7 @@ Invoke-LocalStep "上传二进制" {
   }
 }
 
-Invoke-LocalStep "安装并重启 GameNet 服务" {
+Invoke-LocalStep "安装并重启 LwyLink 服务" {
   $cmd = @"
 set -e
 install -m 0755 $remoteRoot/deploy/dist/gamenet-control $remoteRoot/gamenet-control

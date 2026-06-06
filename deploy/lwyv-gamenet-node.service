@@ -1,5 +1,5 @@
 [Unit]
-Description=LwyV GameNet room node
+Description=LwyLink room node
 After=network-online.target docker.service
 Wants=network-online.target
 

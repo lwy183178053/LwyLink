@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/node"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/node"
+	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
 const maxChatMessageRunes = 500

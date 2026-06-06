@@ -86,7 +86,7 @@ export type AppState = {
 
 export const emptyState: AppState = {
   apiBaseURL: "http://64.83.34.53:8080",
-  interfaceName: "LwyV-GameNet",
+  interfaceName: "LwyLink",
   rooms: [],
   members: [],
   chatMessages: [],

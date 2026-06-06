@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/overlay"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tun"
+	"github.com/LwyV-Labs/LwyLink/internal/overlay"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
+	"github.com/LwyV-Labs/LwyLink/internal/tun"
 )
 
 type ConnectOptions struct {
@@ -33,7 +33,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 		return fmt.Errorf("bad room")
 	}
 	if opts.IfName == "" {
-		opts.IfName = "LwyV-GameNet"
+		opts.IfName = "LwyLink"
 	}
 	if opts.OverlayAddr == "" {
 		opts.OverlayAddr = opts.Room.NodeOverlayAddr

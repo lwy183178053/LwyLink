@@ -1,4 +1,4 @@
-module github.com/LwyV-Labs/LwyV-GameNet
+module github.com/LwyV-Labs/LwyLink
 
 go 1.26
 

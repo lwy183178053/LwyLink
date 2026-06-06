@@ -10,7 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
-const singleInstanceID = "com.lwyv-labs.lwyv-gamenet.windows"
+const singleInstanceID = "com.lwylink.client.windows"
 
 func main() {
 	if handled, err := runUpdaterFromArgs(os.Args); handled {
@@ -22,7 +22,7 @@ func main() {
 
 	app := NewApp()
 	if err := wails.Run(&options.App{
-		Title:     "LwyV-GameNet",
+		Title:     "LwyLink",
 		Width:     1240,
 		Height:    780,
 		MinWidth:  1040,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
 	"github.com/redis/go-redis/v9"
 )
 

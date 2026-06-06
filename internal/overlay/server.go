@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/vdhcp"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
+	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
 type PresenceStore interface {

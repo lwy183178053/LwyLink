@@ -177,6 +177,13 @@ h2 {
   font-size: 13px;
 }
 
+.panel-head p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .release-entry {
   display: flex;
   align-items: center;

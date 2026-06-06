@@ -7,11 +7,11 @@
 - 主机：`64.83.34.53`
 - 系统：Ubuntu
 - SSH：`root@64.83.34.53:22`
-- GameNet 控制 API：`http://64.83.34.53:8080`
-- GameNet Overlay：`64.83.34.53:35768`
-- GameNet 远端目录：`/opt/lwyv-gamenet`
+- LwyLink 控制 API：`http://64.83.34.53:8080`
+- LwyLink Overlay：`64.83.34.53:35768`
+- LwyLink 远端目录：`/opt/lwyv-gamenet`
 
-重要：服务器上的 `443` 端口被旧的 LwyV-Net 服务占用，进程通常显示为 `lwyvnet-linux-a`。不要停止、重启、覆盖或抢占这个 443 服务。GameNet 测试只使用 `8080` 和 `35768`。
+重要：服务器上的 `443` 端口被旧的 LwyV-Net 服务占用，进程通常显示为 `lwyvnet-linux-a`。不要停止、重启、覆盖或抢占这个 443 服务。LwyLink 测试只使用 `8080` 和 `35768`。
 
 SSH 密码不要写进 README 或代码。新会话需要部署时，先让用户提供密码，或者在本机 PowerShell 临时设置：
 
@@ -57,7 +57,7 @@ ss -ltnp | grep -E ':(443|8080|35768) '
 
 - `8080`：`gamenet-control`
 - `35768`：`gamenet-node`
-- `443`：旧服务，不属于 GameNet
+- `443`：旧服务，不属于 LwyLink
 
 ## 一键部署
 

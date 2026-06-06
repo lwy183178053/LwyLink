@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} - LwyV-GameNet Admin</title>
+  <title>{{.Title}} - LwyLink Admin</title>
   <link rel="stylesheet" href="/admin/assets/admin.css">
   <script defer src="/admin/assets/admin.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <strong>LwyV-GameNet</strong>
-        <span>Control Admin</span>
+        <strong>LwyLink</strong>
+        <span>联微互联控制台</span>
       </div>
       <nav class="nav">
         {{range .Nav}}
@@ -54,7 +54,7 @@
   <div class="metric"><strong>{{.Stats.ActiveUsers}}</strong><span>正常账号</span></div>
   <div class="metric"><strong>{{.Stats.Rooms}}</strong><span>房间总数</span></div>
   <div class="metric"><strong>{{.Stats.OnlineNodes}}</strong><span>在线节点</span></div>
-  <div class="metric"><strong>{{.Stats.Releases}}</strong><span>客户端版本</span></div>
+  <div class="metric"><strong>{{.Stats.Releases}}</strong><span>更新版本</span></div>
 </section>
 {{end}}
 
@@ -75,10 +75,10 @@
 </section>
 <section class="panel release-entry">
   <div>
-    <h2>客户端版本发布</h2>
-    <p>上传打包好的 Windows 客户端，填写版本号和更新说明后，客户端会检查并预下载更新。</p>
+    <h2>更新发布</h2>
+    <p>上传打包好的 LwyLink Windows 客户端或安装器，填写版本号和更新说明后，客户端会检查并预下载更新。</p>
   </div>
-  <a class="button primary" href="{{with index .Nav 4}}{{.URL}}{{end}}">上传客户端版本</a>
+  <a class="button primary" href="{{with index .Nav 4}}{{.URL}}{{end}}">上传更新包</a>
 </section>
 {{end}}
 
@@ -240,7 +240,13 @@
 
 {{define "releases"}}
 <section class="panel">
-  <div class="panel-head"><h2>上传客户端版本</h2><span>Windows 客户端更新包</span></div>
+  <div class="panel-head">
+    <div>
+      <h2>上传 LwyLink 更新包</h2>
+      <p>上传打包好的 Windows 客户端或安装器，客户端会自动检查、预下载并提示更新。</p>
+    </div>
+    <span>Windows 客户端更新包</span>
+  </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
     <label>版本号<input name="version" placeholder="例如 0.1.9" required></label>
@@ -252,14 +258,14 @@
         <option value="true">是</option>
       </select>
     </label>
-    <label class="wide">更新包<input name="file" type="file" required></label>
+    <label class="wide">更新包<input name="file" type="file" accept=".exe,.msi,.zip,.7z" required></label>
     <label class="wide">更新说明<textarea name="notes" rows="5" placeholder="写给客户端用户看的更新内容"></textarea></label>
     <button class="primary" type="submit">上传版本</button>
   </form>
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>客户端版本</h2><span>{{len .Releases}} 条</span></div>
+  <div class="panel-head"><h2>已发布版本</h2><span>{{len .Releases}} 条</span></div>
   <form class="toolbar release-toolbar" method="get">
     <input type="hidden" name="token" value="{{.Token}}">
     <label>搜索
@@ -302,7 +308,7 @@
         <td><a class="button" href="/downloads/client/{{.StoredFileName}}">下载</a></td>
       </tr>
       {{else}}
-      <tr><td colspan="11" class="empty">暂无客户端版本</td></tr>
+      <tr><td colspan="11" class="empty">暂无更新版本</td></tr>
       {{end}}
     </tbody>
   </table>

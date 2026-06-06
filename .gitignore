@@ -1,6 +1,6 @@
 .idea/
 .vscode/
-build/
+/build/
 dist/
 *.exe
 *.log
@@ -10,4 +10,6 @@ deploy/dist/
 deploy/.env
 node_modules/
 cmd/gamenet-windows-ui/frontend/dist/
-cmd/gamenet-windows-ui/build/
+!cmd/gamenet-windows-ui/build/
+cmd/gamenet-windows-ui/build/*
+!cmd/gamenet-windows-ui/build/appicon.png

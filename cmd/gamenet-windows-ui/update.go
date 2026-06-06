@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -30,7 +30,7 @@ const (
 
 	updatePlatform = "windows-amd64"
 
-	updateApplyFlag = "--gamenet-apply-update"
+	updateApplyFlag = "--lwylink-apply-update"
 )
 
 type UpdateState struct {
@@ -200,7 +200,7 @@ func startSelfUpdater(updatePath string) error {
 	if err != nil {
 		return err
 	}
-	helperDir := filepath.Join(os.TempDir(), "LwyV-GameNet", "updater")
+	helperDir := filepath.Join(os.TempDir(), "LwyLink", "updater")
 	if err := os.MkdirAll(helperDir, 0700); err != nil {
 		return err
 	}
@@ -252,13 +252,13 @@ func downloadPreparedUpdate(ctx context.Context, apiBaseURL string, release clie
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(os.TempDir(), "LwyV-GameNet", "updates")
+	dir := filepath.Join(os.TempDir(), "LwyLink", "updates")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	fileName := release.FileName
 	if strings.TrimSpace(fileName) == "" {
-		fileName = "LwyV-GameNet-" + release.Version + ".exe"
+		fileName = "LwyLink-" + release.Version + ".exe"
 	}
 	targetPath := filepath.Join(dir, updateFileName(release, fileName))
 	if verifyFileSHA256(targetPath, release.SHA256) == nil {
@@ -435,7 +435,7 @@ func updateStateFromRelease(release clientrelease.PublicRelease, status, message
 func updateFileName(release clientrelease.PublicRelease, fallback string) string {
 	name := filepath.Base(strings.TrimSpace(fallback))
 	if name == "" || name == "." {
-		name = "LwyV-GameNet-" + release.Version + ".exe"
+		name = "LwyLink-" + release.Version + ".exe"
 	}
 	hashPrefix := release.SHA256
 	if len(hashPrefix) > 12 {

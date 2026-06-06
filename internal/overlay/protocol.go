@@ -8,7 +8,7 @@ import (
 
 // FrameType is the lightweight overlay protocol carried inside a tcpx encrypted
 // message. tcpx already provides length framing and encryption; this byte only
-// identifies GameNet semantics.
+// identifies LwyLink semantics.
 type FrameType byte
 
 const (

@@ -1,13 +1,13 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "LwyV-GameNet",
-  "outputfilename": "LwyV-GameNet",
+  "name": "LwyLink",
+  "outputfilename": "LwyLink",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev -- --host 127.0.0.1",
   "frontend:dev:serverUrl": "http://127.0.0.1:5173",
   "author": {
-    "name": "LwyV-Labs",
+    "name": "LwyLink",
     "email": ""
   }
 }

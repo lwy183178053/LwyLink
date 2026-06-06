@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/account"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/room"
+	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
 func RunConsole(ctx context.Context, apiBaseURL, ifName string) error {
@@ -41,7 +41,7 @@ func RunConsole(ctx context.Context, apiBaseURL, ifName string) error {
 func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account.PublicUser, bool) {
 	for {
 		fmt.Println()
-		fmt.Println("LwyV-GameNet Console")
+		fmt.Println("LwyLink Console")
 		fmt.Println("1. 注册玩家")
 		fmt.Println("2. 登录玩家")
 		fmt.Println("3. 忘记密码")

@@ -388,9 +388,9 @@ export default function App() {
           <div className="integrated-chrome">
             <div className="chrome-drag">
               <div className="brand-lockup">
-                <span className="brand-mark">LG</span>
+                <span className="brand-mark">LL</span>
                 <div>
-                  <strong>LwyV GameNet</strong>
+                  <strong>LwyLink</strong>
                   <span>{pageSubtitle(page, state.user, currentRoom?.name)}</span>
                 </div>
               </div>
@@ -449,8 +449,8 @@ export default function App() {
               <Gamepad2 size={30} />
             </div>
             <div className="hero-copy">
-              <span>LwyV GameNet</span>
-              <strong>玩家网络客户端</strong>
+              <span>联微互联</span>
+              <strong>LwyLink</strong>
             </div>
             <div className="hero-status-grid">
               <Metric label="服务器" value={serverHostFromAPI(settingsForm.apiBaseURL)} />

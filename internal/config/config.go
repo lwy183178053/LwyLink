@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
+	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
 type ControlConfig struct {

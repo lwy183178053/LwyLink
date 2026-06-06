@@ -54,8 +54,8 @@ $dst = %q
 $multicastDst = %q
 $limitedBroadcastDst = %q
 $gw = %q
-$firewallRule = "LwyV-GameNet Virtual Adapter Inbound"
-$firewallOutRule = "LwyV-GameNet Virtual Adapter Outbound"
+$firewallRule = "LwyLink Virtual Adapter Inbound"
+$firewallOutRule = "LwyLink Virtual Adapter Outbound"
 Start-Sleep -Milliseconds 500
 $ifIndex = (Get-NetIPInterface -AddressFamily IPv4 -InterfaceAlias $alias -ErrorAction Stop | Select-Object -First 1).InterfaceIndex
 Set-NetIPInterface -AddressFamily IPv4 -InterfaceIndex $ifIndex -AutomaticMetric Disabled -InterfaceMetric 5 -ErrorAction Stop
@@ -106,8 +106,8 @@ $alias = %q
 $dst = %q
 $multicastDst = %q
 $limitedBroadcastDst = %q
-$firewallRule = "LwyV-GameNet Virtual Adapter Inbound"
-$firewallOutRule = "LwyV-GameNet Virtual Adapter Outbound"
+$firewallRule = "LwyLink Virtual Adapter Inbound"
+$firewallOutRule = "LwyLink Virtual Adapter Outbound"
 $if = Get-NetIPInterface -AddressFamily IPv4 -InterfaceAlias $alias -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($if) {
   foreach ($store in @("ActiveStore", "PersistentStore")) {

@@ -3,8 +3,8 @@ package overlay
 import (
 	"sync"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/tcpx"
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/vdhcp"
+	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
+	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
 type session struct {

@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/LwyV-Labs/LwyV-GameNet/internal/vdhcp"
+	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
 func TestForwardIPUnicastRoutesOnlyToTarget(t *testing.T) {

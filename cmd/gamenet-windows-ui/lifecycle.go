@@ -105,7 +105,7 @@ func (a *App) notifyTrayHiddenOnce() {
 	}
 	a.trayNoticeShown = true
 	a.mu.Unlock()
-	a.sendNotification("LwyV-GameNet", "程序已在系统托盘继续运行，右键托盘图标可以显示窗口或退出程序。")
+	a.sendNotification("LwyLink", "程序已在系统托盘继续运行，右键托盘图标可以显示窗口或退出程序。")
 }
 
 func (a *App) sendNotification(title, body string) {
@@ -120,7 +120,7 @@ func (a *App) sendNotification(title, body string) {
 		return
 	}
 	_ = wailsRuntime.SendNotification(ctx, wailsRuntime.NotificationOptions{
-		ID:    fmt.Sprintf("lwyv-gamenet-%d", time.Now().UnixNano()),
+		ID:    fmt.Sprintf("lwylink-%d", time.Now().UnixNano()),
 		Title: title,
 		Body:  body,
 	})

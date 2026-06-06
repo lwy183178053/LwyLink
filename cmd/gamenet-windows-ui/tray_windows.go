@@ -69,15 +69,15 @@ func (a *App) updateTray(state AppState) {
 
 func (t *trayController) onReady() {
 	systray.SetIcon(trayIcon)
-	systray.SetTooltip("LwyV-GameNet")
+	systray.SetTooltip("LwyLink 联微互联")
 
-	show := systray.AddMenuItem("显示主窗口", "显示 LwyV-GameNet 主窗口")
+	show := systray.AddMenuItem("显示主窗口", "显示 LwyLink 主窗口")
 	hide := systray.AddMenuItem("隐藏到托盘", "隐藏主窗口，后台保持运行")
 	systray.AddSeparator()
 	connection := systray.AddMenuItem("连接虚拟网络", "连接或断开当前房间的虚拟网络")
 	updateItem := systray.AddMenuItem("检查客户端更新", "检查、下载或安装客户端更新")
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("退出程序", "断开连接并退出 LwyV-GameNet")
+	quit := systray.AddMenuItem("退出程序", "断开连接并退出 LwyLink")
 
 	t.mu.Lock()
 	t.show = show
