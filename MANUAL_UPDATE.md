@@ -1,25 +1,26 @@
-# LwyLink 手动更新与多节点部署流程
+# LwyLink 手动更新速查
 
-这份文档用于不走一键脚本时，手动完成版本更新、客户端发布、服务端部署和多节点扩容。命令默认在项目根目录执行。
+这份文档用于不走一键脚本时，手动完成验证、构建、上传、发布客户端和多节点扩容。日常优先使用：
+
+```powershell
+.\deploy\build-all.ps1
+.\deploy\upload-deploy.ps1
+```
+
+更完整的生产部署说明见 `deploy/README.md`，测试服务器说明见 `deploy/TEST_SERVER.md`。
 
 ## 1. 更新前检查
-
-确认本地代码状态：
 
 ```powershell
 git status --short --branch
 git pull --ff-only
-```
 
-确认 Go、Node、Wails 可用：
-
-```powershell
 go version
 npm.cmd --version
 wails version
 ```
 
-如果本次要改客户端版本号，例如 `0.1.8`，至少同步这些位置：
+如果要发布新的 Windows 客户端版本，建议同步这些位置：
 
 - `cmd/lwylink-windows-ui/app.go`：`AppVersion`
 - `cmd/lwylink-windows-ui/wails.json`：`info.productVersion`
@@ -27,58 +28,42 @@ wails version
 - `cmd/lwylink-windows-ui/frontend/package-lock.json`：顶层版本
 - `cmd/lwylink-windows-ui/frontend/src/types.ts`：默认 `currentVersion`
 
-检查旧版本是否残留：
+检查版本残留示例：
 
 ```powershell
-rg -n "0\.1\.7" cmd\lwylink-windows-ui -S
-rg -n "0\.1\.8" cmd\lwylink-windows-ui -S
+rg -n "0\.1\.9|0\.1\.10" cmd\lwylink-windows-ui -S
 ```
 
 ## 2. 本地验证
 
-先跑后端测试和静态检查：
-
 ```powershell
 go test -p 1 ./...
 go vet -p 1 ./...
+```
+
+如果本机装了 `staticcheck`：
+
+```powershell
 staticcheck ./...
 ```
 
-前端生产构建：
+前端和 Wails 客户端：
 
 ```powershell
 npm.cmd run build --prefix .\cmd\lwylink-windows-ui\frontend
-```
 
-Windows 客户端打包：
-
-```powershell
 Push-Location .\cmd\lwylink-windows-ui
 wails build
 Pop-Location
 ```
 
-产物位置：
+客户端产物：
 
 ```text
 cmd/lwylink-windows-ui/build/bin/LwyLink.exe
 ```
 
-计算客户端 SHA256，发布后用来比对：
-
-```powershell
-Get-FileHash -Algorithm SHA256 .\cmd\lwylink-windows-ui\build\bin\LwyLink.exe
-```
-
 ## 3. 编译 Linux 服务端
-
-当前线上 Linux 服务端包含三个二进制：
-
-- `lwylink-control`：控制平面、HTTP API、管理后台
-- `lwylink-node`：房间 Overlay 节点
-- `lwylink-smoke`：远端功能烟测工具
-
-本地交叉编译：
 
 ```powershell
 New-Item -ItemType Directory -Force -Path .\deploy\dist | Out-Null
@@ -88,17 +73,17 @@ $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 
 try {
-  go build -o .\deploy\dist\lwylink-control .\cmd\lwylink-control
-  go build -o .\deploy\dist\lwylink-node .\cmd\lwylink-node
-  go build -o .\deploy\dist\lwylink-smoke .\cmd\lwylink-smoke
+  go build -trimpath -o .\deploy\dist\lwylink-control .\cmd\lwylink-control
+  go build -trimpath -o .\deploy\dist\lwylink-node .\cmd\lwylink-node
+  go build -trimpath -o .\deploy\dist\lwylink-smoke .\cmd\lwylink-smoke
 } finally {
   Remove-Item Env:\GOOS,Env:\GOARCH,Env:\CGO_ENABLED -ErrorAction SilentlyContinue
 }
 ```
 
-## 4. 上传并更新主服务器
+## 4. 上传并重启主服务器
 
-下面用 `ssh/scp` 表示手动流程。服务器示例：
+示例服务器：
 
 ```text
 SSH: root@64.83.34.53:22
@@ -107,7 +92,7 @@ SSH: root@64.83.34.53:22
 Overlay: 64.83.34.53:35768
 ```
 
-创建远端目录：
+创建目录：
 
 ```powershell
 ssh root@64.83.34.53 "mkdir -p /opt/lwylink/deploy/dist /opt/lwylink/configs"
@@ -123,7 +108,7 @@ scp .\deploy\lwylink-control.service root@64.83.34.53:/opt/lwylink/deploy/
 scp .\deploy\lwylink-node.service root@64.83.34.53:/opt/lwylink/deploy/
 ```
 
-只有在配置确实变更时才上传配置：
+只有配置确实变更时才上传：
 
 ```powershell
 scp .\configs\control.prod.json root@64.83.34.53:/opt/lwylink/configs/
@@ -152,33 +137,9 @@ ss -ltnup | grep -E ':(443|8080|35768) ' || true
 '@
 ```
 
-注意：当前测试服 `443` 是旧服务，不属于 LwyLink。不要停止、覆盖或抢占 `443`。
+注意：测试服 `443` 是旧服务，不属于 LwyLink。不要停止、覆盖或抢占它。
 
-## 5. 发布 Windows 客户端更新包
-
-推荐用管理后台发布：
-
-1. 打开 `http://64.83.34.53:8080/admin?token=<ADMIN_TOKEN>`。
-2. 进入“更新发布”。
-3. 版本号填写当前版本，例如 `0.1.8`。
-4. 平台选择或填写 `windows-amd64`。
-5. 上传 `cmd/lwylink-windows-ui/build/bin/LwyLink.exe`。
-6. 裸 `LwyLink.exe` 的安装参数留空。
-7. 更新说明按实际填写。
-
-发布后检查：
-
-```powershell
-$latest = Invoke-RestMethod -Uri "http://64.83.34.53:8080/api/client/releases/latest?platform=windows-amd64"
-$localHash = (Get-FileHash -Algorithm SHA256 .\cmd\lwylink-windows-ui\build\bin\LwyLink.exe).Hash.ToLowerInvariant()
-
-$latest | Select-Object version,platform,fileName,sizeBytes,sha256,downloadURL,createdAt
-"Hash matches: $($latest.sha256 -eq $localHash)"
-```
-
-## 6. Smoke 验证
-
-使用本地配置里的 `adminToken` 跑远端 smoke：
+## 5. Smoke 验证
 
 ```powershell
 $adminToken = ((Get-Content .\configs\control.prod.json -Raw) | ConvertFrom-Json).adminToken
@@ -191,7 +152,7 @@ go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:357
 SMOKE OK
 ```
 
-远端状态检查：
+查看远端状态和日志：
 
 ```powershell
 ssh root@64.83.34.53 @'
@@ -203,31 +164,37 @@ journalctl -u lwylink-node -n 50 --no-pager
 '@
 ```
 
-## 7. 多节点配置
+## 6. 发布 Windows 客户端
 
-### 7.1 节点调度机制
+推荐在管理后台发布：
 
-控制平面会在可用节点中自动选择房间节点：
+1. 打开 `http://64.83.34.53:8080/admin?token=<ADMIN_TOKEN>`。
+2. 进入“更新发布”。
+3. 版本号填写当前版本，例如 `0.1.10`。
+4. 平台填写 `windows-amd64`。
+5. 上传 `cmd/lwylink-windows-ui/build/bin/LwyLink.exe` 或 `build/windows-amd64/LwyLink.exe`。
+6. 裸 `LwyLink.exe` 的安装参数留空。
+7. 更新说明按实际填写。
 
-- 节点必须 `enabled=true`。
-- 节点状态必须是 `online`。
-- 当前房间数不能达到 `maxRooms`。
-- 多个节点可用时，按 `当前房间数 / 最大房间数` 选择负载最低的节点。
-- 负载相同则选择 ID 更小的节点。
+发布后校验：
 
-节点服务器不需要配置 `nodeID`。`lwylink-node` 启动时会用本机 `overlayPrivateKey` 推导 `overlayPublicKey`，再到控制平面的 MySQL 里查找对应节点记录。
+```powershell
+$latest = Invoke-RestMethod -Uri "http://64.83.34.53:8080/api/client/releases/latest?platform=windows-amd64"
+$localHash = (Get-FileHash -Algorithm SHA256 .\cmd\lwylink-windows-ui\build\bin\LwyLink.exe).Hash.ToLowerInvariant()
 
-### 7.2 新增一台独立节点服务器
+$latest | Select-Object version,platform,fileName,sizeBytes,sha256,downloadURL,createdAt
+"Hash matches: $($latest.sha256 -eq $localHash)"
+```
 
-新节点必须能访问控制中心使用的 MySQL 和 Redis。生产环境建议用内网或专用网络访问数据库，并用防火墙只允许节点服务器访问 MySQL/Redis。
+## 7. 新增房间节点
 
-在新服务器准备目录：
+新节点必须能访问控制中心使用的 MySQL 和 Redis。生产环境建议通过内网或专用网络访问数据库，并用防火墙限制来源。
+
+准备目录和文件：
 
 ```bash
 mkdir -p /opt/lwylink/configs /opt/lwylink/deploy/dist
 ```
-
-上传：
 
 ```powershell
 scp .\deploy\dist\lwylink-node root@<NODE_IP>:/opt/lwylink/lwylink-node
@@ -235,49 +202,30 @@ scp .\deploy\lwylink-node.service root@<NODE_IP>:/etc/systemd/system/lwylink-nod
 scp .\configs\node.prod.example.json root@<NODE_IP>:/opt/lwylink/configs/node.prod.json
 ```
 
-编辑新节点的 `/opt/lwylink/configs/node.prod.json`：
+关键配置：
 
-```json
-{
-  "overlayAddr": "0.0.0.0:35768",
-  "mysqlDsn": "lwylink:<DB_PASSWORD>@tcp(<MYSQL_HOST>:3306)/lwylink?parseTime=true&charset=utf8mb4&loc=Local",
-  "redisAddr": "<REDIS_HOST>:6379",
-  "redisPassword": "",
-  "tokenSecret": "<COPY_FROM_CONTROL_CONFIG>",
-  "overlayPrivateKey": "",
-  "roomNetworkBase": "172.16.0.0/16",
-  "roomSubnetPrefix": 24,
-  "defaultMTU": 1300,
-  "defaultDNS": ["223.5.5.5", "119.29.29.29"]
-}
-```
+- `overlayAddr`：节点监听地址，例如 `0.0.0.0:35768`。
+- `mysqlDsn`：指向控制中心 MySQL。
+- `redisAddr` / `redisPassword`：指向控制中心 Redis。
+- `tokenSecret`：必须复制控制中心 `configs/control.prod.json` 中的值。
+- `overlayPrivateKey`：新节点可以留空，首次生成公钥时会自动写回。
 
-关键点：
-
-- `tokenSecret` 必须和控制中心 `configs/control.prod.json` 完全一致。
-- `overlayPrivateKey` 新节点可以留空，第一次生成公钥时会自动写回。
-- `overlayAddr` 是节点本机监听地址，通常用 `0.0.0.0:35768`。
-- 后台里的“公网 Overlay 地址”要填玩家能访问到的地址，例如 `<NODE_PUBLIC_IP>:35768`。
-- 后台里的“健康检查地址”要填控制中心能访问到的地址，可以是内网地址，例如 `<NODE_PRIVATE_IP>:35768`。
-
-生成并打印节点公钥：
+生成节点公钥：
 
 ```bash
 /opt/lwylink/lwylink-node -config /opt/lwylink/configs/node.prod.json -print-public-key
 ```
 
-复制输出的 `overlayPublicKey`，到管理后台添加节点：
+在管理后台添加节点：
 
-1. 打开 `http://<CONTROL_HOST>:8080/admin?token=<ADMIN_TOKEN>`。
-2. 进入“节点”。
-3. 名称：例如 `node-2`。
-4. 公网 Overlay 地址：例如 `<NODE_PUBLIC_IP>:35768`。
-5. 健康检查地址：例如 `<NODE_PRIVATE_IP>:35768`，没有内网就填公网地址。
-6. Overlay 公钥：填刚打印出的 `overlayPublicKey`。
-7. 最大房间：按机器配置填写，例如 `100`。
-8. 状态选择“启用”并保存。
+- 名称：例如 `node-2`
+- 公网 Overlay 地址：玩家能访问的地址，例如 `<NODE_PUBLIC_IP>:35768`
+- 健康检查地址：控制中心能访问的地址，可以是内网地址
+- Overlay 公钥：填上一步输出
+- 最大房间数：例如 `100`
+- 状态：启用
 
-启动节点：
+启动：
 
 ```bash
 chmod +x /opt/lwylink/lwylink-node
@@ -288,103 +236,43 @@ systemctl restart lwylink-node
 systemctl status lwylink-node --no-pager
 ```
 
-回到管理后台点“检查”，状态变成 `online` 后，新房间会自动调度到该节点。
+后台点“检查”，状态为 `online` 后，新房间会自动调度到该节点。
 
-### 7.3 同一台机器启动多个节点
+## 8. 同机多节点
 
-同一台服务器跑多个节点时，每个节点必须使用不同端口和不同配置文件，例如：
+同一台机器跑多个节点时，每个节点必须使用独立目录、独立配置、独立端口和独立 `overlayPrivateKey`：
 
 ```text
 /opt/lwylink-node-1/configs/node.prod.json -> 0.0.0.0:35768
 /opt/lwylink-node-2/configs/node.prod.json -> 0.0.0.0:35769
 ```
 
-每个节点都要有独立的 `overlayPrivateKey`，并分别打印对应 `overlayPublicKey` 后在后台登记。
+每个节点都要分别打印 `overlayPublicKey` 并在后台登记。防火墙也要开放对应的 TCP/UDP 端口。
 
-示例 systemd：
+## 9. 回滚
 
-```ini
-[Unit]
-Description=LwyLink room node 2
-After=network-online.target
-Wants=network-online.target
+服务端回滚：
 
-[Service]
-Type=simple
-WorkingDirectory=/opt/lwylink-node-2
-ExecStart=/opt/lwylink-node-2/lwylink-node -config /opt/lwylink-node-2/configs/node.prod.json
-Restart=always
-RestartSec=3
-LimitNOFILE=65535
+1. 上传上一版 `lwylink-control` / `lwylink-node`。
+2. 远端重新 `install` 覆盖二进制。
+3. `systemctl restart lwylink-control lwylink-node`。
+4. 查看日志并重新跑 smoke。
 
-[Install]
-WantedBy=multi-user.target
-```
+客户端回滚：
 
-启用：
+1. 管理后台重新上传上一版或修复版客户端。
+2. 版本号必须高于客户端当前版本，才会触发自动更新。
 
-```bash
-systemctl daemon-reload
-systemctl enable --now lwylink-node-2
-```
-
-后台登记时：
-
-- 节点 1 公网 Overlay 地址：`<SERVER_IP>:35768`
-- 节点 2 公网 Overlay 地址：`<SERVER_IP>:35769`
-- 健康检查地址也对应各自端口
-
-### 7.4 防火墙端口
+## 10. 端口速查
 
 控制服务器：
 
 - `8080/tcp`：HTTP API 和管理后台
-- MySQL/Redis：只允许控制服务和受信节点访问，不建议公网开放
+- MySQL/Redis：只允许控制服务和受信节点访问
 
-每台节点服务器：
+房间节点：
 
 - `35768/tcp`：Overlay TCP 控制/中继
 - `35768/udp`：UDP 打洞协商
 
-如果同机多节点，按实际端口开放，例如 `35769/tcp` 和 `35769/udp`。
-
-## 8. 回滚
-
-如果服务端更新后异常：
-
-1. 重新上传上一版 `lwylink-control` / `lwylink-node`。
-2. 远端重新 `install` 覆盖二进制。
-3. `systemctl restart lwylink-control lwylink-node`。
-4. 查看日志和 smoke。
-
-如果客户端更新包异常：
-
-1. 管理后台重新上传上一版客户端，版本号必须比客户端当前版本更高才会触发自动更新。
-2. 如果只是阻止继续更新，可以暂时上传一个修复包，或在代码里调整版本策略后重新发布。
-
-## 9. 常用一键命令
-
-项目已有自动部署脚本，日常测试服更新优先用它：
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-$env:LWYLINK_TEST_SSH_PASSWORD = "<SSH_PASSWORD>"
-.\deploy\deploy-test.ps1
-```
-
-包含 Windows 客户端构建：
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-$env:LWYLINK_TEST_SSH_PASSWORD = "<SSH_PASSWORD>"
-.\deploy\deploy-test.ps1 -BuildWindowsUI
-```
-
-配置有变更时同步配置：
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-$env:LWYLINK_TEST_SSH_PASSWORD = "<SSH_PASSWORD>"
-.\deploy\deploy-test.ps1 -UploadConfigs
-```
-
+同机多节点按实际端口追加，例如 `35769/tcp` 和 `35769/udp`。

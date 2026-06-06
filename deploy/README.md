@@ -6,6 +6,8 @@
 - `lwylink-control.service`：控制平面 systemd 服务。
 - `lwylink-node.service`：房间节点 systemd 服务。
 - `TEST_SERVER.md`：当前测试服务器、端口、远端路径和自动部署流程速查。
+- `build-all.ps1`：本机一键全编译，生成 Linux 服务端二进制、Windows 控制台工具和 Wails 客户端。
+- `upload-deploy.ps1`：上传已有构建产物到服务器，安装 systemd 服务、重启并可选 smoke 验证。
 - `deploy-test.ps1`：本机 PowerShell 自动构建、上传、重启并 smoke 测试当前测试服务器。
 
 如果是新会话接手项目，优先阅读 `deploy/TEST_SERVER.md`，里面写了测试服务器连接方式、不能碰的 443 旧服务、自动部署命令和 smoke 验证点。
@@ -24,6 +26,77 @@
 
 - `lwylink-control`：部署在管理服务器上的 LwyLink 控制中心，负责玩家 API、管理后台、节点调度、节点健康检查、空房清理。
 - `lwylink-node`：部署在每台房间节点服务器上的 LwyLink 房间节点，负责 tcpx 加密 Overlay、UDP 打洞协商、vDHCP、房间内 IP 包转发。
+
+## 一键全编译
+
+在项目根目录执行：
+
+```powershell
+.\deploy\build-all.ps1
+```
+
+默认会执行：
+
+1. `go test -p 1 ./...`
+2. 编译 Linux `amd64` 版 `lwylink-control`、`lwylink-node`、`lwylink-smoke` 到 `deploy/dist/`
+3. 编译 Windows `amd64` 版 `lwylink-client.exe`、`lwylink-smoke.exe` 到 `build/windows-amd64/`
+4. 构建 Wails 图形客户端，并复制 `LwyLink.exe` 到 `build/windows-amd64/`
+5. 输出 `build/artifacts.json`，包含产物路径、大小和 SHA256
+
+常用参数：
+
+```powershell
+.\deploy\build-all.ps1 -Vet
+.\deploy\build-all.ps1 -SkipTests
+.\deploy\build-all.ps1 -SkipWindowsUI
+.\deploy\build-all.ps1 -AppVersion 0.1.10
+```
+
+`-AppVersion` 只通过 Wails `ldflags` 注入 Go 端 `main.AppVersion`，不会修改 `wails.json`、`package.json` 或 `package-lock.json`。正式发布客户端版本时，仍建议同步这些版本文件。
+
+如果本机找不到 `wails`，脚本会尝试自动安装 `github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`。不希望自动安装时加 `-NoInstallWails`。
+
+## 上传部署
+
+先编译：
+
+```powershell
+.\deploy\build-all.ps1
+```
+
+再上传部署到默认测试服务器：
+
+```powershell
+$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
+.\deploy\upload-deploy.ps1
+```
+
+也可以显式指定服务器：
+
+```powershell
+.\deploy\upload-deploy.ps1 -HostName 64.83.34.53 -User root -Port 22
+```
+
+脚本默认上传 `deploy/dist/` 下的三个 Linux 产物和两个 systemd 文件，然后安装到 `/opt/lwylink`、重启 `lwylink-control` 和 `lwylink-node`，最后跑 smoke 测试。没有传密码时会使用系统 `ssh/scp`，适合已经配置 SSH key 的机器；传了密码或设置 `LWYLINK_DEPLOY_SSH_PASSWORD` 时会使用 `Posh-SSH`。
+
+常用参数：
+
+```powershell
+.\deploy\upload-deploy.ps1 -UploadConfigs
+.\deploy\upload-deploy.ps1 -SkipSmoke
+.\deploy\upload-deploy.ps1 -RemoteRoot /opt/lwylink
+.\deploy\upload-deploy.ps1 -AdminToken "这里填 adminToken"
+```
+
+兼容现有测试服环境变量：
+
+```powershell
+$env:LWYLINK_DEPLOY_HOST = "64.83.34.53"
+$env:LWYLINK_DEPLOY_SSH_USER = "root"
+$env:LWYLINK_DEPLOY_SSH_PORT = "22"
+$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
+$env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
+```
 
 节点服务器不需要配置 `nodeID`。节点只保存自己的 `overlayPrivateKey`，启动时会派生出 `overlayPublicKey`，再用这个公钥到控制平面数据库里找到自己的节点记录。
 
