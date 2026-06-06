@@ -23,6 +23,7 @@ export type RoomForm = {
 
 export type SettingsForm = {
   apiBaseURL: string;
+  p2pEnabled: boolean;
 };
 
 export function authRuleState(username: string, password: string) {

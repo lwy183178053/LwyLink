@@ -117,6 +117,7 @@ export namespace main {
 	export class AppState {
 	    apiBaseURL: string;
 	    interfaceName: string;
+	    p2pEnabled: boolean;
 	    user?: account.PublicUser;
 	    rooms: room.Room[];
 	    currentRoom?: room.Room;
@@ -133,6 +134,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiBaseURL = source["apiBaseURL"];
 	        this.interfaceName = source["interfaceName"];
+	        this.p2pEnabled = source["p2pEnabled"];
 	        this.user = this.convertValues(source["user"], account.PublicUser);
 	        this.rooms = this.convertValues(source["rooms"], room.Room);
 	        this.currentRoom = this.convertValues(source["currentRoom"], room.Room);
@@ -246,6 +248,7 @@ export namespace main {
 	export class SettingsInput {
 	    apiBaseURL: string;
 	    interfaceName: string;
+	    p2pEnabled?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsInput(source);
@@ -255,6 +258,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiBaseURL = source["apiBaseURL"];
 	        this.interfaceName = source["interfaceName"];
+	        this.p2pEnabled = source["p2pEnabled"];
 	    }
 	}
 

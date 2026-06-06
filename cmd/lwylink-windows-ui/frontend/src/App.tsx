@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Field, Input, Spinner, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Spinner, Switch, Textarea } from "@fluentui/react-components";
 import {
   Copy,
   DoorOpen,
@@ -102,6 +102,7 @@ export default function App() {
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
+    p2pEnabled: emptyState.p2pEnabled,
   });
   const connectionSignature = useRef("");
   const settingsSignature = useRef("");
@@ -183,11 +184,12 @@ export default function App() {
 
   function applyState(next: AppState) {
     setState(next);
-    const nextSettingsSignature = `${next.apiBaseURL}|${next.interfaceName}`;
+    const nextSettingsSignature = `${next.apiBaseURL}|${next.interfaceName}|${next.p2pEnabled}`;
     if (settingsSignature.current !== nextSettingsSignature) {
       settingsSignature.current = nextSettingsSignature;
       setSettingsForm({
         apiBaseURL: next.apiBaseURL,
+        p2pEnabled: next.p2pEnabled,
       });
     }
 
@@ -294,7 +296,7 @@ export default function App() {
 
   async function handleSaveSettings(event: FormEvent) {
     event.preventDefault();
-    await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: state.interfaceName }));
+    await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: state.interfaceName, p2pEnabled: settingsForm.p2pEnabled }));
   }
 
   async function handleCheckUpdates() {
@@ -775,6 +777,11 @@ export default function App() {
                 onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
               />
             </Field>
+            <Switch
+              label="启用 P2P 直连"
+              checked={settingsForm.p2pEnabled}
+              onChange={(_, data) => setSettingsForm((current) => ({ ...current, p2pEnabled: data.checked }))}
+            />
             <div className="command-actions">
               <Button appearance="primary" type="submit" disabled={isBusy}>
                 保存

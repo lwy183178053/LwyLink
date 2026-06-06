@@ -23,6 +23,7 @@ type ConnectOptions struct {
 	Token            string
 	UserID           int64
 	Room             room.Room
+	P2PEnabled       func() bool
 	OnConnected      func(overlay.DHCPResponse)
 	OnTransportState func(TransportStatus)
 }
@@ -287,51 +288,74 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 
 func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.DHCPResponse, runtimeState *connectionRuntime, udpConfigCh <-chan overlay.UDPControl, udpPeerCh <-chan overlay.UDPPeerCandidate) {
 	var manager *udpManager
-	pendingPeers := make([]overlay.UDPPeerCandidate, 0, 8)
+	var latestConfig *overlay.UDPControl
+	knownPeers := make(map[string]overlay.UDPPeerCandidate)
+	p2pEnabled := func() bool {
+		return opts.P2PEnabled == nil || opts.P2PEnabled()
+	}
+	emitDisabled := func() {
+		if opts.OnTransportState != nil {
+			opts.OnTransportState(TransportStatus{Mode: TransportModeUDPDisabled, Message: "稳定连接"})
+		}
+	}
+	closeManager := func() {
+		if manager != nil {
+			_ = manager.Close()
+			manager = nil
+		}
+		runtimeState.setUDP(nil)
+	}
+	startManager := func() {
+		if manager != nil || latestConfig == nil || !p2pEnabled() {
+			return
+		}
+		key, err := overlay.DecodeUDPKey(latestConfig.Key)
+		if err != nil {
+			return
+		}
+		manager, err = startUDPManager(ctx, udpManagerConfig{
+			ServerAddr: opts.OverlayAddr,
+			Token:      latestConfig.Token,
+			Key:        key,
+			RoomID:     opts.Room.ID,
+			UserID:     opts.UserID,
+			VirtualIP:  lease.IP,
+			OnPacket: func(pkt []byte) {
+				runtimeState.writeTunnel(pkt)
+			},
+			OnStatus: opts.OnTransportState,
+		})
+		if err != nil {
+			emitDisabled()
+			return
+		}
+		runtimeState.setUDP(manager)
+		for _, peer := range knownPeers {
+			manager.AddPeer(peer)
+		}
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			if manager != nil {
-				_ = manager.Close()
-			}
+			closeManager()
 			return
 		case peer := <-udpPeerCh:
+			knownPeers[peer.VirtualIP] = peer
 			if manager != nil {
 				manager.AddPeer(peer)
-			} else {
-				pendingPeers = append(pendingPeers, peer)
 			}
 		case config := <-udpConfigCh:
-			if manager != nil {
-				continue
+			latestConfig = &config
+			startManager()
+		case <-ticker.C:
+			if p2pEnabled() {
+				startManager()
+			} else if manager != nil {
+				closeManager()
+				emitDisabled()
 			}
-			key, err := overlay.DecodeUDPKey(config.Key)
-			if err != nil {
-				continue
-			}
-			manager, err = startUDPManager(ctx, udpManagerConfig{
-				ServerAddr: opts.OverlayAddr,
-				Token:      config.Token,
-				Key:        key,
-				RoomID:     opts.Room.ID,
-				UserID:     opts.UserID,
-				VirtualIP:  lease.IP,
-				OnPacket: func(pkt []byte) {
-					runtimeState.writeTunnel(pkt)
-				},
-				OnStatus: opts.OnTransportState,
-			})
-			if err != nil {
-				if opts.OnTransportState != nil {
-					opts.OnTransportState(TransportStatus{Mode: TransportModeUDPDisabled, Message: "稳定连接"})
-				}
-				continue
-			}
-			runtimeState.setUDP(manager)
-			for _, peer := range pendingPeers {
-				manager.AddPeer(peer)
-			}
-			pendingPeers = nil
 		}
 	}
 }
