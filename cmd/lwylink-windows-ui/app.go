@@ -28,7 +28,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.2"
+var AppVersion = "0.1.4"
 
 type App struct {
 	ctx context.Context
@@ -168,9 +168,17 @@ func (a *App) startup(ctx context.Context) {
 		a.commitStateLocked()
 		return
 	}
+	saved, hasSaved, _ := loadSavedLogin()
 	a.mu.Lock()
+	if hasSaved {
+		a.apiBaseURL = saved.APIBaseURL
+		a.api = client.NewAPI(saved.APIBaseURL)
+	}
 	a.startUpdateCheckLocked("正在检查更新")
 	a.commitStateLocked()
+	if hasSaved {
+		go a.autoLogin(saved)
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -209,6 +217,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 	if a.apiBaseURL != apiBaseURL {
 		a.cancelConnectionLocked()
 		a.cancelRoomEventsLocked()
+		_ = clearSavedLogin()
 		a.apiBaseURL = apiBaseURL
 		a.api = client.NewAPI(apiBaseURL)
 		a.user = nil
@@ -234,6 +243,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
+	_ = saveSavedLogin(savedLogin{APIBaseURL: a.apiBaseURL, Username: input.Username, Password: input.Password})
 	a.user = &res.User
 	_ = a.refreshRoomStateLocked(ctx)
 	a.startRoomEventsLocked()
@@ -251,6 +261,7 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 		a.mu.Unlock()
 		return AppState{}, err
 	}
+	_ = saveSavedLogin(savedLogin{APIBaseURL: a.apiBaseURL, Username: input.Username, Password: input.Password})
 	a.user = &res.User
 	_ = a.refreshRoomStateLocked(ctx)
 	a.startRoomEventsLocked()
@@ -261,11 +272,38 @@ func (a *App) Logout() (AppState, error) {
 	a.mu.Lock()
 	a.cancelConnectionLocked()
 	a.cancelRoomEventsLocked()
+	_ = clearSavedLogin()
 	a.api.ClearToken()
 	a.user = nil
 	a.clearRoomStateLocked()
 	a.connection = newConnectionState(statusDisconnected, "已退出登录")
 	return a.commitStateLocked(), nil
+}
+
+func (a *App) autoLogin(saved savedLogin) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	api := client.NewAPI(saved.APIBaseURL)
+	res, err := api.Login(ctx, saved.Username, saved.Password)
+
+	a.mu.Lock()
+	if a.user != nil || a.apiBaseURL != saved.APIBaseURL {
+		a.mu.Unlock()
+		return
+	}
+	if err != nil {
+		if a.connection.Status == statusDisconnected {
+			a.connection.Message = "自动登录失败，请手动登录"
+		}
+		a.commitStateLocked()
+		return
+	}
+	a.api = api
+	a.user = &res.User
+	_ = a.refreshRoomStateLocked(ctx)
+	a.startRoomEventsLocked()
+	a.commitStateLocked()
 }
 
 func (a *App) CreateRoom(input CreateRoomInput) (AppState, error) {

@@ -8,6 +8,7 @@ require (
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/crypto v0.45.0
+	golang.org/x/sys v0.44.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 )
 
@@ -48,7 +49,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )

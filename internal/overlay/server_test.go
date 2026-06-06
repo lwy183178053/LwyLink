@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
@@ -75,6 +76,46 @@ func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
 	}
 }
 
+func TestNormalizeUDPLANEndpointsFiltersUnsafeValues(t *testing.T) {
+	got := NormalizeUDPLANEndpoints([]string{
+		"192.168.1.20:40000",
+		"127.0.0.1:40000",
+		"203.0.113.9:40000",
+		"10.0.0.5:40000",
+		"192.168.1.20:40000",
+		"bad",
+	})
+	want := []string{"10.0.0.5:40000", "192.168.1.20:40000"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lan endpoints=%v, want %v", got, want)
+	}
+}
+
+func TestBuildUDPAnnouncementsIncludesPeerLANEndpoints(t *testing.T) {
+	srv, from, peer, _ := newForwardTestServer()
+	from.udpToken = "from-token"
+	from.udpAddr = testUDPAddr(t, "203.0.113.10:50001")
+	from.udpLAN = []string{"192.168.1.10:50001"}
+	peer.udpToken = "peer-token"
+	peer.udpAddr = testUDPAddr(t, "203.0.113.10:50002")
+	peer.udpLAN = []string{"192.168.1.11:50002"}
+	srv.byUDP[from.udpToken] = from
+	srv.byUDP[peer.udpToken] = peer
+
+	announcements := srv.buildUDPAnnouncements(from)
+	if len(announcements) != 2 {
+		t.Fatalf("announcements=%d, want 2", len(announcements))
+	}
+	for _, item := range announcements {
+		if item.to == from && !slices.Equal(item.peer.udpLAN, peer.udpLAN) {
+			t.Fatalf("from announcement peer lan=%v, want %v", item.peer.udpLAN, peer.udpLAN)
+		}
+		if item.to == peer && !slices.Equal(item.peer.udpLAN, from.udpLAN) {
+			t.Fatalf("peer announcement peer lan=%v, want %v", item.peer.udpLAN, from.udpLAN)
+		}
+	}
+}
+
 func newForwardTestServer() (*Server, *session, *session, *session) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
 	from := testSession(1, "10.66.1.10")
@@ -88,6 +129,15 @@ func newForwardTestServer() (*Server, *session, *session, *session) {
 		other.lease.IP: other,
 	}
 	return srv, from, peer, other
+}
+
+func testUDPAddr(t *testing.T, value string) *net.UDPAddr {
+	t.Helper()
+	addr, err := net.ResolveUDPAddr("udp", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return addr
 }
 
 func testSession(roomID int64, ip string) *session {

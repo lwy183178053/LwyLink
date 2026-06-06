@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net"
+	"slices"
 	"time"
 )
 
@@ -78,12 +79,13 @@ func (s *Server) handleUDPPacket(remote *net.UDPAddr, raw []byte) {
 	if payload.RoomID != sess.roomID || payload.UserID != sess.userID || payload.VirtualIP != sess.lease.IP {
 		return
 	}
+	lanEndpoints := NormalizeUDPLANEndpoints(payload.LANEndpoints)
 
-	changed := s.setSessionUDPAddr(sess, remote)
+	changed := s.setSessionUDPAddr(sess, remote, lanEndpoints)
 	if changed {
 		log.Printf("udp overlay registered room=%d user=%s ip=%s endpoint=%s", sess.roomID, sess.username, sess.lease.IP, remote)
+		s.announceUDPPeers(sess)
 	}
-	s.announceUDPPeers(sess)
 }
 
 func (s *Server) sessionByUDPToken(token string) *session {
@@ -92,17 +94,18 @@ func (s *Server) sessionByUDPToken(token string) *session {
 	return s.byUDP[token]
 }
 
-func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr) bool {
+func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr, lanEndpoints []string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if current := s.byUDP[sess.udpToken]; current != sess {
 		return false
 	}
-	if sess.udpAddr != nil && sess.udpAddr.String() == remote.String() {
+	if sess.udpAddr != nil && sess.udpAddr.String() == remote.String() && slices.Equal(sess.udpLAN, lanEndpoints) {
 		return false
 	}
 	cp := *remote
 	sess.udpAddr = &cp
+	sess.udpLAN = append([]string(nil), lanEndpoints...)
 	return true
 }
 
@@ -112,10 +115,11 @@ func (s *Server) announceUDPPeers(sess *session) {
 		_ = s.writeJSON(item.to.conn, FrameUDPControl, UDPControl{
 			Type: UDPControlPeer,
 			Peer: &UDPPeerCandidate{
-				VirtualIP: item.peer.lease.IP,
-				Endpoint:  item.peer.udpAddr.String(),
-				SessionID: item.pair.SessionID,
-				Key:       EncodeUDPKey(item.pair.Key),
+				VirtualIP:    item.peer.lease.IP,
+				Endpoint:     item.peer.udpAddr.String(),
+				LANEndpoints: append([]string(nil), item.peer.udpLAN...),
+				SessionID:    item.pair.SessionID,
+				Key:          EncodeUDPKey(item.pair.Key),
 			},
 		})
 	}

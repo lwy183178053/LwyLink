@@ -9,5 +9,12 @@
   "author": {
     "name": "LwyLink",
     "email": ""
+  },
+  "info": {
+    "companyName": "LwyLink",
+    "productName": "LwyLink",
+    "productVersion": "0.1.4",
+    "copyright": "Copyright (c) 2026 LwyLink",
+    "comments": "LwyLink Windows Client"
   }
 }

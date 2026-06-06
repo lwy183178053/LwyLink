@@ -9,18 +9,6 @@ import (
 	"strings"
 )
 
-// GenerateStaticKey returns an X25519 key pair encoded as hex.
-// Keep this function for callers that already use the first tcpx-go version.
-func GenerateStaticKey() (privateHex string, publicHex string, err error) {
-	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return "", "", err
-	}
-	return hex.EncodeToString(priv.Bytes()), hex.EncodeToString(priv.PublicKey().Bytes()), nil
-}
-
-// GenerateStaticKeyBase64 returns an X25519 key pair encoded as standard base64.
-// This matches your existing client.json/server.json format.
 func GenerateStaticKeyBase64() (privateB64 string, publicB64 string, err error) {
 	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {

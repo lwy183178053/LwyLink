@@ -20,6 +20,7 @@ type session struct {
 	udpToken string
 	udpKey   []byte
 	udpAddr  *net.UDPAddr
+	udpLAN   []string
 
 	send     chan []byte
 	done     chan struct{}
