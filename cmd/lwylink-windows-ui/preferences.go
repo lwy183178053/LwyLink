@@ -12,7 +12,7 @@ type clientPreferences struct {
 }
 
 func defaultClientPreferences() clientPreferences {
-	return clientPreferences{P2PEnabled: true}
+	return clientPreferences{}
 }
 
 func loadClientPreferences() clientPreferences {

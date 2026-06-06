@@ -3,6 +3,7 @@ package overlay
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
@@ -17,10 +18,11 @@ type session struct {
 	roomID    int64
 	lease     vdhcp.Lease
 
-	udpToken string
-	udpKey   []byte
-	udpAddr  *net.UDPAddr
-	udpLAN   []string
+	udpToken       string
+	udpKey         []byte
+	udpAddr        *net.UDPAddr
+	udpLAN         []string
+	udpAnnouncedAt time.Time
 
 	send     chan []byte
 	done     chan struct{}

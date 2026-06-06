@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const udpReadBufferSize = 64 * 1024
+const (
+	udpReadBufferSize       = 64 * 1024
+	udpPeerAnnounceInterval = 10 * time.Second
+)
 
 func (s *Server) prepareUDP(sess *session) error {
 	token, err := randomHex(18)
@@ -81,9 +84,11 @@ func (s *Server) handleUDPPacket(remote *net.UDPAddr, raw []byte) {
 	}
 	lanEndpoints := NormalizeUDPLANEndpoints(payload.LANEndpoints)
 
-	changed := s.setSessionUDPAddr(sess, remote, lanEndpoints)
+	changed, shouldAnnounce := s.setSessionUDPAddr(sess, remote, lanEndpoints, time.Now())
 	if changed {
 		log.Printf("udp overlay registered room=%d user=%s ip=%s endpoint=%s", sess.roomID, sess.username, sess.lease.IP, remote)
+	}
+	if shouldAnnounce {
 		s.announceUDPPeers(sess)
 	}
 }
@@ -94,19 +99,23 @@ func (s *Server) sessionByUDPToken(token string) *session {
 	return s.byUDP[token]
 }
 
-func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr, lanEndpoints []string) bool {
+func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr, lanEndpoints []string, now time.Time) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if current := s.byUDP[sess.udpToken]; current != sess {
-		return false
+		return false, false
 	}
-	if sess.udpAddr != nil && sess.udpAddr.String() == remote.String() && slices.Equal(sess.udpLAN, lanEndpoints) {
-		return false
+	changed := sess.udpAddr == nil || sess.udpAddr.String() != remote.String() || !slices.Equal(sess.udpLAN, lanEndpoints)
+	if changed {
+		cp := *remote
+		sess.udpAddr = &cp
+		sess.udpLAN = append([]string(nil), lanEndpoints...)
 	}
-	cp := *remote
-	sess.udpAddr = &cp
-	sess.udpLAN = append([]string(nil), lanEndpoints...)
-	return true
+	shouldAnnounce := changed || sess.udpAnnouncedAt.IsZero() || now.Sub(sess.udpAnnouncedAt) >= udpPeerAnnounceInterval
+	if shouldAnnounce {
+		sess.udpAnnouncedAt = now
+	}
+	return changed, shouldAnnounce
 }
 
 func (s *Server) announceUDPPeers(sess *session) {

@@ -291,7 +291,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 	var latestConfig *overlay.UDPControl
 	knownPeers := make(map[string]overlay.UDPPeerCandidate)
 	p2pEnabled := func() bool {
-		return opts.P2PEnabled == nil || opts.P2PEnabled()
+		return opts.P2PEnabled != nil && opts.P2PEnabled()
 	}
 	emitDisabled := func() {
 		if opts.OnTransportState != nil {

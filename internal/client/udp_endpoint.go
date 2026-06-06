@@ -37,6 +37,9 @@ func (m *udpManager) localLANEndpoints() []string {
 			if !overlay.IsLANIPv4(ip) {
 				continue
 			}
+			if ip.String() == m.cfg.VirtualIP {
+				continue
+			}
 			endpoint := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", local.Port))
 			if _, ok := seen[endpoint]; ok {
 				continue
@@ -54,6 +57,9 @@ func resolvePeerCandidateEndpoints(candidate overlay.UDPPeerCandidate) []*net.UD
 	for _, value := range overlay.NormalizeUDPLANEndpoints(candidate.LANEndpoints) {
 		addr, err := net.ResolveUDPAddr("udp", value)
 		if err != nil {
+			continue
+		}
+		if addr.IP.String() == candidate.VirtualIP {
 			continue
 		}
 		if _, ok := seen[addr.String()]; ok {

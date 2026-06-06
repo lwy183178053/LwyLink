@@ -21,10 +21,11 @@ const (
 	udpRegisterInterval = 2 * time.Second
 	udpProbeInterval    = 500 * time.Millisecond
 	udpProbeWindow      = 6 * time.Second
-	udpProbeRetryAfter  = 30 * time.Second
-	udpProbeMaxFailures = 3
-	udpKeepaliveEvery   = 2 * time.Second
-	udpDirectTimeout    = 9 * time.Second
+	udpProbeRetryMin    = 5 * time.Second
+	udpProbeRetryMax    = 30 * time.Second
+	udpKeepaliveEvery   = time.Second
+	udpDirectFreshFor   = 2 * time.Second
+	udpDirectTimeout    = 4 * time.Second
 )
 
 type TransportStatus struct {
@@ -134,36 +135,35 @@ func (m *udpManager) AddPeer(candidate overlay.UDPPeerCandidate) {
 		return
 	}
 	now := time.Now()
-	var probe *udpProbeTarget
+	var probe udpProbeTarget
+	var shouldProbe bool
 	m.mu.Lock()
-	path, shouldProbe, generation := m.updatePeerPathLocked(candidate.VirtualIP, endpoints, candidate.SessionID, key, now)
-	if shouldProbe {
-		probe = &udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: generation}
-	}
+	path := m.updatePeerPathLocked(candidate.VirtualIP, endpoints, candidate.SessionID, key)
+	probe, shouldProbe = m.startProbeTargetLocked(path, now)
 	m.emitStatusLocked()
 	m.mu.Unlock()
-	if probe != nil {
-		go m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+	if shouldProbe {
+		m.launchProbe(probe)
 	}
 }
 
 func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
-	var probe *udpProbeTarget
+	var probe udpProbeTarget
+	var shouldProbe bool
 	m.mu.Lock()
+	now := time.Now()
 	path := m.pathsByIP[dstIP]
-	if path == nil || !path.active || time.Since(path.lastSeen) > udpDirectTimeout {
-		if path != nil && path.active {
+	if !udpPathDirectReady(path, now) {
+		if udpPathExpired(path, now) {
 			path.active = false
 			path.failedProbes = 0
 			path.nextProbeAt = time.Time{}
-			if generation, ok := m.startProbeLocked(path, time.Now()); ok {
-				probe = &udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: generation}
-			}
+			probe, shouldProbe = m.startProbeTargetLocked(path, now)
 			m.emitStatusLocked()
 		}
 		m.mu.Unlock()
-		if probe != nil {
-			go m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+		if shouldProbe {
+			m.launchProbe(probe)
 		}
 		return false
 	}
@@ -287,11 +287,7 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 	if path := m.pathsByIP[virtualIP]; path != nil && path.sessionID == sessionID && !path.active && path.probeGeneration == generation {
 		path.probing = false
 		path.failedProbes++
-		if path.failedProbes < udpProbeMaxFailures {
-			path.nextProbeAt = time.Now().Add(udpProbeRetryAfter)
-		} else {
-			path.nextProbeAt = time.Time{}
-		}
+		path.nextProbeAt = time.Now().Add(udpProbeRetryDelay(path.failedProbes))
 		m.emitStatusLocked()
 	}
 	m.mu.Unlock()
@@ -311,12 +307,12 @@ func (m *udpManager) keepaliveLoop(ctx context.Context) {
 		pings := make([]udpPingTarget, 0, len(m.pathsByIP))
 		probes := make([]udpProbeTarget, 0)
 		for _, path := range m.pathsByIP {
-			if path.active && now.Sub(path.lastSeen) > udpDirectTimeout {
+			if udpPathExpired(path, now) {
 				path.active = false
 				path.failedProbes = 0
 				path.nextProbeAt = time.Time{}
-				if generation, ok := m.startProbeLocked(path, now); ok {
-					probes = append(probes, udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: generation})
+				if probe, ok := m.startProbeTargetLocked(path, now); ok {
+					probes = append(probes, probe)
 				}
 				continue
 			}
@@ -327,12 +323,16 @@ func (m *udpManager) keepaliveLoop(ctx context.Context) {
 					key:       cloneBytes(path.key),
 					seq:       m.nextSeqLocked(),
 				})
+				continue
+			}
+			if probe, ok := m.startProbeTargetLocked(path, now); ok {
+				probes = append(probes, probe)
 			}
 		}
 		m.emitStatusLocked()
 		m.mu.Unlock()
 		for _, item := range probes {
-			go m.probeLoop(item.virtualIP, item.sessionID, item.generation)
+			m.launchProbe(item)
 		}
 		for _, item := range pings {
 			_ = m.sendEncrypted(item.endpoint, overlay.UDPTypePing, item.sessionID, item.key, item.seq, []byte("ping"))
@@ -375,24 +375,23 @@ func (m *udpManager) notePeerSeen(sessionID string, remote *net.UDPAddr) {
 }
 
 func (m *udpManager) markInactive(sessionID string) {
-	var probe *udpProbeTarget
+	var probe udpProbeTarget
+	var shouldProbe bool
 	m.mu.Lock()
 	if path := m.pathsByID[sessionID]; path != nil {
 		path.active = false
 		path.failedProbes = 0
 		path.nextProbeAt = time.Time{}
-		if generation, ok := m.startProbeLocked(path, time.Now()); ok {
-			probe = &udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: generation}
-		}
+		probe, shouldProbe = m.startProbeTargetLocked(path, time.Now())
 		m.emitStatusLocked()
 	}
 	m.mu.Unlock()
-	if probe != nil {
-		go m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+	if shouldProbe {
+		m.launchProbe(probe)
 	}
 }
 
-func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDPAddr, sessionID string, key []byte, now time.Time) (*udpPeerPath, bool, uint64) {
+func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDPAddr, sessionID string, key []byte) *udpPeerPath {
 	path := m.pathsByIP[virtualIP]
 	if path == nil {
 		path = &udpPeerPath{virtualIP: virtualIP}
@@ -415,23 +414,51 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 	}
 	m.pathsByID[path.sessionID] = path
 
-	generation, shouldProbe := m.startProbeLocked(path, now)
-	return path, shouldProbe, generation
+	return path
 }
 
-func (m *udpManager) startProbeLocked(path *udpPeerPath, now time.Time) (uint64, bool) {
+func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (udpProbeTarget, bool) {
 	if path == nil || path.active || path.probing || len(path.candidateEndpoints) == 0 || path.sessionID == "" || len(path.key) != 32 {
-		return 0, false
-	}
-	if path.failedProbes >= udpProbeMaxFailures {
-		return 0, false
+		return udpProbeTarget{}, false
 	}
 	if !path.nextProbeAt.IsZero() && now.Before(path.nextProbeAt) {
-		return 0, false
+		return udpProbeTarget{}, false
 	}
 	path.probing = true
 	path.probeGeneration++
-	return path.probeGeneration, true
+	return udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: path.probeGeneration}, true
+}
+
+func (m *udpManager) launchProbe(probe udpProbeTarget) {
+	go m.probeLoop(probe.virtualIP, probe.sessionID, probe.generation)
+}
+
+func udpPathDirectReady(path *udpPeerPath, now time.Time) bool {
+	if path == nil || !path.active || path.lastSeen.IsZero() {
+		return false
+	}
+	return now.Sub(path.lastSeen) <= udpDirectFreshFor
+}
+
+func udpPathExpired(path *udpPeerPath, now time.Time) bool {
+	if path == nil || !path.active || path.lastSeen.IsZero() {
+		return false
+	}
+	return now.Sub(path.lastSeen) > udpDirectTimeout
+}
+
+func udpProbeRetryDelay(failures int) time.Duration {
+	if failures <= 1 {
+		return udpProbeRetryMin
+	}
+	delay := udpProbeRetryMin
+	for i := 1; i < failures; i++ {
+		delay *= 2
+		if delay >= udpProbeRetryMax {
+			return udpProbeRetryMax
+		}
+	}
+	return delay
 }
 
 func (m *udpManager) sendEncrypted(endpoint *net.UDPAddr, packetType byte, id string, key []byte, seq uint64, payload []byte) error {
@@ -457,8 +484,9 @@ func (m *udpManager) emitStatusLocked() {
 	}
 	active := 0
 	probing := false
+	now := time.Now()
 	for _, path := range m.pathsByIP {
-		if path.active {
+		if udpPathDirectReady(path, now) {
 			active++
 		}
 		if path.probing {

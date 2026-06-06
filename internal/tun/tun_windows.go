@@ -65,12 +65,10 @@ Disable-NetAdapterBinding -Name $alias -ComponentID ms_tcpip6 -ErrorAction Silen
 foreach ($store in @("ActiveStore", "PersistentStore")) {
   Get-NetRoute -AddressFamily IPv4 -PolicyStore $store -ErrorAction SilentlyContinue |
     Where-Object {
-      $_.InterfaceIndex -eq $ifIndex -and (
+        $_.InterfaceIndex -eq $ifIndex -and (
         $_.DestinationPrefix -eq $dst -or
         $_.DestinationPrefix -eq $multicastDst -or
-        $_.DestinationPrefix -eq $limitedBroadcastDst -or
-        $_.DestinationPrefix -like "10.66.*" -or
-        $_.DestinationPrefix -like "172.16.*"
+        $_.DestinationPrefix -eq $limitedBroadcastDst
       )
     } |
     Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
@@ -116,9 +114,7 @@ if ($if) {
         $_.InterfaceIndex -eq $if.InterfaceIndex -and (
           $_.DestinationPrefix -eq $dst -or
           $_.DestinationPrefix -eq $multicastDst -or
-          $_.DestinationPrefix -eq $limitedBroadcastDst -or
-          $_.DestinationPrefix -like "10.66.*" -or
-          $_.DestinationPrefix -like "172.16.*"
+          $_.DestinationPrefix -eq $limitedBroadcastDst
         )
       } |
       Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue

@@ -4,13 +4,14 @@ import (
 	"net"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
 func TestForwardIPUnicastRoutesOnlyToTarget(t *testing.T) {
 	srv, from, peer, other := newForwardTestServer()
-	pkt := testIPv4Packet("10.66.1.10", "10.66.1.11")
+	pkt := testIPv4Packet("172.16.1.10", "172.16.1.11")
 
 	srv.forwardIP(from, pkt)
 
@@ -25,14 +26,14 @@ func TestForwardIPFansOutDiscoveryPacketsWithinRoom(t *testing.T) {
 		dst  string
 	}{
 		{name: "limited broadcast", dst: "255.255.255.255"},
-		{name: "room subnet broadcast", dst: "10.66.1.255"},
+		{name: "room subnet broadcast", dst: "172.16.1.255"},
 		{name: "multicast", dst: "239.255.0.1"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, from, peer, other := newForwardTestServer()
-			pkt := testIPv4Packet("10.66.1.10", tt.dst)
+			pkt := testIPv4Packet("172.16.1.10", tt.dst)
 
 			srv.forwardIP(from, pkt)
 
@@ -45,7 +46,7 @@ func TestForwardIPFansOutDiscoveryPacketsWithinRoom(t *testing.T) {
 
 func TestForwardIPDropsForgedSource(t *testing.T) {
 	srv, from, peer, _ := newForwardTestServer()
-	pkt := testIPv4Packet("10.66.1.99", "255.255.255.255")
+	pkt := testIPv4Packet("172.16.1.99", "255.255.255.255")
 
 	srv.forwardIP(from, pkt)
 
@@ -55,10 +56,10 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 
 func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
-	sess := testSession(1, "10.66.1.10")
-	deleteKey := newUDPPairKey(1, "10.66.1.10", "10.66.1.11")
-	keepSameRoomKey := newUDPPairKey(1, "10.66.1.12", "10.66.1.13")
-	keepOtherRoomKey := newUDPPairKey(2, "10.66.1.10", "10.66.1.11")
+	sess := testSession(1, "172.16.1.10")
+	deleteKey := newUDPPairKey(1, "172.16.1.10", "172.16.1.11")
+	keepSameRoomKey := newUDPPairKey(1, "172.16.1.12", "172.16.1.13")
+	keepOtherRoomKey := newUDPPairKey(2, "172.16.1.10", "172.16.1.11")
 	srv.udpPairs[deleteKey] = udpPair{SessionID: "delete"}
 	srv.udpPairs[keepSameRoomKey] = udpPair{SessionID: "same-room"}
 	srv.udpPairs[keepOtherRoomKey] = udpPair{SessionID: "other-room"}
@@ -116,11 +117,34 @@ func TestBuildUDPAnnouncementsIncludesPeerLANEndpoints(t *testing.T) {
 	}
 }
 
+func TestSetSessionUDPAddrPeriodicallyReannouncesUnchangedEndpoint(t *testing.T) {
+	srv, sess, _, _ := newForwardTestServer()
+	sess.udpToken = "token"
+	srv.byUDP[sess.udpToken] = sess
+	endpoint := testUDPAddr(t, "203.0.113.10:50001")
+	now := time.Unix(100, 0)
+
+	changed, announce := srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now)
+	if !changed || !announce {
+		t.Fatalf("first registration changed=%v announce=%v, want true true", changed, announce)
+	}
+
+	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now.Add(time.Second))
+	if changed || announce {
+		t.Fatalf("early repeat changed=%v announce=%v, want false false", changed, announce)
+	}
+
+	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now.Add(udpPeerAnnounceInterval+time.Second))
+	if changed || !announce {
+		t.Fatalf("interval repeat changed=%v announce=%v, want false true", changed, announce)
+	}
+}
+
 func newForwardTestServer() (*Server, *session, *session, *session) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
-	from := testSession(1, "10.66.1.10")
-	peer := testSession(1, "10.66.1.11")
-	other := testSession(2, "10.66.2.10")
+	from := testSession(1, "172.16.1.10")
+	peer := testSession(1, "172.16.1.11")
+	other := testSession(2, "172.16.2.10")
 	srv.byRoomIP[1] = map[string]*session{
 		from.lease.IP: from,
 		peer.lease.IP: peer,

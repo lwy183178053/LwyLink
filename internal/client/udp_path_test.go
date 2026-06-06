@@ -15,53 +15,101 @@ func TestUDPPeerPathDeduplicatesCandidateWhileProbing(t *testing.T) {
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path, shouldProbe, generation := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	probe, shouldProbe := m.startProbeTargetLocked(path, now)
 	if !shouldProbe {
 		t.Fatalf("first candidate did not start probing")
 	}
-	if generation != 1 || !path.probing {
-		t.Fatalf("bad first probe state: generation=%d probing=%v", generation, path.probing)
+	if probe.generation != 1 || !path.probing {
+		t.Fatalf("bad first probe state: generation=%d probing=%v", probe.generation, path.probing)
 	}
 
-	_, shouldProbe, generation = m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now.Add(time.Second))
+	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	probe, shouldProbe = m.startProbeTargetLocked(path, now.Add(time.Second))
 	if shouldProbe {
 		t.Fatalf("duplicate candidate started another probe")
 	}
-	if generation != 0 {
-		t.Fatalf("duplicate candidate returned generation=%d", generation)
+	if probe.generation != 0 {
+		t.Fatalf("duplicate candidate returned generation=%d", probe.generation)
 	}
 }
 
-func TestUDPPeerPathHonorsProbeCooldownAndLimit(t *testing.T) {
+func TestUDPPeerPathHonorsProbeCooldownAndContinuesRetrying(t *testing.T) {
 	m := newTestUDPManager()
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path, _, _ := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
 	path.probing = false
+	path.probeGeneration = 1
 	path.failedProbes = 1
-	path.nextProbeAt = now.Add(udpProbeRetryAfter)
+	path.nextProbeAt = now.Add(udpProbeRetryDelay(path.failedProbes))
 
-	_, shouldProbe, _ := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now.Add(5*time.Second))
+	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	_, shouldProbe := m.startProbeTargetLocked(path, now.Add(time.Second))
 	if shouldProbe {
 		t.Fatalf("candidate started probing during cooldown")
 	}
 
-	_, shouldProbe, generation := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now.Add(udpProbeRetryAfter+time.Second))
+	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	probe, shouldProbe := m.startProbeTargetLocked(path, now.Add(udpProbeRetryDelay(path.failedProbes)+time.Second))
 	if !shouldProbe {
 		t.Fatalf("candidate did not retry after cooldown")
 	}
-	if generation != 2 {
-		t.Fatalf("retry generation=%d, want 2", generation)
+	if probe.generation != 2 {
+		t.Fatalf("retry generation=%d, want 2", probe.generation)
 	}
 
 	path.probing = false
-	path.failedProbes = udpProbeMaxFailures
+	path.failedProbes = 100
 	path.nextProbeAt = time.Time{}
-	_, shouldProbe, _ = m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now.Add(2*udpProbeRetryAfter))
-	if shouldProbe {
-		t.Fatalf("candidate retried after reaching failure limit")
+	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	probe, shouldProbe = m.startProbeTargetLocked(path, now.Add(2*udpProbeRetryMax))
+	if !shouldProbe {
+		t.Fatalf("candidate stopped retrying after many failures")
+	}
+	if probe.generation != 3 {
+		t.Fatalf("continuous retry generation=%d, want 3", probe.generation)
+	}
+}
+
+func TestUDPProbeRetryDelayCaps(t *testing.T) {
+	tests := []struct {
+		failures int
+		want     time.Duration
+	}{
+		{failures: 0, want: udpProbeRetryMin},
+		{failures: 1, want: udpProbeRetryMin},
+		{failures: 2, want: 2 * udpProbeRetryMin},
+		{failures: 3, want: 4 * udpProbeRetryMin},
+		{failures: 10, want: udpProbeRetryMax},
+	}
+	for _, tt := range tests {
+		if got := udpProbeRetryDelay(tt.failures); got != tt.want {
+			t.Fatalf("failures=%d delay=%s, want %s", tt.failures, got, tt.want)
+		}
+	}
+}
+
+func TestUDPPathFallsBackBeforeItExpires(t *testing.T) {
+	now := time.Unix(100, 0)
+	path := &udpPeerPath{
+		active:   true,
+		lastSeen: now,
+	}
+
+	if !udpPathDirectReady(path, now.Add(udpDirectFreshFor)) {
+		t.Fatalf("path should stay direct-ready inside fresh window")
+	}
+	if udpPathDirectReady(path, now.Add(udpDirectFreshFor+time.Millisecond)) {
+		t.Fatalf("path remained direct-ready after fresh window")
+	}
+	if udpPathExpired(path, now.Add(udpDirectFreshFor+time.Millisecond)) {
+		t.Fatalf("path expired during tcp fallback grace window")
+	}
+	if !udpPathExpired(path, now.Add(udpDirectTimeout+time.Millisecond)) {
+		t.Fatalf("path did not expire after direct timeout")
 	}
 }
 
@@ -71,12 +119,13 @@ func TestUDPPeerPathEndpointChangeResetsFailures(t *testing.T) {
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path, _, _ := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{endpoint}, "pair-1", key, now)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
 	path.probing = false
-	path.failedProbes = udpProbeMaxFailures
+	path.failedProbes = 100
 
 	nextEndpoint := testUDPAddr(t, "127.0.0.1:30002")
-	path, shouldProbe, _ := m.updatePeerPathLocked("10.66.1.11", []*net.UDPAddr{nextEndpoint}, "pair-1", key, now.Add(time.Second))
+	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{nextEndpoint}, "pair-1", key)
+	_, shouldProbe := m.startProbeTargetLocked(path, now.Add(time.Second))
 	if !shouldProbe {
 		t.Fatalf("endpoint change did not restart probing")
 	}
@@ -97,6 +146,21 @@ func TestResolvePeerCandidateEndpointsPrefersLAN(t *testing.T) {
 	endpoints := resolvePeerCandidateEndpoints(candidate)
 	got := udpAddrStrings(endpoints)
 	want := []string{"10.0.0.5:30001", "192.168.1.20:30001", "203.0.113.9:30001"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("endpoints=%v, want %v", got, want)
+	}
+}
+
+func TestResolvePeerCandidateEndpointsSkipsVirtualIP(t *testing.T) {
+	candidate := overlay.UDPPeerCandidate{
+		VirtualIP:    "172.16.1.11",
+		Endpoint:     "203.0.113.9:30001",
+		LANEndpoints: []string{"172.16.1.11:30001", "192.168.1.20:30001"},
+	}
+
+	endpoints := resolvePeerCandidateEndpoints(candidate)
+	got := udpAddrStrings(endpoints)
+	want := []string{"192.168.1.20:30001", "203.0.113.9:30001"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("endpoints=%v, want %v", got, want)
 	}
