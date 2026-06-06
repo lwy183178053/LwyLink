@@ -19,6 +19,7 @@ import (
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/client"
+	"github.com/LwyV-Labs/LwyLink/internal/netutil"
 	"github.com/LwyV-Labs/LwyLink/internal/overlay"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
@@ -516,17 +517,11 @@ func verifyKickDisconnectsOverlayAndSSE(ctx context.Context, cleaner *smokeClean
 }
 
 func subnetBroadcast(ip, mask string) string {
-	ip4 := net.ParseIP(ip).To4()
-	mask4 := net.ParseIP(mask).To4()
-	if ip4 == nil || mask4 == nil {
+	broadcast := netutil.SubnetBroadcast(net.ParseIP(ip), net.ParseIP(mask))
+	if broadcast == nil {
 		failf("bad lease ip/mask ip=%s mask=%s", ip, mask)
 	}
-	return net.IPv4(
-		ip4[0]|^mask4[0],
-		ip4[1]|^mask4[1],
-		ip4[2]|^mask4[2],
-		ip4[3]|^mask4[3],
-	).String()
+	return broadcast.String()
 }
 
 type overlaySmokeClient struct {

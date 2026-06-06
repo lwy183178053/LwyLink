@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/LwyV-Labs/LwyLink/internal/netutil"
 )
 
 type Lease struct {
@@ -78,9 +80,9 @@ func (m *Manager) Acquire(roomID, userID int64, networkCIDR string, dns []string
 	lease := Lease{
 		RoomID:       roomID,
 		UserID:       userID,
-		IP:           uint32ToIP(ip).String(),
+		IP:           netutil.Uint32ToIP(ip).String(),
 		SubnetMask:   pool.mask,
-		Gateway:      uint32ToIP(pool.gateway).String(),
+		Gateway:      netutil.Uint32ToIP(pool.gateway).String(),
 		DNS:          append([]string(nil), pool.dns...),
 		MTU:          pool.mtu,
 		LeaseSeconds: int64(pool.leaseTTL.Seconds()),
@@ -112,7 +114,7 @@ func (m *Manager) ensurePoolLocked(roomID int64, networkCIDR string, dns []strin
 	if mtu <= 0 {
 		mtu = 1300
 	}
-	network := ipToUint32(ip4)
+	network := netutil.IPToUint32(ip4)
 	size := uint32(1) << uint(32-prefix)
 	broadcast := network + size - 1
 	gateway := broadcast - 1
@@ -123,7 +125,7 @@ func (m *Manager) ensurePoolLocked(roomID int64, networkCIDR string, dns []strin
 		broadcast:   broadcast,
 		next:        next,
 		gateway:     gateway,
-		mask:        prefixToMask(prefix),
+		mask:        netutil.PrefixToMask(prefix),
 		dns:         append([]string(nil), dns...),
 		mtu:         mtu,
 		byUser:      make(map[int64]Lease),
@@ -158,18 +160,4 @@ func (p *roomPool) advance() {
 	if p.next >= p.broadcast {
 		p.next = p.network + 1
 	}
-}
-
-func prefixToMask(prefix int) string {
-	mask := net.CIDRMask(prefix, 32)
-	return net.IPv4(mask[0], mask[1], mask[2], mask[3]).String()
-}
-
-func ipToUint32(ip net.IP) uint32 {
-	v := ip.To4()
-	return uint32(v[0])<<24 | uint32(v[1])<<16 | uint32(v[2])<<8 | uint32(v[3])
-}
-
-func uint32ToIP(v uint32) net.IP {
-	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
 }

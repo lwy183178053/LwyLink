@@ -44,7 +44,6 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 		fmt.Println("LwyLink Console")
 		fmt.Println("1. 注册玩家")
 		fmt.Println("2. 登录玩家")
-		fmt.Println("3. 忘记密码")
 		fmt.Println("0. 退出")
 		switch prompt(reader, "选择: ") {
 		case "1":
@@ -68,9 +67,6 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 			}
 			fmt.Printf("登录成功，当前用户: %s\n", res.User.Username)
 			return &res.User, false
-		case "3":
-			_ = prompt(reader, "请输入用户名: ")
-			fmt.Println("当前测试版没有开放自助找回密码。请联系管理员在管理端核验身份后处理。")
 		case "0":
 			return nil, true
 		default:
@@ -232,6 +228,7 @@ func connectSelectedRoom(ctx context.Context, reader *bufio.Reader, api *API, se
 	}
 	return nil
 }
+
 func leaveOrDeleteCurrentRoom(ctx context.Context, reader *bufio.Reader, api *API, userID int64) error {
 	selected, ok, err := currentRoom(ctx, api)
 	if err != nil {

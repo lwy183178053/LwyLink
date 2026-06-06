@@ -29,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.9"
+var AppVersion = "0.1.10"
 
 type App struct {
 	ctx context.Context
@@ -254,6 +254,8 @@ func (a *App) CurrentState() AppState {
 	return a.stateLocked()
 }
 
+// commitStateLocked captures the current state, releases the lock, and emits.
+// Callers must hold a.mu before calling this; the lock is released here.
 func (a *App) commitStateLocked() AppState {
 	state := a.stateLocked()
 	a.mu.Unlock()

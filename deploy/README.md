@@ -8,7 +8,6 @@
 - `TEST_SERVER.md`：当前测试服务器、端口、远端路径和自动部署流程速查。
 - `build-all.ps1`：本机一键全编译，生成 Linux 服务端二进制、Windows 控制台工具和 Wails 客户端。
 - `upload-deploy.ps1`：上传已有构建产物到服务器，安装 systemd 服务、重启并可选 smoke 验证。
-- `deploy-test.ps1`：本机 PowerShell 自动构建、上传、重启并 smoke 测试当前测试服务器。
 
 如果是新会话接手项目，优先阅读 `deploy/TEST_SERVER.md`，里面写了测试服务器连接方式、不能碰的 443 旧服务、自动部署命令和 smoke 验证点。
 
@@ -88,7 +87,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 .\deploy\upload-deploy.ps1 -AdminToken "这里填 adminToken"
 ```
 
-兼容现有测试服环境变量：
+部署环境变量：
 
 ```powershell
 $env:LWYLINK_DEPLOY_HOST = "64.83.34.53"

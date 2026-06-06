@@ -101,7 +101,7 @@ func (c *SecureConn) writeInner(innerType byte, payload []byte) error {
 	if err := c.rotateSendKeyIfNeededLocked(); err != nil {
 		return err
 	}
-	return c.encryptAndWriteLocked(innerType, payload)
+	return c.writeEncryptedFrameLocked(innerType, payload)
 }
 
 func (c *SecureConn) rotateSendKeyIfNeededLocked() error {
@@ -115,7 +115,7 @@ func (c *SecureConn) rotateSendKeyIfNeededLocked() error {
 	old := c.sendKey
 	// The key update is encrypted with the old key; after the peer accepts the
 	// salt both sides derive the same next key without another public-key round.
-	if err := c.encryptAndWriteLockedNoRotate(InnerKeyUpdate, salt); err != nil {
+	if err := c.writeEncryptedFrameLocked(InnerKeyUpdate, salt); err != nil {
 		return err
 	}
 	c.sendKey = &keyState{
@@ -126,11 +126,7 @@ func (c *SecureConn) rotateSendKeyIfNeededLocked() error {
 	return nil
 }
 
-func (c *SecureConn) encryptAndWriteLocked(innerType byte, payload []byte) error {
-	return c.encryptAndWriteLockedNoRotate(innerType, payload)
-}
-
-func (c *SecureConn) encryptAndWriteLockedNoRotate(innerType byte, payload []byte) error {
+func (c *SecureConn) writeEncryptedFrameLocked(innerType byte, payload []byte) error {
 	c.stateMu.Lock()
 	if c.closed {
 		c.stateMu.Unlock()

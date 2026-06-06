@@ -16,15 +16,15 @@
 SSH 密码不要写进 README 或代码。新会话需要部署时，先让用户提供密码，或者在本机 PowerShell 临时设置：
 
 ```powershell
-$env:LWYLINK_TEST_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
+$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 ```
 
 可选环境变量：
 
 ```powershell
-$env:LWYLINK_TEST_HOST = "64.83.34.53"
-$env:LWYLINK_TEST_SSH_USER = "root"
-$env:LWYLINK_TEST_SSH_PORT = "22"
+$env:LWYLINK_DEPLOY_HOST = "64.83.34.53"
+$env:LWYLINK_DEPLOY_SSH_USER = "root"
+$env:LWYLINK_DEPLOY_SSH_PORT = "22"
 ```
 
 ## 远端服务
@@ -60,48 +60,45 @@ ss -ltnup | grep -E ':(443|8080|35768) '
 - `35768/udp`：`lwylink-node` UDP 打洞协商
 - `443`：旧服务，不属于 LwyLink
 
-## 一键部署
+## 部署流程
 
 本机 PowerShell 中执行：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-$env:LWYLINK_TEST_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
-.\deploy\deploy-test.ps1
+$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
+.\deploy\build-all.ps1 -Vet -AppVersion 0.1.10
+.\deploy\upload-deploy.ps1
 ```
 
-脚本会自动执行：
+脚本会执行：
 
 1. `go test -p 1 ./...`
-2. 构建 Linux 版 `lwylink-control`、`lwylink-node`、`lwylink-smoke`
-3. 上传到 `/opt/lwylink/deploy/dist`
-4. 安装到 `/opt/lwylink`
-5. 重启 `lwylink-control` 和 `lwylink-node`
-6. 检查 `8080`、`35768/tcp`、`35768/udp`、`443`
-7. 跑远端 smoke 测试
+2. `go vet -p 1 ./...`
+3. 构建 Linux 版 `lwylink-control`、`lwylink-node`、`lwylink-smoke`
+4. 构建 Windows 控制台客户端、smoke 工具和 Wails UI
+5. 上传服务端二进制到 `/opt/lwylink/deploy/dist`
+6. 安装到 `/opt/lwylink`
+7. 重启 `lwylink-control` 和 `lwylink-node`
+8. 检查 `8080`、`35768/tcp`、`35768/udp`、`443`
+9. 跑远端 smoke 测试
 
 只上传二进制，不覆盖远端配置：
 
 ```powershell
-.\deploy\deploy-test.ps1
+.\deploy\upload-deploy.ps1
 ```
 
 如果确实改了 `configs/control.prod.json` 或 `configs/node.prod.json`，需要同步配置：
 
 ```powershell
-.\deploy\deploy-test.ps1 -UploadConfigs
-```
-
-如果同时要重新打 Windows 客户端：
-
-```powershell
-.\deploy\deploy-test.ps1 -BuildWindowsUI
+.\deploy\upload-deploy.ps1 -UploadConfigs
 ```
 
 如果只是快速重启部署，不想跑 smoke：
 
 ```powershell
-.\deploy\deploy-test.ps1 -SkipSmoke
+.\deploy\upload-deploy.ps1 -SkipSmoke
 ```
 
 ## 手动部署步骤
@@ -148,7 +145,7 @@ $env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
 go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:35768
 ```
 
-`deploy-test.ps1` 会优先使用 `-AdminToken`、`LWYLINK_ADMIN_TOKEN`，否则从本地 `configs/control.prod.json` 读取 `adminToken` 传给 smoke。smoke 结束后会通过管理端接口删除本次创建的测试账号。
+`upload-deploy.ps1` 会优先使用 `-AdminToken`、`LWYLINK_ADMIN_TOKEN`，否则从本地 `configs/control.prod.json` 读取 `adminToken` 传给 smoke。smoke 结束后会通过管理端接口删除本次创建的测试账号。
 
 ## 修改代码后的建议流程
 
@@ -157,7 +154,8 @@ go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:357
 ```powershell
 go test -p 1 ./...
 go vet -p 1 ./...
-.\deploy\deploy-test.ps1
+.\deploy\build-all.ps1 -Vet
+.\deploy\upload-deploy.ps1
 ```
 
 Windows 客户端或 Wintun 路由改动：

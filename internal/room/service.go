@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
+	"github.com/LwyV-Labs/LwyLink/internal/netutil"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
@@ -674,14 +675,14 @@ func (s *Service) randomRoomCIDR(ctx context.Context) (string, error) {
 	}
 	subnetCount := int64(1) << uint(s.roomSubnetPrefix-basePrefix)
 	blockSize := uint32(1) << uint(32-s.roomSubnetPrefix)
-	baseU := ipToUint32(baseNet.IP)
+	baseU := netutil.IPToUint32(baseNet.IP)
 
 	for i := 0; i < 64; i++ {
 		n, err := rand.Int(rand.Reader, big.NewInt(subnetCount))
 		if err != nil {
 			return "", err
 		}
-		network := uint32ToIP(baseU + uint32(n.Int64())*blockSize)
+		network := netutil.Uint32ToIP(baseU + uint32(n.Int64())*blockSize)
 		cidr := fmt.Sprintf("%s/%d", network.String(), s.roomSubnetPrefix)
 		exists, err := s.repo.NetworkExists(ctx, cidr)
 		if err != nil {
@@ -738,13 +739,4 @@ func allowedMaxMembersText() string {
 		parts = append(parts, fmt.Sprintf("%d", option))
 	}
 	return strings.Join(parts, "、")
-}
-
-func ipToUint32(ip net.IP) uint32 {
-	v := ip.To4()
-	return uint32(v[0])<<24 | uint32(v[1])<<16 | uint32(v[2])<<8 | uint32(v[3])
-}
-
-func uint32ToIP(v uint32) net.IP {
-	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
 }

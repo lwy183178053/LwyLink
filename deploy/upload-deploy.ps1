@@ -15,19 +15,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ($HostName -eq "") { $HostName = $env:LWYLINK_DEPLOY_HOST }
-if ($HostName -eq "") { $HostName = $env:LWYLINK_TEST_HOST }
 if ($HostName -eq "") { $HostName = "64.83.34.53" }
 
 if ($User -eq "") { $User = $env:LWYLINK_DEPLOY_SSH_USER }
-if ($User -eq "") { $User = $env:LWYLINK_TEST_SSH_USER }
 if ($User -eq "") { $User = "root" }
 
 if ($Port -eq 0 -and $env:LWYLINK_DEPLOY_SSH_PORT) { $Port = [int]$env:LWYLINK_DEPLOY_SSH_PORT }
-if ($Port -eq 0 -and $env:LWYLINK_TEST_SSH_PORT) { $Port = [int]$env:LWYLINK_TEST_SSH_PORT }
 if ($Port -eq 0) { $Port = 22 }
 
 if ($Password -eq "") { $Password = $env:LWYLINK_DEPLOY_SSH_PASSWORD }
-if ($Password -eq "") { $Password = $env:LWYLINK_TEST_SSH_PASSWORD }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ($DistDir -eq "") {
