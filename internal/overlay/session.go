@@ -23,29 +23,37 @@ type session struct {
 	udpAddr        *net.UDPAddr
 	udpLAN         []string
 	udpAnnouncedAt time.Time
+	udpReplay      *UDPReplayCache
+
+	relayMu             sync.Mutex
+	relayPendingBytes   int64
+	relayRemainingBytes int64
 
 	send     chan []byte
 	done     chan struct{}
 	closeOne sync.Once
 }
 
-func newSession(conn *tcpx.SecureConn, userID int64, username string, sessionID string, roomID int64, lease vdhcp.Lease) *session {
+func newSession(conn *tcpx.SecureConn, userID int64, username string, sessionID string, roomID int64, lease vdhcp.Lease, relayRemainingBytes int64) *session {
 	return &session{
-		conn:      conn,
-		userID:    userID,
-		username:  username,
-		sessionID: sessionID,
-		roomID:    roomID,
-		lease:     lease,
-		send:      make(chan []byte, 2048),
-		done:      make(chan struct{}),
+		conn:                conn,
+		userID:              userID,
+		username:            username,
+		sessionID:           sessionID,
+		roomID:              roomID,
+		lease:               lease,
+		relayRemainingBytes: relayRemainingBytes,
+		send:                make(chan []byte, 2048),
+		done:                make(chan struct{}),
 	}
 }
 
 func (s *session) close() {
 	s.closeOne.Do(func() {
 		close(s.done)
-		_ = s.conn.Close()
+		if s.conn != nil {
+			_ = s.conn.Close()
+		}
 	})
 }
 
@@ -59,4 +67,47 @@ func (s *session) enqueue(pkt []byte) {
 		// Games prefer fresh packets over unbounded latency. If a player cannot
 		// drain the queue, drop instead of blocking the whole room relay.
 	}
+}
+
+func (s *session) reserveRelayTraffic(bytes int64) (int64, bool) {
+	if s == nil {
+		return 0, false
+	}
+	if bytes <= 0 {
+		return 0, true
+	}
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	if s.relayRemainingBytes < bytes {
+		return 0, false
+	}
+	s.relayRemainingBytes -= bytes
+	s.relayPendingBytes += bytes
+	if s.relayPendingBytes < relayTrafficFlushBytes {
+		return 0, true
+	}
+	pending := s.relayPendingBytes
+	s.relayPendingBytes = 0
+	return pending, true
+}
+
+func (s *session) restoreRelayTraffic(bytes int64) {
+	if s == nil || bytes <= 0 {
+		return
+	}
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	s.relayPendingBytes += bytes
+	s.relayRemainingBytes += bytes
+}
+
+func (s *session) takeRelayPending() int64 {
+	if s == nil {
+		return 0
+	}
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	pending := s.relayPendingBytes
+	s.relayPendingBytes = 0
+	return pending
 }

@@ -16,6 +16,8 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
+const relayTrafficFlushBytes int64 = 256 * 1024
+
 type PresenceStore interface {
 	SetOnline(ctx context.Context, roomID, userID int64, ip string)
 	SetOffline(ctx context.Context, roomID, userID int64)
@@ -143,10 +145,15 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 		s.rejectConn(conn, err.Error())
 		return
 	}
+	relayRemaining := user.RelayTrafficRemainingBytes()
+	if relayRemaining <= 0 {
+		s.rejectConn(conn, account.ErrRelayTrafficExceeded.Error())
+		return
+	}
 
 	// Register first, then send DHCP. If the client starts sending packets
 	// immediately after DHCP, the server can already route by room/IP.
-	sess := newSession(conn, user.ID, user.Username, claims.SessionID, roomInfo.ID, lease)
+	sess := newSession(conn, user.ID, user.Username, claims.SessionID, roomInfo.ID, lease, relayRemaining)
 	if err := s.prepareUDP(sess); err != nil {
 		s.rejectConn(conn, err.Error())
 		return
@@ -245,14 +252,49 @@ func (s *Server) forwardIP(from *session, pkt []byte) {
 	if target == nil || target == from {
 		return
 	}
+	if !s.consumeRelayTraffic(from, int64(len(pkt))) {
+		return
+	}
 	target.enqueue(pkt)
 }
 
 func (s *Server) fanoutRoom(from *session, pkt []byte) {
 	targets := s.roomPeers(from)
+	if len(targets) == 0 {
+		return
+	}
+	if !s.consumeRelayTraffic(from, int64(len(pkt))*int64(len(targets))) {
+		return
+	}
 	for _, target := range targets {
 		target.enqueue(pkt)
 	}
+}
+
+func (s *Server) consumeRelayTraffic(sess *session, bytes int64) bool {
+	if s.accounts == nil || sess == nil || bytes <= 0 {
+		return true
+	}
+	pending, ok := sess.reserveRelayTraffic(bytes)
+	if !ok {
+		log.Printf("overlay closing local relay quota exhausted room=%d user=%s ip=%s bytes=%d", sess.roomID, sess.username, sess.lease.IP, bytes)
+		_ = s.writeJSON(sess.conn, FrameError, map[string]string{"error": account.ErrRelayTrafficExceeded.Error()})
+		sess.close()
+		return false
+	}
+	if pending == 0 {
+		return true
+	}
+	if err := s.accounts.ConsumeRelayTraffic(context.Background(), sess.userID, pending); err != nil {
+		if !errors.Is(err, account.ErrRelayTrafficExceeded) && !errors.Is(err, account.ErrDisabled) {
+			sess.restoreRelayTraffic(pending)
+		}
+		log.Printf("overlay closing relay quota exhausted room=%d user=%s ip=%s bytes=%d: %v", sess.roomID, sess.username, sess.lease.IP, pending, err)
+		_ = s.writeJSON(sess.conn, FrameError, map[string]string{"error": err.Error()})
+		sess.close()
+		return false
+	}
+	return true
 }
 
 func (s *Server) register(sess *session) *session {
@@ -320,6 +362,7 @@ func (s *Server) refreshOnlineLoop(ctx context.Context, sess *session) {
 
 func (s *Server) unregister(ctx context.Context, sess *session) {
 	sess.close()
+	s.flushRelayTraffic(ctx, sess)
 	s.mu.Lock()
 	removedConn := false
 	removedRouting := false
@@ -347,6 +390,19 @@ func (s *Server) unregister(ctx context.Context, sess *session) {
 	}
 	if removedConn || removedRouting {
 		log.Printf("overlay left room=%d user=%s ip=%s", sess.roomID, sess.username, sess.lease.IP)
+	}
+}
+
+func (s *Server) flushRelayTraffic(ctx context.Context, sess *session) {
+	if s.accounts == nil || sess == nil {
+		return
+	}
+	pending := sess.takeRelayPending()
+	if pending <= 0 {
+		return
+	}
+	if err := s.accounts.ConsumeRelayTraffic(ctx, sess.userID, pending); err != nil {
+		log.Printf("flush relay traffic failed room=%d user=%s ip=%s bytes=%d: %v", sess.roomID, sess.username, sess.lease.IP, pending, err)
 	}
 }
 

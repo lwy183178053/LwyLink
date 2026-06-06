@@ -69,6 +69,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/admin/users", s.handleAdminUsers)
 	mux.HandleFunc("/admin/users/status", s.handleAdminUserStatus)
 	mux.HandleFunc("/admin/users/membership", s.handleAdminUserMembership)
+	mux.HandleFunc("/admin/users/traffic", s.handleAdminUserTraffic)
 	mux.HandleFunc("/admin/users/delete", s.handleAdminUserDelete)
 	mux.HandleFunc("/admin/rooms", s.handleAdminRooms)
 	mux.HandleFunc("/admin/rooms/status", s.handleAdminRoomStatus)
@@ -820,6 +821,27 @@ func (s *Server) handleAdminUserMembership(w http.ResponseWriter, r *http.Reques
 	s.redirectAdminFromForm(w, r, "/admin/users", "status")
 }
 
+func (s *Server) handleAdminUserTraffic(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPost(w, r) {
+		return
+	}
+	userID, ok := formInt64(w, r, "userID", "bad userID")
+	if !ok {
+		return
+	}
+	bytes, err := parseTrafficGrantBytes(r.FormValue("amountGB"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.accounts.AddRelayTraffic(r.Context(), userID, bytes); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.notifyUserUpdated(r.Context(), userID)
+	s.redirectAdminFromForm(w, r, "/admin/users", "status")
+}
+
 func (s *Server) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPost(w, r) {
 		return
@@ -1262,4 +1284,23 @@ func formatBytes(size int64) string {
 		}
 	}
 	return fmt.Sprintf("%.1f TB", value/1024)
+}
+
+func parseTrafficGrantBytes(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("请输入要增加的流量")
+	}
+	gb, err := strconv.ParseFloat(value, 64)
+	if err != nil || gb <= 0 {
+		return 0, fmt.Errorf("流量必须是大于 0 的 GB 数值")
+	}
+	if gb > 1024 {
+		return 0, fmt.Errorf("单次最多增加 1024 GB")
+	}
+	bytes := int64(gb * 1024 * 1024 * 1024)
+	if bytes <= 0 {
+		return 0, fmt.Errorf("流量数值太小")
+	}
+	return bytes, nil
 }

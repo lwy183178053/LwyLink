@@ -163,7 +163,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>账号</th><th>昵称</th><th>角色</th><th>会员</th><th>状态</th><th>创建时间</th><th>更新时间</th><th>操作</th></tr>
+      <tr><th>ID</th><th>账号</th><th>昵称</th><th>角色</th><th>会员</th><th>中继流量</th><th>状态</th><th>创建时间</th><th>更新时间</th><th>操作</th></tr>
     </thead>
     <tbody>
       {{range .Users}}
@@ -180,6 +180,18 @@
               <option value="free" {{if eq .Membership "free"}}selected{{end}}>普通</option>
               <option value="vip" {{if eq .Membership "vip"}}selected{{end}}>会员</option>
             </select>
+          </form>
+        </td>
+        <td class="traffic-cell">
+          <div class="traffic-summary">
+            <strong>{{formatBytes .RelayTrafficUsedBytes}} / {{formatBytes .RelayTrafficQuotaBytes}}</strong>
+            <span>{{.RelayTrafficPeriod}} 剩余 {{formatBytes .RelayTrafficRemainingBytes}}，额外余额 {{formatBytes .RelayTrafficExtraBytes}}</span>
+          </div>
+          <form class="traffic-form" method="post" action="/admin/users/traffic">
+            {{template "context-inputs" $}}
+            <input type="hidden" name="userID" value="{{.ID}}">
+            <input name="amountGB" type="number" min="0.1" max="1024" step="0.1" placeholder="GB">
+            <button type="submit">加流量</button>
           </form>
         </td>
         <td><span class="status {{userStatusClass .Disabled}}">{{userStatusText .Disabled}}</span></td>
@@ -202,7 +214,7 @@
         </td>
       </tr>
       {{else}}
-      <tr><td colspan="9" class="empty">暂无账号</td></tr>
+      <tr><td colspan="10" class="empty">暂无账号</td></tr>
       {{end}}
     </tbody>
   </table>

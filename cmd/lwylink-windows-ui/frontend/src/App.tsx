@@ -550,6 +550,8 @@ export default function App() {
           <div className="data-grid">
             <Metric label="用户 ID" value={String(state.user.id)} />
             <Metric label="权限" value={state.user.role} />
+            <Metric label="中继已用" value={formatBytes(state.user.relayTrafficUsedBytes)} />
+            <Metric label="中继剩余" value={formatBytes(state.user.relayTrafficRemainingBytes)} />
             <Metric label="创建时间" value={formatDate(state.user.createdAt)} wide />
             <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
           </div>

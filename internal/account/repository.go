@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -118,6 +120,80 @@ func (r *Repository) SetMembership(ctx context.Context, userID int64, membership
 	return err
 }
 
+func (r *Repository) AddRelayTraffic(ctx context.Context, userID, bytes int64) error {
+	if bytes <= 0 {
+		return fmt.Errorf("traffic bytes must be positive")
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE users
+		    SET relay_traffic_extra_bytes = relay_traffic_extra_bytes + ?
+		  WHERE id = ?`,
+		bytes, userID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return err
+}
+
+func (r *Repository) ConsumeRelayTraffic(ctx context.Context, userID, bytes int64) error {
+	if bytes <= 0 {
+		return nil
+	}
+	period := currentRelayTrafficPeriod()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var u User
+	err = tx.QueryRowContext(ctx,
+		`SELECT id, membership, disabled, relay_traffic_used_bytes, relay_traffic_extra_bytes, relay_traffic_period
+		   FROM users
+		  WHERE id = ?
+		  FOR UPDATE`,
+		userID,
+	).Scan(&u.ID, &u.Membership, &u.Disabled, &u.RelayTrafficUsedBytes, &u.RelayTrafficExtraBytes, &u.RelayTrafficPeriod)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if u.Disabled {
+		return ErrDisabled
+	}
+	u.Membership = normalizeMembership(u.Membership)
+	if u.RelayTrafficPeriod != period {
+		u.RelayTrafficUsedBytes = 0
+		u.RelayTrafficPeriod = period
+	}
+	baseRemaining := maxInt64(0, u.RelayTrafficBaseQuotaBytes()-maxInt64(0, u.RelayTrafficUsedBytes))
+	extraCost := maxInt64(0, bytes-baseRemaining)
+	if extraCost > maxInt64(0, u.RelayTrafficExtraBytes) {
+		return ErrRelayTrafficExceeded
+	}
+	nextUsed := maxInt64(0, u.RelayTrafficUsedBytes) + bytes
+	nextExtra := maxInt64(0, u.RelayTrafficExtraBytes) - extraCost
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users
+		    SET relay_traffic_used_bytes = ?,
+		        relay_traffic_extra_bytes = ?,
+		        relay_traffic_period = ?
+		  WHERE id = ?`,
+		nextUsed, nextExtra, period, userID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) Delete(ctx context.Context, userID int64) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
 	if err != nil {
@@ -175,17 +251,33 @@ type userScanner interface {
 }
 
 func userColumns() string {
-	return `SELECT id, username, password_hash, display_name, role, membership, disabled, created_at, updated_at`
+	return `SELECT id, username, password_hash, display_name, role, membership, disabled,
+	       CASE WHEN relay_traffic_period = ` + relayTrafficPeriodSQL() + ` THEN relay_traffic_used_bytes ELSE 0 END,
+	       relay_traffic_extra_bytes,
+	       CASE WHEN relay_traffic_period = ` + relayTrafficPeriodSQL() + ` THEN relay_traffic_period ELSE ` + relayTrafficPeriodSQL() + ` END,
+	       created_at, updated_at`
 }
 
 func scanUser(scanner userScanner) (User, error) {
 	var u User
-	err := scanner.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.Membership, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+	err := scanner.Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Role, &u.Membership, &u.Disabled,
+		&u.RelayTrafficUsedBytes, &u.RelayTrafficExtraBytes, &u.RelayTrafficPeriod,
+		&u.CreatedAt, &u.UpdatedAt,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	u.Membership = normalizeMembership(u.Membership)
 	return u, err
+}
+
+func currentRelayTrafficPeriod() string {
+	return time.Now().Format("2006-01")
+}
+
+func relayTrafficPeriodSQL() string {
+	return `DATE_FORMAT(CURRENT_DATE(), '%Y-%m')`
 }
 
 func isDuplicateEntry(err error) bool {

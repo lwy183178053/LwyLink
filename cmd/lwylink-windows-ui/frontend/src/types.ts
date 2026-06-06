@@ -5,6 +5,11 @@ export type PublicUser = {
   role: string;
   membership: "free" | "vip" | string;
   disabled: boolean;
+  relayTrafficUsedBytes: number;
+  relayTrafficExtraBytes: number;
+  relayTrafficQuotaBytes: number;
+  relayTrafficRemainingBytes: number;
+  relayTrafficPeriod: string;
   createdAt: string;
 };
 

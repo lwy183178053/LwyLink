@@ -410,6 +410,36 @@ tbody tr:hover {
   min-height: 30px;
 }
 
+.traffic-cell {
+  min-width: 230px;
+}
+
+.traffic-summary {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 7px;
+}
+
+.traffic-summary strong {
+  font-size: 12px;
+}
+
+.traffic-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.traffic-form {
+  display: grid;
+  grid-template-columns: minmax(74px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.traffic-form input {
+  min-height: 30px;
+}
+
 .release-toolbar {
   grid-template-columns: minmax(220px, 1fr) 120px auto;
 }

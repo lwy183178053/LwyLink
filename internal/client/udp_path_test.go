@@ -72,6 +72,28 @@ func TestUDPDirectionalKeysAreReciprocalAndDistinct(t *testing.T) {
 	}
 }
 
+func TestUDPManagerRejectsReplayedPacket(t *testing.T) {
+	m := newTestUDPManager()
+	var delivered int
+	m.cfg.OnPacket = func(pkt []byte) {
+		delivered++
+	}
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	pairKey := testUDPKey(1)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
+	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeIP, "pair-1", path.recvKey, 1, []byte("payload"))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	m.handlePacket(endpoint, raw)
+	m.handlePacket(endpoint, raw)
+
+	if delivered != 1 {
+		t.Fatalf("delivered packets=%d, want 1", delivered)
+	}
+}
+
 func TestUDPPeerPathDeduplicatesCandidateWhileProbing(t *testing.T) {
 	m := newTestUDPManager()
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")

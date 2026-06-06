@@ -76,10 +76,14 @@ func (s *Server) handleUDPPacket(remote *net.UDPAddr, raw []byte) {
 		return
 	}
 	var payload UDPRegisterPayload
-	if _, err := DecodeUDPJSON(raw, sess.udpKey, &payload); err != nil {
+	packet, err := DecodeUDPJSON(raw, sess.udpKey, &payload)
+	if err != nil {
 		return
 	}
 	if payload.RoomID != sess.roomID || payload.UserID != sess.userID || payload.VirtualIP != sess.lease.IP {
+		return
+	}
+	if !sess.acceptUDPNonce(packet.Nonce) {
 		return
 	}
 	lanEndpoints := NormalizeUDPLANEndpoints(payload.LANEndpoints)
@@ -91,6 +95,16 @@ func (s *Server) handleUDPPacket(remote *net.UDPAddr, raw []byte) {
 	if shouldAnnounce {
 		s.announceUDPPeers(sess)
 	}
+}
+
+func (s *session) acceptUDPNonce(nonce [udpNonceLen]byte) bool {
+	if s == nil {
+		return false
+	}
+	if s.udpReplay == nil {
+		s.udpReplay = NewUDPReplayCache(defaultUDPReplayCacheSize)
+	}
+	return s.udpReplay.Accept(nonce)
 }
 
 func (s *Server) sessionByUDPToken(token string) *session {

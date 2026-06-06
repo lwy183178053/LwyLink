@@ -75,6 +75,7 @@ type udpPeerPath struct {
 	pairKey            []byte
 	sendKey            []byte
 	recvKey            []byte
+	replay             *overlay.UDPReplayCache
 
 	active   bool
 	probing  bool
@@ -248,6 +249,9 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 	m.mu.Unlock()
 	packet, err := overlay.DecodeUDPPacket(raw, key)
 	if err != nil {
+		return
+	}
+	if !m.acceptPeerNonce(sessionID, packet.Nonce) {
 		return
 	}
 	m.notePeerSeen(sessionID, remote)
@@ -449,6 +453,7 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 		path.pairKey = cloneBytes(key)
 		path.sendKey = sendKey
 		path.recvKey = recvKey
+		path.replay = overlay.NewUDPReplayCache(0)
 		path.active = false
 		path.probing = false
 		path.failedProbes = 0
@@ -457,6 +462,19 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 	m.pathsByID[path.sessionID] = path
 
 	return path
+}
+
+func (m *udpManager) acceptPeerNonce(sessionID string, nonce [12]byte) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	path := m.pathsByID[sessionID]
+	if path == nil {
+		return false
+	}
+	if path.replay == nil {
+		path.replay = overlay.NewUDPReplayCache(0)
+	}
+	return path.replay.Accept(nonce)
 }
 
 func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (udpProbeTarget, bool) {

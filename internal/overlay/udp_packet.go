@@ -3,10 +3,12 @@ package overlay
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
 const (
@@ -17,8 +19,9 @@ const (
 	UDPTypePing     byte = 5
 	UDPTypePong     byte = 6
 
-	udpPacketVersion byte = 1
-	udpHeaderLen     int  = 16
+	udpPacketVersion byte = 2
+	udpNonceLen      int  = 12
+	udpHeaderLen     int  = 28
 	maxUDPIDLen      int  = 120
 )
 
@@ -28,6 +31,7 @@ type UDPPacket struct {
 	Type    byte
 	ID      string
 	Seq     uint64
+	Nonce   [udpNonceLen]byte
 	Payload []byte
 }
 
@@ -65,8 +69,12 @@ func EncodeUDPPacket(packetType byte, id string, key []byte, seq uint64, payload
 	header[5] = packetType
 	binary.BigEndian.PutUint16(header[6:8], uint16(len(idBytes)))
 	binary.BigEndian.PutUint64(header[8:16], seq)
-	copy(header[16:], idBytes)
-	nonce := udpNonce(seq)
+	nonce, err := randomUDPNonce()
+	if err != nil {
+		return nil, err
+	}
+	copy(header[16:28], nonce[:])
+	copy(header[28:], idBytes)
 	cipherText := aead.Seal(nil, nonce[:], payload, header)
 	return append(header, cipherText...), nil
 }
@@ -86,6 +94,8 @@ func DecodeUDPPacket(raw []byte, key []byte) (UDPPacket, error) {
 		return UDPPacket{}, fmt.Errorf("bad udp id length")
 	}
 	seq := binary.BigEndian.Uint64(raw[8:16])
+	var nonce [udpNonceLen]byte
+	copy(nonce[:], raw[16:28])
 	idEnd := udpHeaderLen + idLen
 	header := raw[:idEnd]
 	cipherText := raw[idEnd:]
@@ -93,15 +103,15 @@ func DecodeUDPPacket(raw []byte, key []byte) (UDPPacket, error) {
 	if err != nil {
 		return UDPPacket{}, err
 	}
-	nonce := udpNonce(seq)
 	payload, err := aead.Open(nil, nonce[:], cipherText, header)
 	if err != nil {
 		return UDPPacket{}, err
 	}
 	return UDPPacket{
 		Type:    raw[5],
-		ID:      string(raw[16:idEnd]),
+		ID:      string(raw[28:idEnd]),
 		Seq:     seq,
+		Nonce:   nonce,
 		Payload: payload,
 	}, nil
 }
@@ -117,7 +127,7 @@ func UDPPacketID(raw []byte) (byte, string, error) {
 	if idLen <= 0 || idLen > maxUDPIDLen || len(raw) < udpHeaderLen+idLen {
 		return 0, "", fmt.Errorf("bad udp id length")
 	}
-	return raw[5], string(raw[16 : udpHeaderLen+idLen]), nil
+	return raw[5], string(raw[28 : udpHeaderLen+idLen]), nil
 }
 
 func EncodeUDPKey(key []byte) string {
@@ -146,8 +156,10 @@ func newUDPAEAD(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-func udpNonce(seq uint64) [12]byte {
-	var nonce [12]byte
-	binary.BigEndian.PutUint64(nonce[4:12], seq)
-	return nonce
+func randomUDPNonce() ([udpNonceLen]byte, error) {
+	var nonce [udpNonceLen]byte
+	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
+		return nonce, fmt.Errorf("udp nonce: %w", err)
+	}
+	return nonce, nil
 }

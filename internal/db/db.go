@@ -37,6 +37,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			role VARCHAR(32) NOT NULL DEFAULT 'player',
 			membership VARCHAR(16) NOT NULL DEFAULT 'free',
 			disabled BOOLEAN NOT NULL DEFAULT FALSE,
+			relay_traffic_used_bytes BIGINT NOT NULL DEFAULT 0,
+			relay_traffic_extra_bytes BIGINT NOT NULL DEFAULT 0,
+			relay_traffic_period VARCHAR(7) NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -113,6 +116,15 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	if err := ensureColumn(ctx, db, "users", "membership", "VARCHAR(16) NOT NULL DEFAULT 'free' AFTER role"); err != nil {
 		return fmt.Errorf("migrate users.membership: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "users", "relay_traffic_used_bytes", "BIGINT NOT NULL DEFAULT 0 AFTER disabled"); err != nil {
+		return fmt.Errorf("migrate users.relay_traffic_used_bytes: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "users", "relay_traffic_extra_bytes", "BIGINT NOT NULL DEFAULT 0 AFTER relay_traffic_used_bytes"); err != nil {
+		return fmt.Errorf("migrate users.relay_traffic_extra_bytes: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "users", "relay_traffic_period", "VARCHAR(7) NOT NULL DEFAULT '' AFTER relay_traffic_extra_bytes"); err != nil {
+		return fmt.Errorf("migrate users.relay_traffic_period: %w", err)
 	}
 	return nil
 }

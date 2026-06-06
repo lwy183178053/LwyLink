@@ -7,6 +7,11 @@ export namespace account {
 	    role: string;
 	    membership: string;
 	    disabled: boolean;
+	    relayTrafficUsedBytes: number;
+	    relayTrafficExtraBytes: number;
+	    relayTrafficQuotaBytes: number;
+	    relayTrafficRemainingBytes: number;
+	    relayTrafficPeriod: string;
 	    // Go type: time
 	    createdAt: any;
 	
@@ -22,6 +27,11 @@ export namespace account {
 	        this.role = source["role"];
 	        this.membership = source["membership"];
 	        this.disabled = source["disabled"];
+	        this.relayTrafficUsedBytes = source["relayTrafficUsedBytes"];
+	        this.relayTrafficExtraBytes = source["relayTrafficExtraBytes"];
+	        this.relayTrafficQuotaBytes = source["relayTrafficQuotaBytes"];
+	        this.relayTrafficRemainingBytes = source["relayTrafficRemainingBytes"];
+	        this.relayTrafficPeriod = source["relayTrafficPeriod"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	    }
 	

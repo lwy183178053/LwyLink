@@ -13,12 +13,13 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("account not found")
-	ErrUnauthorized = errors.New("invalid username or password")
-	ErrDisabled     = errors.New("account is disabled")
-	ErrSessionStore = errors.New("account session store unavailable")
-	ErrSessionStale = errors.New("account has logged in elsewhere")
-	ErrUsernameUsed = errors.New("用户名已存在")
+	ErrNotFound             = errors.New("account not found")
+	ErrUnauthorized         = errors.New("invalid username or password")
+	ErrDisabled             = errors.New("account is disabled")
+	ErrSessionStore         = errors.New("account session store unavailable")
+	ErrSessionStale         = errors.New("account has logged in elsewhere")
+	ErrUsernameUsed         = errors.New("用户名已存在")
+	ErrRelayTrafficExceeded = errors.New("中继流量额度已用尽")
 )
 
 const (
@@ -166,6 +167,14 @@ func (s *Service) SetDisabled(ctx context.Context, userID int64, disabled bool) 
 
 func (s *Service) SetMembership(ctx context.Context, userID int64, membership string) error {
 	return s.repo.SetMembership(ctx, userID, membership)
+}
+
+func (s *Service) AddRelayTraffic(ctx context.Context, userID, bytes int64) error {
+	return s.repo.AddRelayTraffic(ctx, userID, bytes)
+}
+
+func (s *Service) ConsumeRelayTraffic(ctx context.Context, userID, bytes int64) error {
+	return s.repo.ConsumeRelayTraffic(ctx, userID, bytes)
 }
 
 func (s *Service) Delete(ctx context.Context, userID int64) error {

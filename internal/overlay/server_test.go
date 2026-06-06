@@ -140,6 +140,65 @@ func TestSetSessionUDPAddrPeriodicallyReannouncesUnchangedEndpoint(t *testing.T)
 	}
 }
 
+func TestHandleUDPPacketRejectsReplay(t *testing.T) {
+	srv, sess, _, _ := newForwardTestServer()
+	sess.userID = 10
+	sess.udpToken = "token"
+	sess.udpKey = []byte("0123456789abcdef0123456789abcdef")
+	srv.byUDP[sess.udpToken] = sess
+	payload := UDPRegisterPayload{
+		RoomID:    sess.roomID,
+		UserID:    sess.userID,
+		VirtualIP: sess.lease.IP,
+	}
+	raw, err := EncodeUDPJSON(UDPTypeRegister, sess.udpToken, sess.udpKey, 1, payload)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	firstRemote := testUDPAddr(t, "203.0.113.10:50001")
+	replayRemote := testUDPAddr(t, "203.0.113.10:50002")
+
+	srv.handleUDPPacket(firstRemote, raw)
+	if sess.udpAddr == nil || sess.udpAddr.String() != firstRemote.String() {
+		t.Fatalf("first registration endpoint=%v, want %s", sess.udpAddr, firstRemote)
+	}
+	srv.handleUDPPacket(replayRemote, raw)
+	if sess.udpAddr == nil || sess.udpAddr.String() != firstRemote.String() {
+		t.Fatalf("replay changed endpoint to %v", sess.udpAddr)
+	}
+}
+
+func TestSessionRelayTrafficReserveUsesLocalRemaining(t *testing.T) {
+	sess := testSession(1, "172.16.1.10")
+	sess.relayRemainingBytes = relayTrafficFlushBytes + 10
+
+	pending, ok := sess.reserveRelayTraffic(10)
+	if !ok || pending != 0 {
+		t.Fatalf("first reserve pending=%d ok=%v, want 0 true", pending, ok)
+	}
+	if sess.relayRemainingBytes != relayTrafficFlushBytes {
+		t.Fatalf("remaining=%d, want %d", sess.relayRemainingBytes, relayTrafficFlushBytes)
+	}
+
+	pending, ok = sess.reserveRelayTraffic(relayTrafficFlushBytes)
+	if !ok || pending != relayTrafficFlushBytes+10 {
+		t.Fatalf("threshold reserve pending=%d ok=%v, want %d true", pending, ok, relayTrafficFlushBytes+10)
+	}
+	if _, ok := sess.reserveRelayTraffic(1); ok {
+		t.Fatalf("reserve succeeded after local quota was exhausted")
+	}
+}
+
+func TestSessionCloseAllowsNilConn(t *testing.T) {
+	sess := testSession(1, "172.16.1.10")
+	sess.close()
+	select {
+	case <-sess.done:
+	default:
+		t.Fatalf("session was not closed")
+	}
+}
+
 func newForwardTestServer() (*Server, *session, *session, *session) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
 	from := testSession(1, "172.16.1.10")
