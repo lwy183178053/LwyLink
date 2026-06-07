@@ -46,7 +46,8 @@ Room Node
 | --- | --- |
 | `cmd/lwylink-control` | 控制中心入口 |
 | `cmd/lwylink-node` | 房间节点入口 |
-| `cmd/lwylink-client` | Windows 控制台客户端 |
+| `cmd/lwylink-client` | 本地调试用控制台客户端 |
+| `cmd/lwylink-net` | 独立虚拟组网引擎 |
 | `cmd/lwylink-windows-ui` | Wails 图形客户端 |
 | `cmd/lwylink-smoke` | 远端功能 smoke 工具 |
 | `configs/` | 本地和生产配置示例 |
@@ -163,8 +164,7 @@ go vet -p 1 ./...
 | Linux 控制中心 | `deploy/dist/lwylink-control` |
 | Linux 房间节点 | `deploy/dist/lwylink-node` |
 | Linux smoke 工具 | `deploy/dist/lwylink-smoke` |
-| Windows 控制台工具 | `build/windows-amd64/lwylink-client.exe` |
-| Windows smoke 工具 | `build/windows-amd64/lwylink-smoke.exe` |
+| Windows 虚拟组网引擎 | `build/lwylink-net.exe` |
 | Windows 图形客户端 | `build/windows-amd64/LwyLink.exe` |
 | 产物清单 | `build/artifacts.json` |
 

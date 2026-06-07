@@ -94,12 +94,11 @@ try {
 }
 ```
 
-可选：编译 Windows 控制台工具和 smoke：
+可选：单独编译 Windows 虚拟组网引擎：
 
 ```powershell
-New-Item -ItemType Directory -Force -Path .\build\windows-amd64 | Out-Null
-go build -trimpath -o .\build\windows-amd64\lwylink-client.exe .\cmd\lwylink-client
-go build -trimpath -o .\build\windows-amd64\lwylink-smoke.exe .\cmd\lwylink-smoke
+New-Item -ItemType Directory -Force -Path .\build | Out-Null
+go build -trimpath -o .\build\lwylink-net.exe .\cmd\lwylink-net
 ```
 
 ## 4. 上传并重启主服务器

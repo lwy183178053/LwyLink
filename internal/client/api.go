@@ -33,6 +33,10 @@ func (a *API) Token() string {
 	return a.token
 }
 
+func (a *API) SetToken(token string) {
+	a.token = strings.TrimSpace(token)
+}
+
 func (a *API) Clone() *API {
 	cp := NewAPI(a.baseURL)
 	cp.token = a.token

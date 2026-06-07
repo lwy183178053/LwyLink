@@ -86,7 +86,7 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\test-release.ps1
 1. `go test -p 1 ./...`
 2. 可选 `go vet -p 1 ./...`
 3. 编译 Linux `amd64` 版 `lwylink-control`、`lwylink-node`、`lwylink-smoke` 到 `deploy/dist/`
-4. 编译 Windows `amd64` 版 `lwylink-client.exe`、`lwylink-smoke.exe` 到 `build/windows-amd64/`
+4. 编译 Windows `amd64` 版独立虚拟组网引擎到 `build/lwylink-net.exe`
 5. 构建 Wails 图形客户端，并复制 `LwyLink.exe` 到 `build/windows-amd64/`
 6. 输出 `build/artifacts.json`，包含产物路径、大小和 SHA256
 

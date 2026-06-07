@@ -200,17 +200,11 @@ ss -ltnup | grep -E ':443 ' || true
 
 if (-not $SkipSmoke) {
   Invoke-Step "远端功能 Smoke 测试" {
-    $smokeExe = Join-Path $repoRoot "build\windows-amd64\lwylink-smoke.exe"
     $smokeArgs = @("-api", $ApiURL, "-overlay", $OverlayAddr)
     if ($AdminToken -ne "") {
       $smokeArgs += @("-admin-token", $AdminToken)
     }
-
-    if (Test-Path $smokeExe) {
-      & $smokeExe @smokeArgs
-    } else {
-      go run .\cmd\lwylink-smoke @smokeArgs
-    }
+    go run .\cmd\lwylink-smoke @smokeArgs
   }
 }
 

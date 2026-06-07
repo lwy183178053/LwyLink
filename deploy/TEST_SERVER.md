@@ -78,7 +78,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 
 1. 同步版本号到 Go、Wails、前端包文件、客户端默认状态和管理端占位文本。
 2. 运行 `go test -p 1 ./...` 和 `go vet -p 1 ./...`。
-3. 构建 Linux 服务端、Windows 控制台工具、smoke 工具和 Wails UI。
+3. 构建 Linux 服务端、Linux smoke 工具、Windows 虚拟组网引擎和 Wails UI。
 4. 上传服务端二进制到 `/opt/lwylink/deploy/dist`。
 5. 安装到 `/opt/lwylink`。
 6. 重启 `lwylink-control` 和 `lwylink-node`。

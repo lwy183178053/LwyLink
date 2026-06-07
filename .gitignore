@@ -3,6 +3,7 @@
 /build/
 dist/
 *.exe
+*.class
 *.log
 configs/server.local.json
 configs/server.prod.json
@@ -11,6 +12,7 @@ configs/*.prod.json
 deploy/dist/
 deploy/.env
 node_modules/
+__pycache__/
 cmd/lwylink-windows-ui/frontend/dist/
 !cmd/lwylink-windows-ui/build/
 cmd/lwylink-windows-ui/build/*

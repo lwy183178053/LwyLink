@@ -16,7 +16,9 @@ if ($DistDir -eq "") {
   $DistDir = Join-Path $repoRoot $DistDir
 }
 
-$windowsDistDir = Join-Path $repoRoot "build\windows-amd64"
+$buildRoot = Join-Path $repoRoot "build"
+$windowsDistDir = Join-Path $buildRoot "windows-amd64"
+$netExe = Join-Path $buildRoot "lwylink-net.exe"
 
 function Invoke-Step {
   param(
@@ -99,9 +101,27 @@ function Add-Artifact {
   }) | Out-Null
 }
 
+function Remove-GeneratedBuildArtifacts {
+  foreach ($path in @(
+    (Join-Path $buildRoot "*.exe"),
+    (Join-Path $buildRoot "wintun.dll"),
+    (Join-Path $buildRoot "artifacts.json"),
+    (Join-Path $windowsDistDir "*.exe")
+  )) {
+    Remove-Item -Path $path -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Remove-EmptyWindowsBuildDir {
+  if ((Test-Path $windowsDistDir) -and -not (Get-ChildItem -Path $windowsDistDir -Force -ErrorAction SilentlyContinue)) {
+    Remove-Item -Path $windowsDistDir -Force -ErrorAction SilentlyContinue
+  }
+}
+
 Set-Location $repoRoot
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
-New-Item -ItemType Directory -Force -Path $windowsDistDir | Out-Null
+New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
+Remove-GeneratedBuildArtifacts
 
 if ($AppVersion -ne "") {
   Write-Host "提示：-AppVersion 只通过 ldflags 注入 main.AppVersion，不会修改 wails.json 或 package.json。" -ForegroundColor Yellow
@@ -123,8 +143,7 @@ Invoke-GoBuildFor "构建 Linux 控制中心" "linux" "amd64" "0" (Join-Path $Di
 Invoke-GoBuildFor "构建 Linux 房间节点" "linux" "amd64" "0" (Join-Path $DistDir "lwylink-node") ".\cmd\lwylink-node"
 Invoke-GoBuildFor "构建 Linux smoke 工具" "linux" "amd64" "0" (Join-Path $DistDir "lwylink-smoke") ".\cmd\lwylink-smoke"
 
-Invoke-GoBuildFor "构建 Windows 控制台客户端" "windows" "amd64" "0" (Join-Path $windowsDistDir "lwylink-client.exe") ".\cmd\lwylink-client"
-Invoke-GoBuildFor "构建 Windows smoke 工具" "windows" "amd64" "0" (Join-Path $windowsDistDir "lwylink-smoke.exe") ".\cmd\lwylink-smoke"
+Invoke-GoBuildFor "构建 Windows 虚拟组网引擎" "windows" "amd64" "0" $netExe ".\cmd\lwylink-net"
 
 if (-not $SkipWindowsUI) {
   $wails = Find-Wails
@@ -143,6 +162,7 @@ if (-not $SkipWindowsUI) {
 
   $wailsExe = Join-Path $repoRoot "cmd\lwylink-windows-ui\build\bin\LwyLink.exe"
   if (Test-Path $wailsExe) {
+    New-Item -ItemType Directory -Force -Path $windowsDistDir | Out-Null
     Copy-Item $wailsExe (Join-Path $windowsDistDir "LwyLink.exe") -Force
   }
 }
@@ -151,11 +171,11 @@ $artifacts = [System.Collections.Generic.List[object]]::new()
 Add-Artifact $artifacts "linux-amd64/lwylink-control" (Join-Path $DistDir "lwylink-control")
 Add-Artifact $artifacts "linux-amd64/lwylink-node" (Join-Path $DistDir "lwylink-node")
 Add-Artifact $artifacts "linux-amd64/lwylink-smoke" (Join-Path $DistDir "lwylink-smoke")
-Add-Artifact $artifacts "windows-amd64/lwylink-client.exe" (Join-Path $windowsDistDir "lwylink-client.exe")
-Add-Artifact $artifacts "windows-amd64/lwylink-smoke.exe" (Join-Path $windowsDistDir "lwylink-smoke.exe")
+Add-Artifact $artifacts "windows-amd64/lwylink-net.exe" $netExe
 if (-not $SkipWindowsUI) {
   Add-Artifact $artifacts "windows-amd64/LwyLink.exe" (Join-Path $windowsDistDir "LwyLink.exe")
 }
+Remove-EmptyWindowsBuildDir
 
 $manifestPath = Join-Path $repoRoot "build\artifacts.json"
 $artifacts | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $manifestPath
