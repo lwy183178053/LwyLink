@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--room-public-key", default=os.getenv("LWYLINK_ROOM_PUBLIC_KEY", ""))
     connect.add_argument("--network-cidr", default=os.getenv("LWYLINK_NETWORK_CIDR", ""))
     connect.add_argument("--overlay-addr", default=os.getenv("LWYLINK_OVERLAY_ADDR", ""))
+    connect.add_argument("--udp-overlay-addr", default=os.getenv("LWYLINK_UDP_OVERLAY_ADDR", ""))
     connect.add_argument("--server-public-key", default=os.getenv("LWYLINK_SERVER_PUBLIC_KEY", ""))
 
     cleanup = subparsers.add_parser("cleanup", help="Cleanup routes and firewall state")
@@ -147,6 +148,7 @@ def run_connect(args: argparse.Namespace) -> int:
             room_public_key=args.room_public_key,
             network_cidr=args.network_cidr,
             overlay_addr=args.overlay_addr,
+            udp_overlay_addr=args.udp_overlay_addr,
             server_public_key=args.server_public_key,
         ),
         handle_event,

@@ -59,6 +59,7 @@ document.addEventListener("click", (event) => {
   setValue("node-id", button.dataset.id);
   setValue("node-name", button.dataset.name);
   setValue("node-overlay", button.dataset.overlay);
+  setValue("node-udp", button.dataset.udp);
   setValue("node-health", button.dataset.health);
   setValue("node-max", button.dataset.max || "100");
   setValue("node-key", button.dataset.key);

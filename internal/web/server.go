@@ -902,6 +902,7 @@ func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
 		ID:                id,
 		Name:              r.FormValue("name"),
 		PublicOverlayAddr: r.FormValue("publicOverlayAddr"),
+		PublicUDPAddr:     r.FormValue("publicUDPAddr"),
 		HealthAddr:        r.FormValue("healthAddr"),
 		OverlayPublicKey:  r.FormValue("overlayPublicKey"),
 		MaxRooms:          maxRooms,

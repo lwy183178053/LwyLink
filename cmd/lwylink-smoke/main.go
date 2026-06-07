@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -125,6 +128,7 @@ func run() (code int) {
 	waitForMemberPresence(ctx, ownerAPI, roomInfo.ID, player.User.ID, true, playerOverlay.lease.IP)
 
 	verifyDiscoveryFanout(ctx, playerOverlay, ownerOverlay)
+	verifyUDPRendezvous(ctx, *overlayAddr, roomInfo.ID, owner.User.ID, player.User.ID, ownerOverlay, playerOverlay)
 
 	playerOverlay.close()
 	waitForMemberPresence(ctx, ownerAPI, roomInfo.ID, player.User.ID, false, "")
@@ -347,11 +351,14 @@ func verifyDiscoveryFanout(ctx context.Context, from, to *overlaySmokeClient) {
 	}
 	for _, tt := range tests {
 		pkt := ipv4Packet(from.lease.IP, tt.dst)
-		if err := from.client.Write(overlay.PackFrame(overlay.FrameIP, pkt)); err != nil {
+		if err := from.client.Write(overlay.PackFrame(overlay.FrameIP, overlay.PackIPPayload(uint64(time.Now().UnixNano()), pkt))); err != nil {
 			failf("send discovery %s: %v", tt.name, err)
 		}
 		select {
-		case <-to.ipFrames:
+		case payload := <-to.ipFrames:
+			if _, got, err := overlay.UnpackIPPayload(payload); err != nil || len(got) == 0 {
+				failf("overlay discovery %s returned bad payload: %v", tt.name, err)
+			}
 			log.Printf("overlay discovery %s forwarded within room dst=%s", tt.name, tt.dst)
 		case <-time.After(3 * time.Second):
 			failf("overlay discovery %s was not forwarded dst=%s", tt.name, tt.dst)
@@ -359,6 +366,234 @@ func verifyDiscoveryFanout(ctx context.Context, from, to *overlaySmokeClient) {
 			failf("overlay discovery %s: %v", tt.name, ctx.Err())
 		}
 	}
+}
+
+func verifyUDPRendezvous(ctx context.Context, overlayAddr string, roomID, ownerID, playerID int64, owner, player *overlaySmokeClient) {
+	ownerConfig := waitUDPConfig(ctx, owner)
+	playerConfig := waitUDPConfig(ctx, player)
+	ownerConn := listenSmokeUDP()
+	defer ownerConn.Close()
+	playerConn := listenSmokeUDP()
+	defer playerConn.Close()
+	serverAddr, err := net.ResolveUDPAddr("udp", overlayAddr)
+	must("resolve udp overlay", err)
+
+	sendUDPRegister(ownerConn, serverAddr, ownerConfig, roomID, ownerID, owner.lease.IP, smokeLANEndpoints(ownerConn))
+	sendUDPRegister(playerConn, serverAddr, playerConfig, roomID, playerID, player.lease.IP, smokeLANEndpoints(playerConn))
+
+	ownerPeer := waitUDPPeer(ctx, owner, player.lease.IP)
+	playerPeer := waitUDPPeer(ctx, player, owner.lease.IP)
+	log.Printf("udp rendezvous candidates ok ownerPeerLAN=%d playerPeerLAN=%d", len(ownerPeer.LANEndpoints), len(playerPeer.LANEndpoints))
+
+	publicOK := tryUDPDirectPair(ctx, "public", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, []string{ownerPeer.Endpoint}, []string{playerPeer.Endpoint})
+	lanOK := false
+	if len(ownerPeer.LANEndpoints) > 0 && len(playerPeer.LANEndpoints) > 0 {
+		lanOK = tryUDPDirectPair(ctx, "lan", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, ownerPeer.LANEndpoints, playerPeer.LANEndpoints)
+	}
+	if !publicOK && !lanOK {
+		failf("udp direct probes failed for public and lan candidates")
+	}
+	log.Printf("udp direct probe ok public=%v lan=%v", publicOK, lanOK)
+}
+
+func waitUDPConfig(ctx context.Context, client *overlaySmokeClient) overlay.UDPControl {
+	for {
+		select {
+		case config := <-client.udpConfigCh:
+			if config.Token != "" && config.Key != "" {
+				return config
+			}
+		case <-time.After(5 * time.Second):
+			failf("timed out waiting for udp config")
+		case <-ctx.Done():
+			failf("wait udp config: %v", ctx.Err())
+		}
+	}
+}
+
+func waitUDPPeer(ctx context.Context, client *overlaySmokeClient, virtualIP string) overlay.UDPPeerCandidate {
+	for {
+		select {
+		case peer := <-client.udpPeerCh:
+			if peer.VirtualIP == virtualIP && peer.Endpoint != "" && peer.SessionID != "" && peer.Key != "" {
+				return peer
+			}
+		case <-time.After(6 * time.Second):
+			failf("timed out waiting for udp peer candidate ip=%s", virtualIP)
+		case <-ctx.Done():
+			failf("wait udp peer candidate: %v", ctx.Err())
+		}
+	}
+}
+
+func listenSmokeUDP() *net.UDPConn {
+	conn, err := net.ListenUDP("udp", nil)
+	must("listen smoke udp", err)
+	return conn
+}
+
+func sendUDPRegister(conn *net.UDPConn, server *net.UDPAddr, config overlay.UDPControl, roomID, userID int64, virtualIP string, lanEndpoints []string) {
+	key, err := overlay.DecodeUDPKey(config.Key)
+	must("decode udp config key", err)
+	payload := overlay.UDPRegisterPayload{
+		RoomID:       roomID,
+		UserID:       userID,
+		VirtualIP:    virtualIP,
+		LANEndpoints: lanEndpoints,
+	}
+	raw, err := overlay.EncodeUDPJSON(overlay.UDPTypeRegister, config.Token, key, uint64(time.Now().UnixNano()), payload)
+	must("encode udp register", err)
+	if _, err := conn.WriteToUDP(raw, server); err != nil {
+		failf("send udp register: %v", err)
+	}
+}
+
+func smokeLANEndpoints(conn *net.UDPConn) []string {
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.Port <= 0 {
+		return nil
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0)
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, item := range addrs {
+			var ip net.IP
+			switch value := item.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			ip4 := ip.To4()
+			if overlay.IsLANIPv4(ip4) {
+				out = append(out, net.JoinHostPort(ip4.String(), strconv.Itoa(addr.Port)))
+			}
+		}
+	}
+	return overlay.NormalizeUDPLANEndpoints(out)
+}
+
+func tryUDPDirectPair(ctx context.Context, label string, ownerConn, playerConn *net.UDPConn, ownerIP, playerIP string, ownerPeer, playerPeer overlay.UDPPeerCandidate, ownerTargets, playerTargets []string) bool {
+	ownerAddrs := resolveUDPTargets(ownerTargets)
+	playerAddrs := resolveUDPTargets(playerTargets)
+	if len(ownerAddrs) == 0 || len(playerAddrs) == 0 {
+		return false
+	}
+	ownerPairKey, err := overlay.DecodeUDPKey(ownerPeer.Key)
+	must("decode owner udp pair key", err)
+	playerPairKey, err := overlay.DecodeUDPKey(playerPeer.Key)
+	must("decode player udp pair key", err)
+	ownerSend, ownerRecv := smokeUDPDirectionalKeys(ownerPairKey, ownerIP, playerIP)
+	playerSend, playerRecv := smokeUDPDirectionalKeys(playerPairKey, playerIP, ownerIP)
+	ownerPayload := []byte("owner-probe-" + label + "-" + requestID())
+	playerPayload := []byte("player-probe-" + label + "-" + requestID())
+
+	ownerGot := make(chan struct{}, 1)
+	playerGot := make(chan struct{}, 1)
+	attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	go waitUDPProbe(attemptCtx, ownerConn, ownerRecv, playerPayload, ownerGot)
+	go waitUDPProbe(attemptCtx, playerConn, playerRecv, ownerPayload, playerGot)
+
+	ticker := time.NewTicker(120 * time.Millisecond)
+	defer ticker.Stop()
+	ownerReceived := false
+	playerReceived := false
+	for {
+		sendUDPProbe(ownerConn, ownerAddrs, ownerPeer.SessionID, ownerSend, ownerPayload)
+		sendUDPProbe(playerConn, playerAddrs, playerPeer.SessionID, playerSend, playerPayload)
+		select {
+		case <-ownerGot:
+			ownerReceived = true
+			if playerReceived {
+				return true
+			}
+		case <-playerGot:
+			playerReceived = true
+			if ownerReceived {
+				return true
+			}
+		case <-ticker.C:
+		case <-attemptCtx.Done():
+			return false
+		}
+	}
+}
+
+func resolveUDPTargets(values []string) []*net.UDPAddr {
+	out := make([]*net.UDPAddr, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		addr, err := net.ResolveUDPAddr("udp", value)
+		if err != nil || addr == nil {
+			continue
+		}
+		key := addr.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, addr)
+	}
+	return out
+}
+
+func sendUDPProbe(conn *net.UDPConn, targets []*net.UDPAddr, sessionID string, key []byte, payload []byte) {
+	for _, target := range targets {
+		raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeProbe, sessionID, key, uint64(time.Now().UnixNano()), payload)
+		if err == nil {
+			_, _ = conn.WriteToUDP(raw, target)
+		}
+	}
+}
+
+func waitUDPProbe(ctx context.Context, conn *net.UDPConn, key []byte, want []byte, ok chan<- struct{}) {
+	buf := make([]byte, 4096)
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			continue
+		}
+		packet, err := overlay.DecodeUDPPacket(buf[:n], key)
+		if err == nil && packet.Type == overlay.UDPTypeProbe && bytes.Equal(packet.Payload, want) {
+			select {
+			case ok <- struct{}{}:
+			default:
+			}
+			return
+		}
+	}
+}
+
+func smokeUDPDirectionalKeys(pairKey []byte, localIP, peerIP string) (sendKey, recvKey []byte) {
+	return smokeUDPDirectionalKey(pairKey, localIP, peerIP), smokeUDPDirectionalKey(pairKey, peerIP, localIP)
+}
+
+func smokeUDPDirectionalKey(pairKey []byte, fromIP, toIP string) []byte {
+	mac := hmac.New(sha256.New, pairKey)
+	_, _ = mac.Write([]byte("LwyLink UDP directional key v1"))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write([]byte(fromIP))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write([]byte(toIP))
+	return mac.Sum(nil)
 }
 
 func verifyEmptyRoomCleanup(ctx context.Context, cleaner *smokeCleaner, apiURL string) {
@@ -525,11 +760,13 @@ func subnetBroadcast(ip, mask string) string {
 }
 
 type overlaySmokeClient struct {
-	client   *tcpx.Client
-	lease    overlay.DHCPResponse
-	ipFrames chan []byte
-	done     chan error
-	cancel   context.CancelFunc
+	client      *tcpx.Client
+	lease       overlay.DHCPResponse
+	ipFrames    chan []byte
+	udpConfigCh chan overlay.UDPControl
+	udpPeerCh   chan overlay.UDPPeerCandidate
+	done        chan error
+	cancel      context.CancelFunc
 }
 
 func (c *overlaySmokeClient) close() {
@@ -547,6 +784,8 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 	requestID := requestID()
 	dhcpCh := make(chan overlay.DHCPResponse, 1)
 	ipFrames := make(chan []byte, 8)
+	udpConfigCh := make(chan overlay.UDPControl, 2)
+	udpPeerCh := make(chan overlay.UDPPeerCandidate, 8)
 	errCh := make(chan error, 1)
 
 	c, err := tcpx.NewClient(tcpx.ClientConfig{
@@ -608,6 +847,26 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 				case ipFrames <- frame:
 				default:
 				}
+			case overlay.FrameUDPControl:
+				var control overlay.UDPControl
+				if err := json.Unmarshal(payload, &control); err != nil {
+					pushErr(errCh, err)
+					return
+				}
+				switch control.Type {
+				case overlay.UDPControlConfig:
+					select {
+					case udpConfigCh <- control:
+					default:
+					}
+				case overlay.UDPControlPeer:
+					if control.Peer != nil {
+						select {
+						case udpPeerCh <- *control.Peer:
+						default:
+						}
+					}
+				}
 			case overlay.FrameError:
 				var e map[string]string
 				_ = json.Unmarshal(payload, &e)
@@ -629,11 +888,13 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 	select {
 	case lease := <-dhcpCh:
 		return &overlaySmokeClient{
-			client:   c,
-			lease:    lease,
-			ipFrames: ipFrames,
-			done:     errCh,
-			cancel:   cancel,
+			client:      c,
+			lease:       lease,
+			ipFrames:    ipFrames,
+			udpConfigCh: udpConfigCh,
+			udpPeerCh:   udpPeerCh,
+			done:        errCh,
+			cancel:      cancel,
 		}
 	case err := <-errCh:
 		cancel()

@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -100,6 +101,35 @@ func PackJSON(typ FrameType, v any) ([]byte, error) {
 		return nil, err
 	}
 	return PackFrame(typ, b), nil
+}
+
+const (
+	ipPayloadVersion   byte = 1
+	ipPayloadHeaderLen      = 16
+)
+
+var ipPayloadMagic = [4]byte{'L', 'W', 'Y', 'I'}
+
+func PackIPPayload(packetID uint64, pkt []byte) []byte {
+	out := make([]byte, ipPayloadHeaderLen+len(pkt))
+	copy(out[0:4], ipPayloadMagic[:])
+	out[4] = ipPayloadVersion
+	binary.BigEndian.PutUint64(out[8:16], packetID)
+	copy(out[ipPayloadHeaderLen:], pkt)
+	return out
+}
+
+func UnpackIPPayload(payload []byte) (packetID uint64, pkt []byte, err error) {
+	if len(payload) < ipPayloadHeaderLen {
+		return 0, nil, fmt.Errorf("short ip payload")
+	}
+	if string(payload[0:4]) != string(ipPayloadMagic[:]) {
+		return 0, nil, fmt.Errorf("bad ip payload")
+	}
+	if payload[4] != ipPayloadVersion {
+		return 0, nil, fmt.Errorf("bad ip payload version")
+	}
+	return binary.BigEndian.Uint64(payload[8:16]), payload[ipPayloadHeaderLen:], nil
 }
 
 func IPv4SrcDst(pkt []byte) (src, dst string, err error) {

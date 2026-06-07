@@ -94,15 +94,8 @@ export namespace main {
 	    status: string;
 	    message: string;
 	    roomID: number;
-	    roomName: string;
-	    networkCIDR: string;
-	    overlayAddr: string;
 	    ip: string;
-	    gateway: string;
-	    mtu: number;
-	    transportMode: string;
-	    transportMessage: string;
-	    directPeers: number;
+	    directPeerIPs: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionState(source);
@@ -113,15 +106,8 @@ export namespace main {
 	        this.status = source["status"];
 	        this.message = source["message"];
 	        this.roomID = source["roomID"];
-	        this.roomName = source["roomName"];
-	        this.networkCIDR = source["networkCIDR"];
-	        this.overlayAddr = source["overlayAddr"];
 	        this.ip = source["ip"];
-	        this.gateway = source["gateway"];
-	        this.mtu = source["mtu"];
-	        this.transportMode = source["transportMode"];
-	        this.transportMessage = source["transportMessage"];
-	        this.directPeers = source["directPeers"];
+	        this.directPeerIPs = source["directPeerIPs"];
 	    }
 	}
 	export class AppState {
@@ -378,6 +364,7 @@ export namespace room {
 	    status: string;
 	    nodeName?: string;
 	    nodeOverlayAddr?: string;
+	    nodeUDPAddr?: string;
 	    nodePublicKey?: string;
 	    // Go type: time
 	    createdAt: any;
@@ -401,6 +388,7 @@ export namespace room {
 	        this.status = source["status"];
 	        this.nodeName = source["nodeName"];
 	        this.nodeOverlayAddr = source["nodeOverlayAddr"];
+	        this.nodeUDPAddr = source["nodeUDPAddr"];
 	        this.nodePublicKey = source["nodePublicKey"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);

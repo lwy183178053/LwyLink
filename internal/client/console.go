@@ -214,6 +214,7 @@ func connectSelectedRoom(ctx context.Context, reader *bufio.Reader, api *API, se
 	go func() {
 		errCh <- ConnectRoom(connectCtx, ConnectOptions{
 			OverlayAddr:     overlayTarget,
+			UDPOverlayAddr:  selected.NodeUDPAddr,
 			ServerPublicKey: serverPublicKey,
 			IfName:          ifName,
 			Token:           api.Token(),

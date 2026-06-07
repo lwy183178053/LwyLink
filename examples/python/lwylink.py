@@ -124,6 +124,7 @@ class ConnectOptions:
     room_public_key: str = ""
     network_cidr: str = ""
     overlay_addr: str = ""
+    udp_overlay_addr: str = ""
     server_public_key: str = ""
 
 
@@ -192,6 +193,7 @@ def direct_connect_args(options: ConnectOptions) -> list[str]:
         ("--room-public-key", options.room_public_key),
         ("--network-cidr", options.network_cidr),
         ("--overlay-addr", options.overlay_addr),
+        ("--udp-overlay-addr", options.udp_overlay_addr),
         ("--server-public-key", options.server_public_key),
     ]
     out: list[str] = []

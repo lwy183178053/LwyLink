@@ -353,7 +353,7 @@
   </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
-    <label>版本号<input name="version" placeholder="例如 0.1.14" required></label>
+    <label>版本号<input name="version" placeholder="例如 0.1.15" required></label>
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新
@@ -436,6 +436,7 @@
     <label>ID<input name="nodeID" id="node-id" placeholder="留空新增"></label>
     <label>名称<input name="name" id="node-name" required></label>
     <label>公网 Overlay 地址<input name="publicOverlayAddr" id="node-overlay" required></label>
+    <label>UDP 打洞地址<input name="publicUDPAddr" id="node-udp" placeholder="留空同 Overlay 地址"></label>
     <label>健康检查地址<input name="healthAddr" id="node-health"></label>
     <label>最大房间<input name="maxRooms" id="node-max" type="number" min="1" value="100"></label>
     <label>状态
@@ -461,7 +462,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>名称</th><th>状态</th><th>房间</th><th>Overlay</th><th>健康检查</th><th>最后在线</th><th>错误</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
+      <tr><th>ID</th><th>名称</th><th>状态</th><th>房间</th><th>Overlay</th><th>UDP</th><th>健康检查</th><th>最后在线</th><th>错误</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
     </thead>
     <tbody>
       {{range .Nodes}}
@@ -471,6 +472,7 @@
         <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
         <td>{{.CurrentRooms}} / {{.MaxRooms}}</td>
         <td class="mono compact">{{.PublicOverlayAddr}}</td>
+        <td class="mono compact">{{.PublicUDPAddr}}</td>
         <td class="mono compact">{{.HealthAddr}}</td>
         <td>{{timePtrText .LastSeenAt}}</td>
         <td class="compact">{{.LastError}}</td>
@@ -481,6 +483,7 @@
               data-id="{{.ID}}"
               data-name="{{.Name}}"
               data-overlay="{{.PublicOverlayAddr}}"
+              data-udp="{{.PublicUDPAddr}}"
               data-health="{{.HealthAddr}}"
               data-max="{{.MaxRooms}}"
               data-key="{{.OverlayPublicKey}}"
@@ -500,7 +503,7 @@
         </td>{{end}}
       </tr>
       {{else}}
-      <tr><td colspan="{{if .ReadOnlyRows}}8{{else}}9{{end}}" class="empty">暂无节点</td></tr>
+      <tr><td colspan="{{if .ReadOnlyRows}}9{{else}}10{{end}}" class="empty">暂无节点</td></tr>
       {{end}}
     </tbody>
   </table>

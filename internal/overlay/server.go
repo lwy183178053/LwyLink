@@ -234,7 +234,12 @@ func (s *Server) onDisconnect(conn *tcpx.SecureConn, err error) {
 }
 
 func (s *Server) forwardIP(from *session, pkt []byte) {
-	src, dst, err := IPv4SrcDst(pkt)
+	payload := pkt
+	_, inner, err := UnpackIPPayload(pkt)
+	if err != nil {
+		return
+	}
+	src, dst, err := IPv4SrcDst(inner)
 	if err != nil {
 		return
 	}
@@ -245,29 +250,33 @@ func (s *Server) forwardIP(from *session, pkt []byte) {
 		return
 	}
 	if isRoomFanoutDestination(dst, from.lease.IP, from.lease.SubnetMask) {
-		s.fanoutRoom(from, pkt)
+		s.fanoutRoom(from, payload)
 		return
 	}
 	target := s.findByIP(from.roomID, dst)
 	if target == nil || target == from {
 		return
 	}
-	if !s.consumeRelayTraffic(from, int64(len(pkt))) {
+	if !s.consumeRelayTraffic(from, int64(len(inner))) {
 		return
 	}
-	target.enqueue(pkt)
+	target.enqueue(payload)
 }
 
-func (s *Server) fanoutRoom(from *session, pkt []byte) {
+func (s *Server) fanoutRoom(from *session, payload []byte) {
 	targets := s.roomPeers(from)
 	if len(targets) == 0 {
+		return
+	}
+	_, pkt, err := UnpackIPPayload(payload)
+	if err != nil {
 		return
 	}
 	if !s.consumeRelayTraffic(from, int64(len(pkt))*int64(len(targets))) {
 		return
 	}
 	for _, target := range targets {
-		target.enqueue(pkt)
+		target.enqueue(payload)
 	}
 }
 

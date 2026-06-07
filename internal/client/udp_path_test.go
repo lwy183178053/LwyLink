@@ -3,8 +3,10 @@ package client
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,7 +83,7 @@ func TestUDPManagerRejectsReplayedPacket(t *testing.T) {
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")
 	pairKey := testUDPKey(1)
 	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
-	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeIP, "pair-1", path.recvKey, 1, []byte("payload"))
+	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeIP, "pair-1", path.recvKey, 1, overlay.PackIPPayload(1, testIPv4Packet("172.16.1.11", "172.16.1.10")))
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -91,6 +93,162 @@ func TestUDPManagerRejectsReplayedPacket(t *testing.T) {
 
 	if delivered != 1 {
 		t.Fatalf("delivered packets=%d, want 1", delivered)
+	}
+}
+
+func TestUDPManagerAcceptsOnlyExpectedPeerIPPacket(t *testing.T) {
+	m := newTestUDPManager()
+	var delivered [][]byte
+	m.cfg.OnPacket = func(pkt []byte) {
+		delivered = append(delivered, append([]byte(nil), pkt...))
+	}
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	pairKey := testUDPKey(1)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
+
+	valid := overlay.PackIPPayload(1, testIPv4Packet("172.16.1.11", "172.16.1.10"))
+	forgedSource := overlay.PackIPPayload(2, testIPv4Packet("172.16.1.99", "172.16.1.10"))
+	wrongDestination := overlay.PackIPPayload(3, testIPv4Packet("172.16.1.11", "172.16.1.12"))
+	for _, pkt := range [][]byte{valid, forgedSource, wrongDestination} {
+		raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeIP, "pair-1", path.recvKey, m.nextSeqLocked(), pkt)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		m.handlePacket(endpoint, raw)
+	}
+
+	if len(delivered) != 1 {
+		t.Fatalf("delivered packets=%d, want 1", len(delivered))
+	}
+	if !bytes.Equal(delivered[0], valid) {
+		t.Fatalf("delivered packet mismatch")
+	}
+}
+
+func TestUDPManagersProbeAndDeliverDirectIPPacket(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pairKey := testUDPKey(3)
+	pairID := "pair-direct"
+	aDelivered := make(chan []byte, 1)
+	bDelivered := make(chan []byte, 1)
+	statuses := &udpStatusRecorder{}
+
+	a := startTestUDPManager(t, ctx, udpManagerConfig{
+		ServerAddr: "127.0.0.1:9",
+		Token:      "token-a",
+		Key:        testUDPKey(11),
+		RoomID:     1,
+		UserID:     10,
+		VirtualIP:  "172.16.1.10",
+		OnPacket: func(pkt []byte) {
+			aDelivered <- append([]byte(nil), pkt...)
+		},
+		OnStatus: statuses.add,
+	})
+	defer a.Close()
+	b := startTestUDPManager(t, ctx, udpManagerConfig{
+		ServerAddr: "127.0.0.1:9",
+		Token:      "token-b",
+		Key:        testUDPKey(12),
+		RoomID:     1,
+		UserID:     11,
+		VirtualIP:  "172.16.1.11",
+		OnPacket: func(pkt []byte) {
+			bDelivered <- append([]byte(nil), pkt...)
+		},
+		OnStatus: statuses.add,
+	})
+	defer b.Close()
+
+	a.AddPeer(overlay.UDPPeerCandidate{
+		VirtualIP: "172.16.1.11",
+		Endpoint:  udpLoopbackEndpoint(t, b.conn),
+		SessionID: pairID,
+		Key:       overlay.EncodeUDPKey(pairKey),
+	})
+	b.AddPeer(overlay.UDPPeerCandidate{
+		VirtualIP: "172.16.1.10",
+		Endpoint:  udpLoopbackEndpoint(t, a.conn),
+		SessionID: pairID,
+		Key:       overlay.EncodeUDPKey(pairKey),
+	})
+
+	waitUntil(t, time.Second, func() bool {
+		a.mu.Lock()
+		aReady := udpPathDirectReady(a.pathsByIP["172.16.1.11"], time.Now())
+		a.mu.Unlock()
+		b.mu.Lock()
+		bReady := udpPathDirectReady(b.pathsByIP["172.16.1.10"], time.Now())
+		b.mu.Unlock()
+		return aReady && bReady
+	})
+
+	pkt := testIPv4Packet("172.16.1.10", "172.16.1.11")
+	payload := overlay.PackIPPayload(99, pkt)
+	if got := a.SendToPeer("172.16.1.11", payload); got == udpSendRelay {
+		t.Fatalf("direct send returned relay")
+	}
+	select {
+	case got := <-bDelivered:
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("delivered packet mismatch")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for direct packet")
+	}
+	select {
+	case pkt := <-aDelivered:
+		t.Fatalf("sender unexpectedly received packet length=%d", len(pkt))
+	default:
+	}
+	if !statuses.sawMode(TransportModeUDPDirect) {
+		t.Fatalf("did not observe udp-direct status; got %v", statuses.modes())
+	}
+}
+
+func TestUDPPathNeedsMirrorOnlyDuringWarmup(t *testing.T) {
+	now := time.Unix(100, 0)
+	path := &udpPeerPath{
+		active:   true,
+		readyAt:  now,
+		lastSeen: now,
+	}
+
+	if !udpPathNeedsMirror(path, now.Add(time.Second)) {
+		t.Fatalf("path should mirror during warmup")
+	}
+	path.lastSeen = now.Add(udpWarmupDuration)
+	if udpPathNeedsMirror(path, now.Add(udpWarmupDuration+time.Second)) {
+		t.Fatalf("path should stop mirroring after warmup while fresh")
+	}
+	if udpPathNeedsMirror(path, now.Add(udpWarmupDuration*2+time.Second)) {
+		t.Fatalf("path should not resume mirroring after warmup")
+	}
+}
+
+func TestUDPManagerDisablesAfterRepeatedProbeFailures(t *testing.T) {
+	m := newTestUDPManager()
+	var disabled atomic.Bool
+	m.cfg.OnDisabled = func() {
+		disabled.Store(true)
+	}
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", testUDPKey(1))
+	now := time.Unix(100, 0)
+
+	for i := 0; i < udpDisableFailureLimit; i++ {
+		m.recordFailureLocked(now.Add(time.Duration(i) * time.Second))
+	}
+	if !m.disabled {
+		t.Fatalf("manager was not disabled after repeated failures")
+	}
+	waitUntil(t, time.Second, disabled.Load)
+	if path.active || path.probing {
+		t.Fatalf("path remained active/probing after disable")
+	}
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendRelay {
+		t.Fatalf("disabled manager send=%v, want relay", got)
 	}
 }
 
@@ -259,6 +417,71 @@ func newTestUDPManager() *udpManager {
 	}
 }
 
+func startTestUDPManager(t *testing.T, ctx context.Context, cfg udpManagerConfig) *udpManager {
+	t.Helper()
+	m, err := startUDPManager(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = m.Close()
+	})
+	return m
+}
+
+func udpLoopbackEndpoint(t *testing.T, conn *net.UDPConn) string {
+	t.Helper()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.Port <= 0 {
+		t.Fatalf("bad udp local addr: %v", conn.LocalAddr())
+	}
+	return net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", addr.Port))
+}
+
+type udpStatusRecorder struct {
+	mu       sync.Mutex
+	statuses []TransportStatus
+}
+
+func (r *udpStatusRecorder) add(status TransportStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.statuses = append(r.statuses, status)
+}
+
+func (r *udpStatusRecorder) sawMode(mode string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, status := range r.statuses {
+		if status.Mode == mode {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *udpStatusRecorder) modes() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.statuses))
+	for _, status := range r.statuses {
+		out = append(out, status.Mode)
+	}
+	return out
+}
+
+func waitUntil(t *testing.T, timeout time.Duration, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s", timeout)
+}
+
 func testUDPAddr(t *testing.T, value string) *net.UDPAddr {
 	t.Helper()
 	addr, err := net.ResolveUDPAddr("udp", value)
@@ -280,4 +503,21 @@ func udpAddrStrings(addrs []*net.UDPAddr) []string {
 		out = append(out, addr.String())
 	}
 	return out
+}
+
+func testIPv4Packet(src, dst string) []byte {
+	src4 := net.ParseIP(src).To4()
+	dst4 := net.ParseIP(dst).To4()
+	if src4 == nil || dst4 == nil {
+		panic("bad test ip")
+	}
+	pkt := make([]byte, 20)
+	pkt[0] = 0x45
+	pkt[2] = 0
+	pkt[3] = 20
+	pkt[8] = 64
+	pkt[9] = 17
+	copy(pkt[12:16], src4)
+	copy(pkt[16:20], dst4)
+	return pkt
 }

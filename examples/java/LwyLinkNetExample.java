@@ -92,6 +92,7 @@ public final class LwyLinkNetExample {
         options.roomPublicKey = cli.value("room-public-key", LwyLink.env("LWYLINK_ROOM_PUBLIC_KEY", ""));
         options.networkCIDR = cli.value("network-cidr", LwyLink.env("LWYLINK_NETWORK_CIDR", ""));
         options.overlayAddr = cli.value("overlay-addr", LwyLink.env("LWYLINK_OVERLAY_ADDR", ""));
+        options.udpOverlayAddr = cli.value("udp-overlay-addr", LwyLink.env("LWYLINK_UDP_OVERLAY_ADDR", ""));
         options.serverPublicKey = cli.value("server-public-key", LwyLink.env("LWYLINK_SERVER_PUBLIC_KEY", ""));
 
         try (LwyLink.NetEngine engine = new LwyLink.NetEngine(cli.exe)) {

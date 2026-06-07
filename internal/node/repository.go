@@ -19,9 +19,9 @@ func NewRepository(db *sql.DB) *Repository {
 func (r *Repository) Create(ctx context.Context, n Node) (Node, error) {
 	res, err := r.db.ExecContext(ctx,
 		`INSERT INTO server_nodes
-		 (name, public_overlay_addr, health_addr, overlay_public_key, max_rooms, enabled, status, last_error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Name, n.PublicOverlayAddr, n.HealthAddr, n.OverlayPublicKey, n.MaxRooms, n.Enabled, n.Status,
+		 (name, public_overlay_addr, public_udp_addr, health_addr, overlay_public_key, max_rooms, enabled, status, last_error)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Name, n.PublicOverlayAddr, n.PublicUDPAddr, n.HealthAddr, n.OverlayPublicKey, n.MaxRooms, n.Enabled, n.Status,
 		n.LastError,
 	)
 	if err != nil {
@@ -37,10 +37,10 @@ func (r *Repository) Create(ctx context.Context, n Node) (Node, error) {
 func (r *Repository) Update(ctx context.Context, n Node) (Node, error) {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE server_nodes
-		 SET name = ?, public_overlay_addr = ?, health_addr = ?, overlay_public_key = ?,
+		 SET name = ?, public_overlay_addr = ?, public_udp_addr = ?, health_addr = ?, overlay_public_key = ?,
 		     max_rooms = ?, enabled = ?
 		 WHERE id = ?`,
-		n.Name, n.PublicOverlayAddr, n.HealthAddr, n.OverlayPublicKey,
+		n.Name, n.PublicOverlayAddr, n.PublicUDPAddr, n.HealthAddr, n.OverlayPublicKey,
 		n.MaxRooms, n.Enabled, n.ID,
 	)
 	if err != nil {
@@ -112,7 +112,7 @@ func (r *Repository) SetStatus(ctx context.Context, id int64, status, lastError 
 }
 
 func nodeSelect() string {
-	return `SELECT n.id, n.name, n.public_overlay_addr, n.health_addr, n.overlay_public_key,
+	return `SELECT n.id, n.name, n.public_overlay_addr, COALESCE(n.public_udp_addr, ''), n.health_addr, n.overlay_public_key,
 	       n.max_rooms, COUNT(r.id) AS current_rooms, n.enabled, n.status,
 	       n.last_seen_at, n.last_error, n.created_at, n.updated_at
 	       FROM server_nodes n
@@ -128,7 +128,7 @@ func scanNode(scanner nodeScanner) (Node, error) {
 	var lastSeen sql.NullTime
 	var lastError sql.NullString
 	err := scanner.Scan(
-		&n.ID, &n.Name, &n.PublicOverlayAddr, &n.HealthAddr, &n.OverlayPublicKey,
+		&n.ID, &n.Name, &n.PublicOverlayAddr, &n.PublicUDPAddr, &n.HealthAddr, &n.OverlayPublicKey,
 		&n.MaxRooms, &n.CurrentRooms, &n.Enabled, &n.Status,
 		&lastSeen, &lastError, &n.CreatedAt, &n.UpdatedAt,
 	)

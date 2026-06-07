@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -20,20 +21,31 @@ const (
 	TransportModeUDPDirect   = "udp-direct"
 	TransportModeUDPDisabled = "udp-disabled"
 
-	udpRegisterInterval = 2 * time.Second
-	udpProbeInterval    = 500 * time.Millisecond
-	udpProbeWindow      = 6 * time.Second
-	udpProbeRetryMin    = 5 * time.Second
-	udpProbeRetryMax    = 30 * time.Second
-	udpKeepaliveEvery   = time.Second
-	udpDirectFreshFor   = 2 * time.Second
-	udpDirectTimeout    = 4 * time.Second
+	udpRegisterInterval     = 2 * time.Second
+	udpProbeInterval        = 500 * time.Millisecond
+	udpProbeWindow          = 6 * time.Second
+	udpProbeRetryMin        = 5 * time.Second
+	udpProbeRetryMax        = 30 * time.Second
+	udpKeepaliveEvery       = time.Second
+	udpWarmupDuration       = 3 * time.Second
+	udpDirectFreshFor       = 8 * time.Second
+	udpDirectTimeout        = 20 * time.Second
+	udpDisableFailureWindow = 45 * time.Second
+	udpDisableFailureLimit  = 3
+)
+
+type udpSendDecision int
+
+const (
+	udpSendRelay udpSendDecision = iota
+	udpSendMirror
+	udpSendDirect
 )
 
 type TransportStatus struct {
-	Mode        string
-	Message     string
-	DirectPeers int
+	Mode      string
+	Message   string
+	DirectIPs []string
 }
 
 type udpManagerConfig struct {
@@ -45,6 +57,7 @@ type udpManagerConfig struct {
 	VirtualIP  string
 	OnPacket   func([]byte)
 	OnStatus   func(TransportStatus)
+	OnDisabled func()
 }
 
 type udpManager struct {
@@ -62,6 +75,8 @@ type udpManager struct {
 	closeErr   error
 	hasStatus  bool
 	lastStatus TransportStatus
+	disabled   bool
+	failures   []time.Time
 	lifecycle  sync.Mutex
 	closed     bool
 	wg         sync.WaitGroup
@@ -80,6 +95,7 @@ type udpPeerPath struct {
 	active   bool
 	probing  bool
 	lastSeen time.Time
+	readyAt  time.Time
 
 	failedProbes    int
 	nextProbeAt     time.Time
@@ -181,10 +197,14 @@ func (m *udpManager) AddPeer(candidate overlay.UDPPeerCandidate) {
 	}
 }
 
-func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
+func (m *udpManager) SendToPeer(dstIP string, pkt []byte) udpSendDecision {
 	var probe udpProbeTarget
 	var shouldProbe bool
 	m.mu.Lock()
+	if m.disabled {
+		m.mu.Unlock()
+		return udpSendRelay
+	}
 	now := time.Now()
 	path := m.pathsByIP[dstIP]
 	if !udpPathDirectReady(path, now) {
@@ -197,18 +217,22 @@ func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
 		if shouldProbe {
 			m.launchProbe(probe)
 		}
-		return false
+		return udpSendRelay
 	}
 	endpoint := path.endpoint
 	sessionID := path.sessionID
 	key := cloneBytes(path.sendKey)
 	seq := m.nextSeqLocked()
+	decision := udpSendDirect
+	if udpPathNeedsMirror(path, now) {
+		decision = udpSendMirror
+	}
 	m.mu.Unlock()
 	if err := m.sendEncrypted(endpoint, overlay.UDPTypeIP, sessionID, key, seq, pkt); err != nil {
 		m.markInactive(sessionID)
-		return false
+		return udpSendRelay
 	}
-	return true
+	return decision
 }
 
 func (m *udpManager) readLoop() {
@@ -244,6 +268,7 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 		return
 	}
 	key := cloneBytes(path.recvKey)
+	peerVirtualIP := path.virtualIP
 	m.mu.Unlock()
 	packet, err := overlay.DecodeUDPPacket(raw, key)
 	if err != nil {
@@ -253,6 +278,10 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 		return
 	}
 	m.notePeerSeen(sessionID, remote)
+	m.handlePeerPacket(sessionID, peerVirtualIP, packet)
+}
+
+func (m *udpManager) handlePeerPacket(sessionID, peerVirtualIP string, packet overlay.UDPPacket) {
 	switch packet.Type {
 	case overlay.UDPTypeProbe:
 		m.replyControl(sessionID, overlay.UDPTypeProbeAck)
@@ -261,10 +290,25 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 		m.replyControl(sessionID, overlay.UDPTypePong)
 	case overlay.UDPTypePong:
 	case overlay.UDPTypeIP:
+		if !m.acceptPeerIPPacket(peerVirtualIP, packet.Payload) {
+			return
+		}
 		if m.cfg.OnPacket != nil {
 			m.cfg.OnPacket(packet.Payload)
 		}
 	}
+}
+
+func (m *udpManager) acceptPeerIPPacket(peerVirtualIP string, pkt []byte) bool {
+	if peerVirtualIP == "" {
+		return false
+	}
+	_, pkt, err := overlay.UnpackIPPayload(pkt)
+	if err != nil {
+		return false
+	}
+	src, dst, err := overlay.IPv4SrcDst(pkt)
+	return err == nil && src == peerVirtualIP && dst == m.cfg.VirtualIP
 }
 
 func (m *udpManager) registerLoop() {
@@ -329,6 +373,7 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 		path.probing = false
 		path.failedProbes++
 		path.nextProbeAt = time.Now().Add(udpProbeRetryDelay(path.failedProbes))
+		m.recordFailureLocked(time.Now())
 		m.emitStatusLocked()
 	}
 	m.mu.Unlock()
@@ -406,6 +451,9 @@ func (m *udpManager) notePeerSeen(sessionID string, remote *net.UDPAddr) {
 		path.endpoint = &cp
 	}
 	path.lastSeen = time.Now()
+	if !path.active {
+		path.readyAt = path.lastSeen
+	}
 	path.active = true
 	path.probing = false
 	path.failedProbes = 0
@@ -419,6 +467,7 @@ func (m *udpManager) markInactive(sessionID string) {
 	m.mu.Lock()
 	if path := m.pathsByID[sessionID]; path != nil {
 		resetInactiveUDPPath(path)
+		m.recordFailureLocked(time.Now())
 		probe, shouldProbe = m.startProbeTargetLocked(path, time.Now())
 		m.emitStatusLocked()
 	}
@@ -452,6 +501,7 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 		path.probing = false
 		path.failedProbes = 0
 		path.nextProbeAt = time.Time{}
+		path.readyAt = time.Time{}
 	}
 	m.pathsByID[path.sessionID] = path
 
@@ -472,7 +522,7 @@ func (m *udpManager) acceptPeerNonce(sessionID string, nonce [12]byte) bool {
 }
 
 func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (udpProbeTarget, bool) {
-	if path == nil || path.active || path.probing || len(path.candidateEndpoints) == 0 || path.sessionID == "" || len(path.sendKey) != 32 || len(path.recvKey) != 32 {
+	if m.disabled || path == nil || path.active || path.probing || len(path.candidateEndpoints) == 0 || path.sessionID == "" || len(path.sendKey) != 32 || len(path.recvKey) != 32 {
 		return udpProbeTarget{}, false
 	}
 	if !path.nextProbeAt.IsZero() && now.Before(path.nextProbeAt) {
@@ -496,6 +546,13 @@ func udpPathDirectReady(path *udpPeerPath, now time.Time) bool {
 	return now.Sub(path.lastSeen) <= udpDirectFreshFor
 }
 
+func udpPathNeedsMirror(path *udpPeerPath, now time.Time) bool {
+	if path == nil || path.lastSeen.IsZero() {
+		return false
+	}
+	return !path.readyAt.IsZero() && now.Sub(path.readyAt) < udpWarmupDuration
+}
+
 func udpPathExpired(path *udpPeerPath, now time.Time) bool {
 	if path == nil || !path.active || path.lastSeen.IsZero() {
 		return false
@@ -510,6 +567,7 @@ func resetInactiveUDPPath(path *udpPeerPath) {
 	path.active = false
 	path.failedProbes = 0
 	path.nextProbeAt = time.Time{}
+	path.readyAt = time.Time{}
 }
 
 func udpProbeRetryDelay(failures int) time.Duration {
@@ -561,31 +619,85 @@ func (m *udpManager) emitStatusLocked() {
 	if m.cfg.OnStatus == nil {
 		return
 	}
-	active := 0
+	if m.disabled {
+		status := TransportStatus{Mode: TransportModeUDPDisabled, Message: "UDP不稳定，已使用稳定连接"}
+		if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
+			return
+		}
+		m.hasStatus = true
+		m.lastStatus = cloneTransportStatus(status)
+		go m.cfg.OnStatus(status)
+		return
+	}
 	probing := false
+	directIPs := make([]string, 0)
 	now := time.Now()
 	for _, path := range m.pathsByIP {
 		if udpPathDirectReady(path, now) {
-			active++
+			directIPs = append(directIPs, path.virtualIP)
 		}
 		if path.probing {
 			probing = true
 		}
 	}
-	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectPeers: active}
-	if active > 0 {
+	sort.Strings(directIPs)
+	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectIPs: directIPs}
+	if len(directIPs) > 0 {
 		status.Mode = TransportModeUDPDirect
-		status.Message = fmt.Sprintf("智能加速已开启 · %d 条隧道", active)
+		status.Message = fmt.Sprintf("智能加速已开启 · %d 条隧道", len(directIPs))
 	} else if probing {
 		status.Mode = TransportModeUDPProbing
 		status.Message = "正在优化连接"
 	}
-	if m.hasStatus && status == m.lastStatus {
+	if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
 		return
 	}
 	m.hasStatus = true
-	m.lastStatus = status
+	m.lastStatus = cloneTransportStatus(status)
 	go m.cfg.OnStatus(status)
+}
+
+func cloneTransportStatus(status TransportStatus) TransportStatus {
+	status.DirectIPs = append([]string(nil), status.DirectIPs...)
+	return status
+}
+
+func transportStatusEqual(a, b TransportStatus) bool {
+	if a.Mode != b.Mode || a.Message != b.Message || len(a.DirectIPs) != len(b.DirectIPs) {
+		return false
+	}
+	for i := range a.DirectIPs {
+		if a.DirectIPs[i] != b.DirectIPs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *udpManager) recordFailureLocked(now time.Time) {
+	if m.disabled {
+		return
+	}
+	cutoff := now.Add(-udpDisableFailureWindow)
+	kept := m.failures[:0]
+	for _, item := range m.failures {
+		if item.After(cutoff) {
+			kept = append(kept, item)
+		}
+	}
+	m.failures = append(kept, now)
+	if len(m.failures) < udpDisableFailureLimit {
+		return
+	}
+	m.disabled = true
+	m.failures = nil
+	for _, path := range m.pathsByIP {
+		resetInactiveUDPPath(path)
+		path.probing = false
+	}
+	if m.cfg.OnDisabled != nil {
+		go m.cfg.OnDisabled()
+	}
 }
 
 func cloneBytes(src []byte) []byte {

@@ -28,6 +28,7 @@ type Room struct {
 	Status          string    `json:"status"`
 	NodeName        string    `json:"nodeName,omitempty"`
 	NodeOverlayAddr string    `json:"nodeOverlayAddr,omitempty"`
+	NodeUDPAddr     string    `json:"nodeUDPAddr,omitempty"`
 	NodePublicKey   string    `json:"nodePublicKey,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`

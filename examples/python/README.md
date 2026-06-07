@@ -59,6 +59,7 @@ uv run python .\examples\python\lwylink_net_example.py connect `
   --room-public-key "<room-public-key>" `
   --network-cidr "172.16.1.0/24" `
   --overlay-addr "example.com:35768" `
+  --udp-overlay-addr "example.com:35768" `
   --server-public-key "<node-public-key>"
 ```
 

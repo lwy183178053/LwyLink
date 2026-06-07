@@ -63,6 +63,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(80) NOT NULL UNIQUE,
 			public_overlay_addr VARCHAR(255) NOT NULL,
+			public_udp_addr VARCHAR(255) NOT NULL DEFAULT '',
 			health_addr VARCHAR(255) NOT NULL DEFAULT '',
 			overlay_public_key VARCHAR(128) NOT NULL,
 			max_rooms INT NOT NULL DEFAULT 100,
@@ -125,6 +126,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	if err := ensureColumn(ctx, db, "users", "relay_traffic_period", "VARCHAR(7) NOT NULL DEFAULT '' AFTER relay_traffic_extra_bytes"); err != nil {
 		return fmt.Errorf("migrate users.relay_traffic_period: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "server_nodes", "public_udp_addr", "VARCHAR(255) NOT NULL DEFAULT '' AFTER public_overlay_addr"); err != nil {
+		return fmt.Errorf("migrate server_nodes.public_udp_addr: %w", err)
 	}
 	return nil
 }

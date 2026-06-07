@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 type ConnectOptions struct {
 	OverlayAddr      string
+	UDPOverlayAddr   string
 	ServerPublicKey  string
 	IfName           string
 	Token            string
@@ -33,6 +35,9 @@ type connectionRuntime struct {
 	secureReady bool
 	tunnel      *tun.Tunnel
 	udp         *udpManager
+	ipSeq       uint64
+	ipIDPrefix  uint64
+	seenIP      *recentPacketIDs
 }
 
 func (r *connectionRuntime) setSecureReady(ready bool) {
@@ -53,7 +58,15 @@ func (r *connectionRuntime) setTunnel(t *tun.Tunnel) {
 	r.mu.Unlock()
 }
 
-func (r *connectionRuntime) writeTunnel(pkt []byte) {
+func (r *connectionRuntime) writeTunnelPayload(payload []byte) {
+	pkt, ok := r.acceptIPPayload(payload)
+	if !ok {
+		return
+	}
+	r.writeTunnelPacket(pkt)
+}
+
+func (r *connectionRuntime) writeTunnelPacket(pkt []byte) {
 	r.mu.RLock()
 	t := r.tunnel
 	r.mu.RUnlock()
@@ -75,12 +88,45 @@ func (r *connectionRuntime) udpManager() *udpManager {
 }
 
 func (r *connectionRuntime) closeUDP() {
-	if manager := r.udpManager(); manager != nil {
+	r.mu.Lock()
+	manager := r.udp
+	r.udp = nil
+	r.mu.Unlock()
+	if manager != nil {
 		_ = manager.Close()
 	}
 }
 
+func (r *connectionRuntime) nextIPPayload(pkt []byte) []byte {
+	r.mu.Lock()
+	if r.ipIDPrefix == 0 {
+		r.ipIDPrefix = randomUint64()
+		if r.ipIDPrefix == 0 {
+			r.ipIDPrefix = uint64(time.Now().UnixNano())
+		}
+	}
+	r.ipSeq++
+	packetID := r.ipIDPrefix + r.ipSeq
+	r.mu.Unlock()
+	return overlay.PackIPPayload(packetID, pkt)
+}
+
+func (r *connectionRuntime) acceptIPPayload(payload []byte) ([]byte, bool) {
+	packetID, pkt, err := overlay.UnpackIPPayload(payload)
+	if err != nil {
+		return nil, false
+	}
+	r.mu.Lock()
+	if r.seenIP == nil {
+		r.seenIP = newRecentPacketIDs(4096)
+	}
+	ok := r.seenIP.Accept(packetID)
+	r.mu.Unlock()
+	return pkt, ok
+}
+
 func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
+	opts = normalizeConnectOptions(opts)
 	if opts.Token == "" {
 		return fmt.Errorf("not logged in")
 	}
@@ -89,15 +135,6 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	}
 	if opts.Room.ID <= 0 {
 		return fmt.Errorf("bad room")
-	}
-	if opts.IfName == "" {
-		opts.IfName = "LwyLink"
-	}
-	if opts.OverlayAddr == "" {
-		opts.OverlayAddr = opts.Room.NodeOverlayAddr
-	}
-	if opts.ServerPublicKey == "" {
-		opts.ServerPublicKey = opts.Room.NodePublicKey
 	}
 	if opts.OverlayAddr == "" {
 		return fmt.Errorf("overlay address is empty")
@@ -111,12 +148,14 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	}
 	requestID := newRequestID()
 
-	runtimeState := &connectionRuntime{}
+	runtimeState := &connectionRuntime{ipIDPrefix: randomUint64(), seenIP: newRecentPacketIDs(4096)}
 	var (
-		dhcpCh      = make(chan overlay.DHCPResponse, 1)
-		udpConfigCh = make(chan overlay.UDPControl, 4)
-		udpPeerCh   = make(chan overlay.UDPPeerCandidate, 64)
-		errCh       = make(chan error, 1)
+		dhcpCh       = make(chan overlay.DHCPResponse, 1)
+		udpConfigCh  = make(chan overlay.UDPControl, 4)
+		udpPeerCh    = make(chan overlay.UDPPeerCandidate, 64)
+		udpResetCh   = make(chan struct{}, 1)
+		udpDisableCh = make(chan struct{}, 1)
+		errCh        = make(chan error, 1)
 	)
 
 	transport, err := tcpx.NewClient(tcpx.ClientConfig{
@@ -156,6 +195,10 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				log.Printf("overlay disconnected, tcpx will retry: %v", err)
 			}
 			runtimeState.setSecureReady(false)
+			select {
+			case udpResetCh <- struct{}{}:
+			default:
+			}
 		},
 		OnMessage: func(conn *tcpx.SecureConn, raw []byte) {
 			typ, payload, err := overlay.UnpackFrame(raw)
@@ -185,7 +228,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				default:
 				}
 			case overlay.FrameIP:
-				runtimeState.writeTunnel(payload)
+				runtimeState.writeTunnelPayload(payload)
 			case overlay.FrameError:
 				var e map[string]string
 				_ = json.Unmarshal(payload, &e)
@@ -265,7 +308,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go manageUDPTransport(childCtx, opts, lease, runtimeState, udpConfigCh, udpPeerCh)
+	go manageUDPTransport(childCtx, opts, lease, runtimeState, udpConfigCh, udpPeerCh, udpResetCh, udpDisableCh)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -278,7 +321,16 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 		<-childCtx.Done()
 		cancel()
 	}()
-	<-childCtx.Done()
+	select {
+	case <-childCtx.Done():
+	case err := <-errCh:
+		cancel()
+		runtimeState.closeUDP()
+		_ = transport.Close()
+		_ = t.Close()
+		wg.Wait()
+		return err
+	}
 	runtimeState.closeUDP()
 	_ = transport.Close()
 	_ = t.Close()
@@ -286,12 +338,32 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	return nil
 }
 
-func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.DHCPResponse, runtimeState *connectionRuntime, udpConfigCh <-chan overlay.UDPControl, udpPeerCh <-chan overlay.UDPPeerCandidate) {
+func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
+	if opts.IfName == "" {
+		opts.IfName = "LwyLink"
+	}
+	if opts.OverlayAddr == "" {
+		opts.OverlayAddr = opts.Room.NodeOverlayAddr
+	}
+	if opts.UDPOverlayAddr == "" {
+		opts.UDPOverlayAddr = opts.Room.NodeUDPAddr
+	}
+	if opts.UDPOverlayAddr == "" {
+		opts.UDPOverlayAddr = opts.OverlayAddr
+	}
+	if opts.ServerPublicKey == "" {
+		opts.ServerPublicKey = opts.Room.NodePublicKey
+	}
+	return opts
+}
+
+func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.DHCPResponse, runtimeState *connectionRuntime, udpConfigCh <-chan overlay.UDPControl, udpPeerCh <-chan overlay.UDPPeerCandidate, udpResetCh <-chan struct{}, udpDisableCh chan struct{}) {
 	var manager *udpManager
 	var latestConfig *overlay.UDPControl
 	knownPeers := make(map[string]overlay.UDPPeerCandidate)
+	udpDisabledForRun := false
 	p2pEnabled := func() bool {
-		return opts.P2PEnabled != nil && opts.P2PEnabled()
+		return !udpDisabledForRun && opts.P2PEnabled != nil && opts.P2PEnabled()
 	}
 	emitDisabled := func() {
 		if opts.OnTransportState != nil {
@@ -314,16 +386,22 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			return
 		}
 		manager, err = startUDPManager(ctx, udpManagerConfig{
-			ServerAddr: opts.OverlayAddr,
+			ServerAddr: opts.UDPOverlayAddr,
 			Token:      latestConfig.Token,
 			Key:        key,
 			RoomID:     opts.Room.ID,
 			UserID:     opts.UserID,
 			VirtualIP:  lease.IP,
 			OnPacket: func(pkt []byte) {
-				runtimeState.writeTunnel(pkt)
+				runtimeState.writeTunnelPayload(pkt)
 			},
 			OnStatus: opts.OnTransportState,
+			OnDisabled: func() {
+				select {
+				case udpDisableCh <- struct{}{}:
+				default:
+				}
+			},
 		})
 		if err != nil {
 			emitDisabled()
@@ -349,6 +427,16 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 		case config := <-udpConfigCh:
 			latestConfig = &config
 			startManager()
+		case <-udpResetCh:
+			closeManager()
+			latestConfig = nil
+			knownPeers = make(map[string]overlay.UDPPeerCandidate)
+		case <-udpDisableCh:
+			closeManager()
+			latestConfig = nil
+			knownPeers = make(map[string]overlay.UDPPeerCandidate)
+			udpDisabledForRun = true
+			emitDisabled()
 		case <-ticker.C:
 			if p2pEnabled() {
 				startManager()
@@ -374,17 +462,56 @@ func tunToOverlay(ctx context.Context, transport *tcpx.Client, t *tun.Tunnel, ru
 			if !runtimeState.isSecureReady() {
 				continue
 			}
+			payload := runtimeState.nextIPPayload(pkt)
 			_, dst, err := overlay.IPv4SrcDst(pkt)
 			if err == nil {
-				if manager := runtimeState.udpManager(); manager != nil && manager.SendToPeer(dst, pkt) {
-					continue
+				if manager := runtimeState.udpManager(); manager != nil {
+					switch manager.SendToPeer(dst, payload) {
+					case udpSendDirect:
+						continue
+					case udpSendMirror:
+					case udpSendRelay:
+					}
 				}
 			}
-			if err := transport.Write(overlay.PackFrame(overlay.FrameIP, pkt)); err != nil {
+			if err := transport.Write(overlay.PackFrame(overlay.FrameIP, payload)); err != nil {
 				return
 			}
 		}
 	}
+}
+
+type recentPacketIDs struct {
+	limit int
+	seen  map[uint64]struct{}
+	order []uint64
+}
+
+func newRecentPacketIDs(limit int) *recentPacketIDs {
+	if limit <= 0 {
+		limit = 4096
+	}
+	return &recentPacketIDs{
+		limit: limit,
+		seen:  make(map[uint64]struct{}, limit),
+	}
+}
+
+func (r *recentPacketIDs) Accept(id uint64) bool {
+	if r == nil {
+		return true
+	}
+	if _, ok := r.seen[id]; ok {
+		return false
+	}
+	r.seen[id] = struct{}{}
+	r.order = append(r.order, id)
+	for len(r.order) > r.limit {
+		delete(r.seen, r.order[0])
+		copy(r.order, r.order[1:])
+		r.order = r.order[:len(r.order)-1]
+	}
+	return true
 }
 
 func newRequestID() string {
@@ -393,6 +520,14 @@ func newRequestID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func randomUint64() uint64 {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint64(b[:])
 }
 
 func pushErr(ch chan error, err error) {

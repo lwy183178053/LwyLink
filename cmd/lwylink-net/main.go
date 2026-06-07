@@ -36,6 +36,7 @@ type netEvent struct {
 	RoomName         string `json:"roomName,omitempty"`
 	NetworkCIDR      string `json:"networkCIDR,omitempty"`
 	OverlayAddr      string `json:"overlayAddr,omitempty"`
+	UDPOverlayAddr   string `json:"udpOverlayAddr,omitempty"`
 	IP               string `json:"ip,omitempty"`
 	Gateway          string `json:"gateway,omitempty"`
 	MTU              int    `json:"mtu,omitempty"`
@@ -56,6 +57,7 @@ type connectConfig struct {
 	roomPublicKey   string
 	networkCIDR     string
 	overlayAddr     string
+	udpOverlayAddr  string
 	serverPublicKey string
 }
 
@@ -109,16 +111,18 @@ func runConnect(args []string, writer *outputWriter) error {
 		return err
 	}
 	writer.emit(netEvent{
-		Type:        "connecting",
-		Message:     "正在连接虚拟网络",
-		RoomID:      selected.ID,
-		RoomName:    selected.Name,
-		NetworkCIDR: selected.NetworkCIDR,
-		OverlayAddr: selected.NodeOverlayAddr,
+		Type:           "connecting",
+		Message:        "正在连接虚拟网络",
+		RoomID:         selected.ID,
+		RoomName:       selected.Name,
+		NetworkCIDR:    selected.NetworkCIDR,
+		OverlayAddr:    selected.NodeOverlayAddr,
+		UDPOverlayAddr: selected.NodeUDPAddr,
 	})
 
 	err = client.ConnectRoom(ctx, client.ConnectOptions{
 		OverlayAddr:     selected.NodeOverlayAddr,
+		UDPOverlayAddr:  selected.NodeUDPAddr,
 		ServerPublicKey: selected.NodePublicKey,
 		IfName:          cfg.ifName,
 		Token:           cfg.token,
@@ -129,15 +133,16 @@ func runConnect(args []string, writer *outputWriter) error {
 		},
 		OnConnected: func(lease overlay.DHCPResponse) {
 			writer.emit(netEvent{
-				Type:        "connected",
-				Message:     "虚拟网络已连接",
-				RoomID:      selected.ID,
-				RoomName:    selected.Name,
-				NetworkCIDR: selected.NetworkCIDR,
-				OverlayAddr: selected.NodeOverlayAddr,
-				IP:          lease.IP,
-				Gateway:     lease.Gateway,
-				MTU:         lease.MTU,
+				Type:           "connected",
+				Message:        "虚拟网络已连接",
+				RoomID:         selected.ID,
+				RoomName:       selected.Name,
+				NetworkCIDR:    selected.NetworkCIDR,
+				OverlayAddr:    selected.NodeOverlayAddr,
+				UDPOverlayAddr: selected.NodeUDPAddr,
+				IP:             lease.IP,
+				Gateway:        lease.Gateway,
+				MTU:            lease.MTU,
 			})
 		},
 		OnTransportState: func(status client.TransportStatus) {
@@ -145,7 +150,7 @@ func runConnect(args []string, writer *outputWriter) error {
 				Type:             "transport",
 				TransportMode:    status.Mode,
 				TransportMessage: status.Message,
-				DirectPeers:      status.DirectPeers,
+				DirectPeers:      len(status.DirectIPs),
 			})
 		},
 	})
@@ -177,6 +182,7 @@ func parseConnectFlags(args []string) (connectConfig, error) {
 	fs.StringVar(&cfg.roomPublicKey, "room-public-key", envString("LWYLINK_ROOM_PUBLIC_KEY", ""), "direct mode room public key")
 	fs.StringVar(&cfg.networkCIDR, "network-cidr", envString("LWYLINK_NETWORK_CIDR", ""), "direct mode room network CIDR")
 	fs.StringVar(&cfg.overlayAddr, "overlay-addr", envString("LWYLINK_OVERLAY_ADDR", ""), "direct mode overlay address")
+	fs.StringVar(&cfg.udpOverlayAddr, "udp-overlay-addr", envString("LWYLINK_UDP_OVERLAY_ADDR", ""), "direct mode UDP rendezvous address; defaults to overlay address")
 	fs.StringVar(&cfg.serverPublicKey, "server-public-key", envString("LWYLINK_SERVER_PUBLIC_KEY", ""), "direct mode overlay server public key")
 	if err := fs.Parse(args); err != nil {
 		return connectConfig{}, err
@@ -202,6 +208,7 @@ func resolveRoom(ctx context.Context, cfg connectConfig) (int64, room.Room, erro
 			RoomPublicKey:   cfg.roomPublicKey,
 			NetworkCIDR:     cfg.networkCIDR,
 			NodeOverlayAddr: cfg.overlayAddr,
+			NodeUDPAddr:     cfg.udpOverlayAddr,
 			NodePublicKey:   cfg.serverPublicKey,
 		}, nil
 	}
@@ -322,7 +329,7 @@ Connect with API lookup:
 
 Direct connect without HTTP room lookup:
   set LWYLINK_TOKEN=<login-token>
-  lwylink-net.exe connect --user-id 1 --room-id 123 --room-public-key <key> --network-cidr 172.16.1.0/24 --overlay-addr host:35768 --server-public-key <key>
+  lwylink-net.exe connect --user-id 1 --room-id 123 --room-public-key <key> --network-cidr 172.16.1.0/24 --overlay-addr host:35768 --udp-overlay-addr host:35768 --server-public-key <key>
 
 Cleanup routes/firewall:
   lwylink-net.exe cleanup --if LwyLink --cidr 172.16.1.0/24

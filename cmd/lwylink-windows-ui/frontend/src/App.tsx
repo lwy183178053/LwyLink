@@ -66,8 +66,6 @@ import {
   statusTone,
   trafficPeriodLabel,
   trafficUsedPercent,
-  transportText,
-  transportTone,
   updateStatusText,
   updateStatusTone,
   type LoginForm,
@@ -140,9 +138,15 @@ export default function App() {
   const currentMember = members.find((member) => member.userID === state.user?.id);
   const isOwner = !!currentRoom && currentRoom.ownerUserID === state.user?.id;
   const connectionTone = statusTone(state.connection.status);
-  const currentTransportTone = transportTone(state.connection.transportMode);
-  const currentTransportText = transportText(state.connection.transportMode, state.connection.transportMessage, state.connection.directPeers);
   const connectionRunning = isConnectionRunning(state.connection.status);
+  const directPeerIPSet = useMemo(() => new Set(state.connection.directPeerIPs ?? []), [state.connection.directPeerIPs]);
+  const directPeerNames = useMemo(
+    () =>
+      members
+        .filter((member) => member.virtualIP && directPeerIPSet.has(member.virtualIP))
+        .map((member) => userLabel(member.displayName, member.username)),
+    [members, directPeerIPSet],
+  );
   const updateTone = updateStatusTone(state.update.status);
   const showUpdatePrompt =
     state.update.status === "ready" &&
@@ -396,7 +400,6 @@ export default function App() {
             <strong>{statusText(state.connection.status)}</strong>
           </div>
           <span>{state.connection.ip || state.connection.message || "未连接"}</span>
-          {connectionRunning && <span>{currentTransportText}</span>}
           <div className="rail-actions">
             {currentRoom && connectionRunning ? (
               <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
@@ -571,7 +574,6 @@ export default function App() {
           <div className="data-grid">
             <Metric label="连接" value={statusText(state.connection.status)} />
             <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
-            <Metric label="连接质量" value={currentTransportText} />
             <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
             <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
           </div>
@@ -664,14 +666,6 @@ export default function App() {
             <Metric label="中继剩余" value={state.user ? formatBytes(state.user.relayTrafficRemainingBytes) : "-"} />
           </div>
 
-          {connectionRunning && (
-            <div className={`transport-line ${currentTransportTone}`}>
-              <span className={`status-light ${currentTransportTone}`} />
-              <span>连接质量</span>
-              <strong>{currentTransportText}</strong>
-            </div>
-          )}
-
           <div className="room-network-line">
             <Network size={15} />
             <span>{currentRoom.networkCIDR}</span>
@@ -718,6 +712,13 @@ export default function App() {
                 key={member.userID}
                 member={member}
                 isSelf={member.userID === state.user?.id}
+                p2pLabel={
+                  connectionRunning && member.userID === state.user?.id && directPeerNames.length > 0
+                    ? `已与 ${directPeerNames.join("、")} P2P 直连`
+                    : connectionRunning && !!member.virtualIP && directPeerIPSet.has(member.virtualIP)
+                      ? "与我 P2P 直连"
+                      : undefined
+                }
                 canManage={isOwner && member.userID !== state.user?.id}
                 disabled={isBusy}
                 onKick={() => run("移出成员", () => KickMember({ userID: member.userID }))}

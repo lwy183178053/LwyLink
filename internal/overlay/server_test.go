@@ -13,7 +13,7 @@ func TestForwardIPUnicastRoutesOnlyToTarget(t *testing.T) {
 	srv, from, peer, other := newForwardTestServer()
 	pkt := testIPv4Packet("172.16.1.10", "172.16.1.11")
 
-	srv.forwardIP(from, pkt)
+	srv.forwardIP(from, PackIPPayload(1, pkt))
 
 	assertPacket(t, peer, "target peer")
 	assertNoPacket(t, from, "sender")
@@ -35,7 +35,7 @@ func TestForwardIPFansOutDiscoveryPacketsWithinRoom(t *testing.T) {
 			srv, from, peer, other := newForwardTestServer()
 			pkt := testIPv4Packet("172.16.1.10", tt.dst)
 
-			srv.forwardIP(from, pkt)
+			srv.forwardIP(from, PackIPPayload(1, pkt))
 
 			assertPacket(t, peer, "room peer")
 			assertNoPacket(t, from, "sender")
@@ -48,7 +48,7 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 	srv, from, peer, _ := newForwardTestServer()
 	pkt := testIPv4Packet("172.16.1.99", "255.255.255.255")
 
-	srv.forwardIP(from, pkt)
+	srv.forwardIP(from, PackIPPayload(1, pkt))
 
 	assertNoPacket(t, peer, "room peer")
 	assertNoPacket(t, from, "sender")
@@ -255,9 +255,12 @@ func testIPv4Packet(src, dst string) []byte {
 func assertPacket(t *testing.T, sess *session, name string) {
 	t.Helper()
 	select {
-	case pkt := <-sess.send:
-		if len(pkt) == 0 {
-			t.Fatalf("%s received empty packet", name)
+	case payload := <-sess.send:
+		if len(payload) == 0 {
+			t.Fatalf("%s received empty payload", name)
+		}
+		if _, pkt, err := UnpackIPPayload(payload); err != nil || len(pkt) == 0 {
+			t.Fatalf("%s received bad payload: len=%d err=%v", name, len(payload), err)
 		}
 	default:
 		t.Fatalf("%s did not receive packet", name)

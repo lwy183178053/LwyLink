@@ -13,6 +13,7 @@ type Node struct {
 	ID                int64      `json:"id"`
 	Name              string     `json:"name"`
 	PublicOverlayAddr string     `json:"publicOverlayAddr"`
+	PublicUDPAddr     string     `json:"publicUDPAddr,omitempty"`
 	HealthAddr        string     `json:"healthAddr"`
 	OverlayPublicKey  string     `json:"overlayPublicKey"`
 	MaxRooms          int        `json:"maxRooms"`

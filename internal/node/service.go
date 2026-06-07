@@ -86,6 +86,7 @@ func (s *Service) SelectForRoom(ctx context.Context) (Node, error) {
 func normalize(n Node) Node {
 	n.Name = strings.TrimSpace(n.Name)
 	n.PublicOverlayAddr = strings.TrimSpace(n.PublicOverlayAddr)
+	n.PublicUDPAddr = strings.TrimSpace(n.PublicUDPAddr)
 	n.HealthAddr = strings.TrimSpace(n.HealthAddr)
 	n.OverlayPublicKey = strings.TrimSpace(n.OverlayPublicKey)
 	if n.MaxRooms <= 0 {

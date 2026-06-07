@@ -357,7 +357,7 @@ func roomColumns() string {
 	return `SELECT r.id, r.name, r.owner_user_id, COALESCE(r.node_id, 0),
 	       r.room_public_key, r.network_cidr, r.status,
 	       r.max_members, (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = r.id),
-	       COALESCE(n.name, ''), COALESCE(n.public_overlay_addr, ''), COALESCE(n.overlay_public_key, ''),
+	       COALESCE(n.name, ''), COALESCE(n.public_overlay_addr, ''), COALESCE(n.public_udp_addr, ''), COALESCE(n.overlay_public_key, ''),
 	       r.created_at, r.updated_at`
 }
 
@@ -367,7 +367,7 @@ func scanRoom(scanner roomScanner) (Room, error) {
 		&r.ID, &r.Name, &r.OwnerUserID, &r.NodeID,
 		&r.RoomPublicKey, &r.NetworkCIDR, &r.Status,
 		&r.MaxMembers, &r.MemberCount,
-		&r.NodeName, &r.NodeOverlayAddr, &r.NodePublicKey,
+		&r.NodeName, &r.NodeOverlayAddr, &r.NodeUDPAddr, &r.NodePublicKey,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

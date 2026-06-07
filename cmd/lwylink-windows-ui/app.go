@@ -29,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.14"
+var AppVersion = "0.1.15"
 
 type App struct {
 	ctx context.Context
@@ -114,18 +114,11 @@ type AppState struct {
 }
 
 type ConnectionState struct {
-	Status           string `json:"status"`
-	Message          string `json:"message"`
-	RoomID           int64  `json:"roomID"`
-	RoomName         string `json:"roomName"`
-	NetworkCIDR      string `json:"networkCIDR"`
-	OverlayAddr      string `json:"overlayAddr"`
-	IP               string `json:"ip"`
-	Gateway          string `json:"gateway"`
-	MTU              int    `json:"mtu"`
-	TransportMode    string `json:"transportMode"`
-	TransportMessage string `json:"transportMessage"`
-	DirectPeers      int    `json:"directPeers"`
+	Status        string   `json:"status"`
+	Message       string   `json:"message"`
+	RoomID        int64    `json:"roomID"`
+	IP            string   `json:"ip"`
+	DirectPeerIPs []string `json:"directPeerIPs"`
 }
 
 type fetchedRoomState struct {
@@ -149,27 +142,20 @@ func NewApp() *App {
 
 func newConnectionState(status, message string) ConnectionState {
 	return ConnectionState{
-		Status:           status,
-		Message:          message,
-		TransportMode:    client.TransportModeTCPRelay,
-		TransportMessage: "稳定连接",
+		Status:  status,
+		Message: message,
 	}
 }
 
 func newRoomConnectionState(status, message string, selected room.Room) ConnectionState {
 	state := newConnectionState(status, message)
 	state.RoomID = selected.ID
-	state.RoomName = selected.Name
-	state.NetworkCIDR = selected.NetworkCIDR
-	state.OverlayAddr = selected.NodeOverlayAddr
 	return state
 }
 
 func newConnectedState(selected room.Room, lease overlay.DHCPResponse) ConnectionState {
 	state := newRoomConnectionState(statusConnected, "已连接", selected)
 	state.IP = lease.IP
-	state.Gateway = lease.Gateway
-	state.MTU = lease.MTU
 	return state
 }
 
@@ -317,9 +303,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		a.p2pEnabled = *input.P2PEnabled
 		_ = saveClientPreferences(clientPreferences{P2PEnabled: a.p2pEnabled})
 		if !a.p2pEnabled {
-			a.connection.TransportMode = client.TransportModeUDPDisabled
-			a.connection.TransportMessage = "稳定连接"
-			a.connection.DirectPeers = 0
+			a.connection.DirectPeerIPs = nil
 		}
 	}
 	a.startRoomEventsLocked()
@@ -689,6 +673,7 @@ func (a *App) Disconnect() (AppState, error) {
 func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, token string, userID int64, ifName string) {
 	err := client.ConnectRoom(ctx, client.ConnectOptions{
 		OverlayAddr:     selected.NodeOverlayAddr,
+		UDPOverlayAddr:  selected.NodeUDPAddr,
 		ServerPublicKey: selected.NodePublicKey,
 		IfName:          ifName,
 		Token:           token,
@@ -702,9 +687,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		},
 		OnTransportState: func(status client.TransportStatus) {
 			a.updateConnection(seq, func(state *ConnectionState) {
-				state.TransportMode = status.Mode
-				state.TransportMessage = status.Message
-				state.DirectPeers = status.DirectPeers
+				state.DirectPeerIPs = append([]string(nil), status.DirectIPs...)
 			})
 		},
 	})

@@ -39,6 +39,7 @@ export function Rule({ ok, text }: { ok: boolean; text: string }) {
 export function MemberRow({
   member,
   isSelf,
+  p2pLabel,
   canManage,
   disabled,
   onKick,
@@ -46,6 +47,7 @@ export function MemberRow({
 }: {
   member: RoomMember;
   isSelf: boolean;
+  p2pLabel?: string;
   canManage: boolean;
   disabled: boolean;
   onKick: () => void;
@@ -61,6 +63,7 @@ export function MemberRow({
             {isSelf ? " · 我" : ""}
           </strong>
           <span>{member.virtualIP || member.username}</span>
+          {p2pLabel && <small className="member-p2p">{p2pLabel}</small>}
         </div>
       </div>
       <div className="member-role">

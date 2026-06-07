@@ -43,6 +43,7 @@ $env:LWYLINK_TOKEN = "<login-token>"
   --room-public-key "<room-public-key>" `
   --network-cidr "172.16.1.0/24" `
   --overlay-addr "example.com:35768" `
+  --udp-overlay-addr "example.com:35768" `
   --server-public-key "<node-public-key>" `
   --if "LwyLink" `
   --p2p=true
@@ -84,4 +85,5 @@ $env:LWYLINK_TOKEN = "<login-token>"
 | `LWYLINK_ROOM_PUBLIC_KEY` | 直连模式房间密钥 |
 | `LWYLINK_NETWORK_CIDR` | 直连模式房间网段 |
 | `LWYLINK_OVERLAY_ADDR` | 直连模式 Overlay 地址 |
+| `LWYLINK_UDP_OVERLAY_ADDR` | 直连模式 UDP 打洞地址，留空时同 Overlay 地址 |
 | `LWYLINK_SERVER_PUBLIC_KEY` | 直连模式节点公钥 |

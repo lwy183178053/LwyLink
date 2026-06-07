@@ -25,6 +25,7 @@ export type Room = {
   status: string;
   nodeName?: string;
   nodeOverlayAddr?: string;
+  nodeUDPAddr?: string;
   nodePublicKey?: string;
   createdAt: string;
   updatedAt: string;
@@ -55,15 +56,8 @@ export type ConnectionState = {
   status: "disconnected" | "connecting" | "connected" | "disconnecting" | "error" | string;
   message: string;
   roomID: number;
-  roomName: string;
-  networkCIDR: string;
-  overlayAddr: string;
   ip: string;
-  gateway: string;
-  mtu: number;
-  transportMode: string;
-  transportMessage: string;
-  directPeers: number;
+  directPeerIPs?: string[];
 };
 
 export type UpdateState = {
@@ -106,20 +100,13 @@ export const emptyState: AppState = {
     status: "disconnected",
     message: "未连接",
     roomID: 0,
-    roomName: "",
-    networkCIDR: "",
-    overlayAddr: "",
     ip: "",
-    gateway: "",
-    mtu: 0,
-    transportMode: "tcp-relay",
-    transportMessage: "稳定连接",
-    directPeers: 0,
+    directPeerIPs: [],
   },
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.14",
+    currentVersion: "0.1.15",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",
