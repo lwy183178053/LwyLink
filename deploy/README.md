@@ -9,6 +9,7 @@
 | `release.cmd` / `release.ps1` | 一键发布入口：同步版本、构建、部署、发布 Windows 客户端并校验 latest 接口 |
 | `build-all.ps1` | 本机一键全编译 |
 | `upload-deploy.ps1` | 上传已有构建产物、安装 systemd、重启并可选 smoke 验证 |
+| `test-release.ps1` | 发布脚本自测，检查版本同步幂等和后台占位符不被误改 |
 | `docker-compose.prod.yml` | 生产版 MySQL 和 Redis，只绑定 `127.0.0.1` |
 | `lwylink-control.service` | 控制中心 systemd 服务 |
 | `lwylink-node.service` | 房间节点 systemd 服务 |
@@ -19,7 +20,7 @@
 - `configs/control.prod.json`：控制平面配置，包含 HTTP API、管理令牌、数据库、Redis、房间调度和清理参数。
 - `configs/node.prod.json`：房间节点配置，包含 Overlay 监听、节点私钥、数据库、Redis、vDHCP 参数。
 
-这些生产配置包含密钥和密码，不要提交、截图或完整贴到聊天里。
+这些生产配置包含密钥和密码，不要提交、截图或完整贴到聊天里。仓库只保留 `.example.json` 示例配置，真实 `*.prod.json` 只放在本机或服务器。
 
 ## 程序分工
 
@@ -59,11 +60,20 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 .\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipSmoke
 .\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipDeploy
 .\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipClientRelease
+.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipBuild
 .\deploy\release.cmd -Version 0.1.12 -Notes "说明" -UploadConfigs
 .\deploy\release.cmd -Version 0.1.12 -Notes "说明" -Commit
 ```
 
 `release.cmd` 会用 `PowerShell -ExecutionPolicy Bypass` 调用 `release.ps1`，适合本机执行策略较严格时使用。
+
+`-SkipBuild` 会跳过全量构建并复用 `build/artifacts.json` 和 `build/windows-amd64/LwyLink.exe` 等已有产物，适合只重试部署或只重试客户端发布。
+
+发布脚本改动后可以先跑：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\deploy\test-release.ps1
+```
 
 ## 构建产物
 
@@ -208,7 +218,7 @@ systemctl status lwylink-node --no-pager
 
 ## 安全注意
 
-- `configs/control.prod.json`、`configs/node.prod.json`、`deploy/.env` 必须保密。
+- `configs/control.prod.json`、`configs/node.prod.json`、`deploy/.env` 必须保密，并且不应提交到 Git。
 - 控制平面配置里的 `tokenSecret`、`adminToken` 可以留空；控制端第一次启动时会自动生成并写回 JSON 文件。
 - 房间节点配置里的 `overlayPrivateKey` 可以留空；节点第一次打印公钥时会自动生成并写回。
 - 房间节点配置里的 `tokenSecret` 必须和控制平面一致。

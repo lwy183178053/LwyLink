@@ -119,7 +119,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.11",
+    currentVersion: "0.1.13",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

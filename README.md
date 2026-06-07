@@ -179,6 +179,8 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 
 这个入口会同步客户端版本号、构建、上传部署、重启服务、运行 smoke，并发布 Windows 客户端更新包。
 
+只重试部署或只重试客户端发布时，可以给 `release.cmd` 加 `-SkipBuild` 复用已有构建产物。
+
 只上传已有构建产物：
 
 ```powershell

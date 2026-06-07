@@ -20,6 +20,8 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
+const maxAdminReleaseUploadBodyBytes = (512 << 20) + (1 << 20)
+
 type Server struct {
 	addr       string
 	adminToken string
@@ -752,10 +754,18 @@ func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 }
 
 func (s *Server) handleAdminReleaseUpload(w http.ResponseWriter, r *http.Request) {
+	s.handleAdminReleaseUploadLimited(w, r, maxAdminReleaseUploadBodyBytes)
+}
+
+func (s *Server) handleAdminReleaseUploadLimited(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) {
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = maxAdminReleaseUploadBodyBytes
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if !s.requireAdminPost(w, r) || !s.requireReleases(w, http.StatusBadRequest) {
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
+	if err := r.ParseMultipartForm(maxBodyBytes); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

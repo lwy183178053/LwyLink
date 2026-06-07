@@ -8,7 +8,45 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const button = event.target instanceof Element ? event.target.closest("[data-fill-node]") : null;
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+
+  const closeButton = target.closest("[data-close-dialog]");
+  if (closeButton) {
+    const dialog = closeButton.closest("dialog");
+    if (dialog instanceof HTMLDialogElement) {
+      dialog.close();
+    }
+    return;
+  }
+
+  const trafficButton = target.closest("[data-open-traffic]");
+  if (trafficButton instanceof HTMLElement) {
+    const dialog = document.getElementById("traffic-dialog");
+    const userID = document.getElementById("traffic-user-id");
+    const userLabel = document.getElementById("traffic-user-label");
+    const userSummary = document.getElementById("traffic-user-summary");
+    const amount = document.getElementById("traffic-amount");
+    if (dialog instanceof HTMLDialogElement && userID instanceof HTMLInputElement) {
+      userID.value = trafficButton.dataset.userId || "";
+      const displayName = trafficButton.dataset.displayName || "";
+      const username = trafficButton.dataset.username || "";
+      if (userLabel) {
+        userLabel.textContent = displayName ? `${displayName} · @${username}` : `@${username}`;
+      }
+      if (userSummary) {
+        userSummary.textContent = `已用 ${trafficButton.dataset.used || "-"} / ${trafficButton.dataset.quota || "-"}，剩余 ${trafficButton.dataset.remaining || "-"}，额外余额 ${trafficButton.dataset.extra || "-"}，周期 ${trafficButton.dataset.period || "-"}`;
+      }
+      if (amount instanceof HTMLInputElement) {
+        amount.value = "";
+      }
+      dialog.showModal();
+      window.setTimeout(() => amount instanceof HTMLInputElement && amount.focus(), 0);
+    }
+    return;
+  }
+
+  const button = target.closest("[data-fill-node]");
   if (!(button instanceof HTMLElement)) return;
 
   const setValue = (id, value) => {
@@ -27,4 +65,18 @@ document.addEventListener("click", (event) => {
   setValue("node-enabled", button.dataset.enabled === "true" ? "true" : "false");
 
   document.getElementById("node-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+document.addEventListener("click", (event) => {
+  const dialog = event.target;
+  if (!(dialog instanceof HTMLDialogElement) || !dialog.classList.contains("traffic-dialog")) return;
+  const rect = dialog.getBoundingClientRect();
+  const inside =
+    event.clientX >= rect.left &&
+    event.clientX <= rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom;
+  if (!inside) {
+    dialog.close();
+  }
 });

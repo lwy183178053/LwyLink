@@ -17,7 +17,6 @@ import {
   RefreshCw,
   Send,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Square,
   Trash2,
@@ -52,7 +51,6 @@ import {
   defaultRoomName,
   errorText,
   formatBytes,
-  formatDate,
   freeRoomMemberLimit,
   isConnectionRunning,
   membershipLabel,
@@ -546,10 +544,10 @@ export default function App() {
 
     return (
       <section className="account-grid">
-        <div className="surface account-hero">
+        <div className="surface account-session">
           <Avatar user={state.user} size="hero" />
           <div className="account-main">
-            <span>@{state.user.username}</span>
+            <span>当前会话</span>
             <h2>{userLabel(state.user.displayName, state.user.username)}</h2>
             <div className="account-tags">
               <span className={`member-chip ${membershipTone(state.user.membership)}`}>
@@ -567,24 +565,6 @@ export default function App() {
 
         <div className="surface data-panel">
           <div className="surface-head">
-            <h2>账号信息</h2>
-            <ShieldCheck size={18} />
-          </div>
-          <div className="data-grid">
-            <Metric label="用户 ID" value={String(state.user.id)} />
-            <Metric label="权限" value={state.user.role} />
-            <Metric label="中继已用" value={formatBytes(state.user.relayTrafficUsedBytes)} />
-            <Metric label="中继剩余" value={formatBytes(state.user.relayTrafficRemainingBytes)} />
-            <Metric label="中继总额" value={formatBytes(state.user.relayTrafficQuotaBytes)} />
-            <Metric label="加购流量" value={formatBytes(state.user.relayTrafficExtraBytes)} />
-            <Metric label="计费周期" value={trafficPeriodLabel(state.user.relayTrafficPeriod)} wide />
-            <Metric label="创建时间" value={formatDate(state.user.createdAt)} wide />
-            <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
-          </div>
-        </div>
-
-        <div className="surface data-panel">
-          <div className="surface-head">
             <h2>网络状态</h2>
             <Network size={18} />
           </div>
@@ -593,6 +573,7 @@ export default function App() {
             <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
             <Metric label="连接质量" value={currentTransportText} />
             <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
+            <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
           </div>
         </div>
       </section>

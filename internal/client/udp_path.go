@@ -189,9 +189,7 @@ func (m *udpManager) SendToPeer(dstIP string, pkt []byte) bool {
 	path := m.pathsByIP[dstIP]
 	if !udpPathDirectReady(path, now) {
 		if udpPathExpired(path, now) {
-			path.active = false
-			path.failedProbes = 0
-			path.nextProbeAt = time.Time{}
+			resetInactiveUDPPath(path)
 			probe, shouldProbe = m.startProbeTargetLocked(path, now)
 			m.emitStatusLocked()
 		}
@@ -351,9 +349,7 @@ func (m *udpManager) keepaliveLoop() {
 		probes := make([]udpProbeTarget, 0)
 		for _, path := range m.pathsByIP {
 			if udpPathExpired(path, now) {
-				path.active = false
-				path.failedProbes = 0
-				path.nextProbeAt = time.Time{}
+				resetInactiveUDPPath(path)
 				if probe, ok := m.startProbeTargetLocked(path, now); ok {
 					probes = append(probes, probe)
 				}
@@ -422,9 +418,7 @@ func (m *udpManager) markInactive(sessionID string) {
 	var shouldProbe bool
 	m.mu.Lock()
 	if path := m.pathsByID[sessionID]; path != nil {
-		path.active = false
-		path.failedProbes = 0
-		path.nextProbeAt = time.Time{}
+		resetInactiveUDPPath(path)
 		probe, shouldProbe = m.startProbeTargetLocked(path, time.Now())
 		m.emitStatusLocked()
 	}
@@ -509,6 +503,15 @@ func udpPathExpired(path *udpPeerPath, now time.Time) bool {
 	return now.Sub(path.lastSeen) > udpDirectTimeout
 }
 
+func resetInactiveUDPPath(path *udpPeerPath) {
+	if path == nil {
+		return
+	}
+	path.active = false
+	path.failedProbes = 0
+	path.nextProbeAt = time.Time{}
+}
+
 func udpProbeRetryDelay(failures int) time.Duration {
 	if failures <= 1 {
 		return udpProbeRetryMin
@@ -572,7 +575,7 @@ func (m *udpManager) emitStatusLocked() {
 	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectPeers: active}
 	if active > 0 {
 		status.Mode = TransportModeUDPDirect
-		status.Message = fmt.Sprintf("智能加速已开启 · %d 人", active)
+		status.Message = fmt.Sprintf("智能加速已开启 · %d 条隧道", active)
 	} else if probing {
 		status.Mode = TransportModeUDPProbing
 		status.Message = "正在优化连接"

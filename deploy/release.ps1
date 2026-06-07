@@ -14,6 +14,7 @@ param(
   [switch]$SkipDeploy,
   [switch]$SkipSmoke,
   [switch]$SkipClientRelease,
+  [switch]$SkipBuild,
   [switch]$SkipTests,
   [switch]$NoVet,
   [switch]$NoInstallWails,
@@ -47,13 +48,16 @@ function Set-TextFileVersion {
   $fullPath = Join-Path $repoRoot $Path
   $text = Get-Content $fullPath -Raw
   $regex = [regex]::new($Pattern)
+  if (-not $regex.IsMatch($text)) {
+    throw "版本替换未命中：$Path"
+  }
   if ($Count -gt 0) {
     $next = $regex.Replace($text, $Replacement, $Count)
   } else {
     $next = $regex.Replace($text, $Replacement)
   }
   if ($next -eq $text) {
-    throw "版本替换未命中：$Path"
+    return
   }
   [System.IO.File]::WriteAllText($fullPath, $next, $utf8NoBOM)
 }
@@ -68,7 +72,7 @@ function Sync-VersionFiles {
   Set-TextFileVersion "cmd\lwylink-windows-ui\frontend\package.json" '"version": "[^"]+"' "`"version`": `"$Version`"" 1
   Set-TextFileVersion "cmd\lwylink-windows-ui\frontend\package-lock.json" '"version": "[^"]+"' "`"version`": `"$Version`"" 2
   Set-TextFileVersion "cmd\lwylink-windows-ui\frontend\src\types.ts" 'currentVersion: "[^"]+"' "currentVersion: `"$Version`""
-  Set-TextFileVersion "internal\web\admin_assets\admin.html" 'placeholder="例如 [^"]+"' "placeholder=`"例如 $Version`""
+  Set-TextFileVersion "internal\web\admin_assets\admin.html" 'name="version" placeholder="例如 [^"]+"' "name=`"version`" placeholder=`"例如 $Version`""
 }
 
 function Read-AdminToken {
@@ -98,6 +102,19 @@ function Get-Artifact {
   return $item
 }
 
+function Resolve-ReleaseApiURL {
+  if ($ApiURL -ne "") {
+    return $ApiURL.TrimEnd("/")
+  }
+  $hostForURL = $HostName
+  if ($hostForURL -eq "") { $hostForURL = $env:LWYLINK_DEPLOY_HOST }
+  if ($hostForURL -eq "") { $hostForURL = "64.83.34.53" }
+  if ($hostForURL -match '^https?://') {
+    return $hostForURL.TrimEnd("/")
+  }
+  return "http://${hostForURL}:8080"
+}
+
 function Publish-ClientRelease {
   $token = Read-AdminToken
   if ($token -eq "") {
@@ -106,13 +123,7 @@ function Publish-ClientRelease {
   if (-not (Test-Path $clientExe)) {
     throw "缺少 Windows 客户端产物：$clientExe"
   }
-  $api = $ApiURL
-  if ($api -eq "") {
-    $hostForURL = $HostName
-    if ($hostForURL -eq "") { $hostForURL = $env:LWYLINK_DEPLOY_HOST }
-    if ($hostForURL -eq "") { $hostForURL = "64.83.34.53" }
-    $api = "http://${hostForURL}:8080"
-  }
+  $api = Resolve-ReleaseApiURL
 
   Add-Type -AssemblyName System.Net.Http
   $handler = [System.Net.Http.HttpClientHandler]::new()
@@ -176,15 +187,19 @@ Invoke-Step "同步版本号 $Version" {
   Sync-VersionFiles
 }
 
-Invoke-Step "全量构建" {
-  $args = @("-File", ".\deploy\build-all.ps1", "-AppVersion", $Version)
-  if ($SkipTests) { $args += "-SkipTests" }
-  if (-not $NoVet) { $args += "-Vet" }
-  if ($NoInstallWails) { $args += "-NoInstallWails" }
-  powershell -NoProfile -ExecutionPolicy Bypass @args
-  if ($LASTEXITCODE -ne 0) {
-    throw "构建失败"
+if (-not $SkipBuild) {
+  Invoke-Step "全量构建" {
+    $args = @("-File", ".\deploy\build-all.ps1", "-AppVersion", $Version)
+    if ($SkipTests) { $args += "-SkipTests" }
+    if (-not $NoVet) { $args += "-Vet" }
+    if ($NoInstallWails) { $args += "-NoInstallWails" }
+    powershell -NoProfile -ExecutionPolicy Bypass @args
+    if ($LASTEXITCODE -ne 0) {
+      throw "构建失败"
+    }
   }
+} else {
+  Write-Host "`n==> 跳过构建，复用已有产物" -ForegroundColor Cyan
 }
 
 if (-not $SkipDeploy) {

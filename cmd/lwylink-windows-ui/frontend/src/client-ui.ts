@@ -114,7 +114,7 @@ export function transportText(mode?: string, message?: string, directPeers?: num
   }
   switch (mode) {
     case "udp-direct":
-      return `智能加速已开启${directPeers ? ` · ${directPeers} 人` : ""}`;
+      return `智能加速已开启${directPeers ? ` · ${directPeers} 条隧道` : ""}`;
     case "udp-probing":
       return "正在优化连接";
     case "udp-disabled":

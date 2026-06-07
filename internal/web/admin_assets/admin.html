@@ -73,14 +73,14 @@
     <button class="primary" type="submit">保存公告</button>
   </form>
 </section>
-<section class="split">
+<section class="overview-grid">
   <div class="panel">
     <div class="panel-head"><h2>最近账号</h2></div>
-    {{template "user-table" .}}
+    {{template "overview-user-table" .}}
   </div>
   <div class="panel">
     <div class="panel-head"><h2>最近房间</h2></div>
-    {{template "room-table" .}}
+    {{template "overview-room-table" .}}
   </div>
 </section>
 <section class="panel">
@@ -150,6 +150,31 @@
   {{template "user-table" .}}
   {{template "pagination" .}}
 </section>
+{{if not .ReadOnlyRows}}
+<dialog class="traffic-dialog" id="traffic-dialog">
+  <form method="post" action="/admin/users/traffic">
+    {{template "context-inputs" .}}
+    <input type="hidden" name="userID" id="traffic-user-id">
+    <div class="dialog-head">
+      <div>
+        <h2>增加中继流量</h2>
+        <p id="traffic-user-label">玩家账号</p>
+      </div>
+      <button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button>
+    </div>
+    <div class="dialog-body">
+      <div class="traffic-dialog-summary" id="traffic-user-summary">-</div>
+      <label>增加流量（MB）
+        <input name="amountMB" id="traffic-amount" type="number" min="1" max="1048576" step="1" placeholder="例如 1024" required>
+      </label>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" data-close-dialog>取消</button>
+      <button class="primary" type="submit">确认增加</button>
+    </div>
+  </form>
+</dialog>
+{{end}}
 {{end}}
 
 {{define "user-table"}}
@@ -184,14 +209,6 @@
             <strong>{{formatBytes .RelayTrafficUsedBytes}} / {{formatBytes .RelayTrafficQuotaBytes}}</strong>
             <span>{{.RelayTrafficPeriod}} 剩余 {{formatBytes .RelayTrafficRemainingBytes}}，额外余额 {{formatBytes .RelayTrafficExtraBytes}}</span>
           </div>
-          {{if not $.ReadOnlyRows}}
-          <form class="traffic-form" method="post" action="/admin/users/traffic">
-            {{template "context-inputs" $}}
-            <input type="hidden" name="userID" value="{{.ID}}">
-            <input name="amountMB" type="number" min="1" max="1048576" step="1" placeholder="MB">
-            <button type="submit">加流量</button>
-          </form>
-          {{end}}
         </td>
         <td><span class="status {{userStatusClass .Disabled}}">{{userStatusText .Disabled}}</span></td>
         <td>{{timeText .CreatedAt}}</td>
@@ -199,6 +216,17 @@
         {{if not $.ReadOnlyRows}}
         <td>
           <div class="row-actions">
+            <button type="button"
+              class="traffic-open-button"
+              data-open-traffic
+              data-user-id="{{.ID}}"
+              data-username="{{.Username}}"
+              data-display-name="{{.DisplayName}}"
+              data-used="{{formatBytes .RelayTrafficUsedBytes}}"
+              data-quota="{{formatBytes .RelayTrafficQuotaBytes}}"
+              data-remaining="{{formatBytes .RelayTrafficRemainingBytes}}"
+              data-extra="{{formatBytes .RelayTrafficExtraBytes}}"
+              data-period="{{.RelayTrafficPeriod}}">加流量</button>
             <form method="post" action="/admin/users/status">
               {{template "context-inputs" $}}
               <input type="hidden" name="userID" value="{{.ID}}">
@@ -216,6 +244,55 @@
       </tr>
       {{else}}
       <tr><td colspan="{{if .ReadOnlyRows}}9{{else}}10{{end}}" class="empty">暂无账号</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "overview-user-table"}}
+<div class="table-wrap overview-wrap">
+  <table class="compact-table">
+    <thead>
+      <tr><th>ID</th><th>账号</th><th>会员</th><th>剩余流量</th><th>状态</th></tr>
+    </thead>
+    <tbody>
+      {{range .Users}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td>
+          <strong class="cell-title">{{.Username}}</strong>
+          {{if .DisplayName}}<span class="cell-subtitle">{{.DisplayName}}</span>{{end}}
+        </td>
+        <td>{{if eq .Membership "vip"}}会员{{else}}普通{{end}}</td>
+        <td>{{formatBytes .RelayTrafficRemainingBytes}}</td>
+        <td><span class="status {{userStatusClass .Disabled}}">{{userStatusText .Disabled}}</span></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="empty">暂无账号</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "overview-room-table"}}
+<div class="table-wrap overview-wrap">
+  <table class="compact-table">
+    <thead>
+      <tr><th>ID</th><th>名称</th><th>成员</th><th>状态</th><th>节点</th></tr>
+    </thead>
+    <tbody>
+      {{range .Rooms}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td><strong class="cell-title">{{.Name}}</strong></td>
+        <td>{{.MemberCount}} / {{.MaxMembers}}</td>
+        <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
+        <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="muted">未分配</span>{{end}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="empty">暂无房间</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -276,7 +353,7 @@
   </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
-    <label>版本号<input name="version" placeholder="例如 0.1.11" required></label>
+    <label>版本号<input name="version" placeholder="例如 0.1.13" required></label>
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新

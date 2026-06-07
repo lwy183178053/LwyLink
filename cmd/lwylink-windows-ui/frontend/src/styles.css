@@ -764,18 +764,18 @@ code {
 
 .account-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
-.account-hero {
+.account-session {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: 20px;
   align-items: center;
-  padding: 20px;
+  padding: 18px;
   background: #ffffff;
 }
 
@@ -799,7 +799,7 @@ code {
 
 .account-main h2 {
   margin-top: 4px;
-  font-size: 25px;
+  font-size: 23px;
 }
 
 .account-tags {
