@@ -260,7 +260,7 @@ func (s *Server) forwardIP(from *session, pkt []byte) {
 	if !s.consumeRelayTraffic(from, int64(len(inner))) {
 		return
 	}
-	target.enqueue(payload)
+	_ = target.enqueue(payload)
 }
 
 func (s *Server) fanoutRoom(from *session, payload []byte) {
@@ -276,7 +276,7 @@ func (s *Server) fanoutRoom(from *session, payload []byte) {
 		return
 	}
 	for _, target := range targets {
-		target.enqueue(payload)
+		_ = target.enqueue(payload)
 	}
 }
 

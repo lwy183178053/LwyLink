@@ -57,15 +57,23 @@ func (s *session) close() {
 	})
 }
 
-func (s *session) enqueue(pkt []byte) {
+func (s *session) enqueue(pkt []byte) bool {
+	select {
+	case <-s.done:
+		return false
+	default:
+	}
 	cp := make([]byte, len(pkt))
 	copy(cp, pkt)
 	select {
 	case <-s.done:
+		return false
 	case s.send <- cp:
+		return true
 	default:
 		// Games prefer fresh packets over unbounded latency. If a player cannot
 		// drain the queue, drop instead of blocking the whole room relay.
+		return false
 	}
 }
 

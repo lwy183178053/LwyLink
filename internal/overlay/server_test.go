@@ -199,6 +199,31 @@ func TestSessionCloseAllowsNilConn(t *testing.T) {
 	}
 }
 
+func TestSessionEnqueueDropsWhenQueueIsFull(t *testing.T) {
+	sess := testSession(1, "172.16.1.10")
+	pkt := PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))
+	for i := 0; i < cap(sess.send); i++ {
+		if !sess.enqueue(pkt) {
+			t.Fatalf("enqueue %d failed before queue was full", i)
+		}
+	}
+	if sess.enqueue(pkt) {
+		t.Fatalf("enqueue succeeded after queue was full")
+	}
+	if got := len(sess.send); got != cap(sess.send) {
+		t.Fatalf("queue length=%d, want full capacity %d", got, cap(sess.send))
+	}
+}
+
+func TestSessionEnqueueDropsAfterClose(t *testing.T) {
+	sess := testSession(1, "172.16.1.10")
+	sess.close()
+	pkt := PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))
+	if sess.enqueue(pkt) {
+		t.Fatalf("enqueue succeeded after close")
+	}
+}
+
 func newForwardTestServer() (*Server, *session, *session, *session) {
 	srv := NewServer("", 1, "", nil, nil, nil, nil, nil, 1300)
 	from := testSession(1, "172.16.1.10")
