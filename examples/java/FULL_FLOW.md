@@ -10,7 +10,7 @@ javac .\examples\java\LwyLink.java .\examples\java\LwyLinkNetExample.java
 2. 登录并保存 token：
 
 ```powershell
-java -cp .\examples\java LwyLinkRoomExample --api http://127.0.0.1:8080 login --username alice --password password
+java -cp .\examples\java LwyLinkRoomExample --api http://127.0.0.1:8080 login --email alice@example.com --password password
 ```
 
 3. 创建房间：

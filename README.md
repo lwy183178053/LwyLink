@@ -17,9 +17,11 @@ LwyLink（联微互联）是一个面向朋友小队、小型私服、宿舍网�
 - 每个玩家同一时间只能处在一个房间。
 - 每个房间拥有独立虚拟网段，由节点分配虚拟 IP。
 - 房间内转发 IPv4 单播、广播和组播发现包。
+- P2P UDP 直连默认开启，打洞失败时自动回到 TCP relay。
 - 房主可以踢人、转让房主或删除房间。
 - 控制中心和房间节点分离，支持多节点调度。
 - Windows 客户端基于 Wails + React + TypeScript，支持系统托盘、单实例和自动更新。
+- 官网提供注册、登录、用户中心、客户端下载和受控下载入口。
 
 ## 架构
 
@@ -62,6 +64,14 @@ Room Node
 - [deploy/TEST_SERVER.md](deploy/TEST_SERVER.md)：测试服务器、端口、远端路径和自动部署速查。
 - [MANUAL_UPDATE.md](MANUAL_UPDATE.md)：手动构建、上传、发布和回滚流程。
 - [examples/README.md](examples/README.md)：Python / Java 调用示例。
+
+## 线上入口
+
+- 官网和控制 API：`https://www.lwylink.xyz`
+- 下载页：`https://www.lwylink.xyz/download`
+- 用户中心：`https://www.lwylink.xyz/dashboard`
+
+客户端会使用同一个邮箱账号体系。下载客户端需要登录，服务端会生成短期下载 ticket，并记录基础下载日志用于防刷和排查。
 
 ## 本地快速开始
 
@@ -175,3 +185,4 @@ go vet -p 1 ./...
 - 实际传输加密由 `tcpx` 完成。
 - Redis 中的房间公钥、会话和在线状态决定运行期访问权限。
 - 空房间会按配置自动清理，旧房间公钥随房间删除而失效。
+- UDP 打洞成功率主要取决于 NAT 类型、端口映射保持时间、防火墙和节点公网地址配置。当前策略是双端候选地址协商、短暂暖机双发、成功后优先 UDP、失败后回 TCP relay；后续优化应优先围绕候选地址质量、探测节奏和可观测日志展开。

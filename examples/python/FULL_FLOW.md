@@ -3,7 +3,7 @@
 1. 登录并保存 token：
 
 ```powershell
-uv run python .\examples\python\lwylink_room_example.py --api http://127.0.0.1:8080 login --username alice --password password
+uv run python .\examples\python\lwylink_room_example.py --api http://127.0.0.1:8080 login --email alice@example.com --password password
 ```
 
 2. 创建房间：

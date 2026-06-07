@@ -19,6 +19,12 @@
 
 [hidden] { display: none !important; }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -43,6 +49,7 @@ a { color: inherit; }
   border-bottom: 1px solid rgba(217, 225, 236, .9);
   background: rgba(255, 255, 255, .84);
   backdrop-filter: blur(14px);
+  overflow: hidden;
 }
 
 .brand {
@@ -61,6 +68,7 @@ a { color: inherit; }
 }
 
 nav {
+  min-width: 0;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -152,6 +160,7 @@ main {
   width: min(1180px, 100%);
   margin: 0 auto;
   padding: clamp(24px, 5vw, 64px) clamp(16px, 4vw, 34px) 56px;
+  overflow: hidden;
 }
 
 .hero {
@@ -562,6 +571,7 @@ input:focus {
   border-radius: 8px;
   background: rgba(255, 255, 255, .92);
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .download-hero {
@@ -574,6 +584,7 @@ input:focus {
   background:
     linear-gradient(135deg, rgba(15,118,110,.12), rgba(37,99,235,.08) 56%, rgba(255,255,255,.92)),
     #fff;
+  overflow: hidden;
 }
 
 .download-hero h1,
@@ -655,9 +666,11 @@ input:focus {
   background:
     linear-gradient(135deg, rgba(15,118,110,.1), rgba(109,93,252,.08) 48%, rgba(255,255,255,.96)),
     #fff;
+  overflow: hidden;
 }
 
 .dashboard-actions {
+  min-width: 0;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -970,7 +983,8 @@ input:focus {
     gap: 4px;
   }
 
-  .button {
+.button {
     width: 100%;
   }
+
 }
