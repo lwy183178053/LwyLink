@@ -74,6 +74,19 @@ func writeFrame(conn net.Conn, cfg BaseConfig, frameType byte, payload []byte) e
 	buf[6] = frameType
 	binary.BigEndian.PutUint32(buf[7:11], uint32(len(payload)))
 	copy(buf[HeaderSize:], payload)
-	_, err := conn.Write(buf)
-	return err
+	return writeFull(conn, buf)
+}
+
+func writeFull(conn net.Conn, buf []byte) error {
+	for len(buf) > 0 {
+		n, err := conn.Write(buf)
+		if err != nil {
+			return err
+		}
+		if n <= 0 {
+			return io.ErrShortWrite
+		}
+		buf = buf[n:]
+	}
+	return nil
 }
