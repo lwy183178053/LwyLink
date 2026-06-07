@@ -73,3 +73,40 @@ func TestAuthorizeClientDownload(t *testing.T) {
 		t.Fatalf("auth=%+v, want ticket user 7", auth)
 	}
 }
+
+func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T) {
+	release := clientrelease.Release{
+		Version:        "0.1.17",
+		Platform:       "windows-amd64",
+		FileName:       "LwyLink.exe",
+		StoredFileName: "windows-amd64-0.1.17.exe",
+		SHA256:         "abc",
+	}
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest?platform=windows-amd64", nil)
+
+	public := srv.publicClientRelease(req, release)
+	if public.DownloadURL != "http://example.com/downloads/client/windows-amd64-0.1.17.exe" {
+		t.Fatalf("public download URL=%q", public.DownloadURL)
+	}
+}
+
+func TestClientReleaseDownloadURLHonorsForwardedHeaders(t *testing.T) {
+	release := clientrelease.Release{StoredFileName: "client.exe"}
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest", nil)
+	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "www.lwylink.xyz")
+	if got, want := srv.clientReleaseDownloadURL(req, release), "https://www.lwylink.xyz/downloads/client/client.exe"; got != want {
+		t.Fatalf("download URL=%q, want %q", got, want)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/client/releases/latest", nil)
+	req.Host = "127.0.0.1:8080"
+	req.Header.Set("Forwarded", `for=203.0.113.1;proto=https;host=lwylink.xyz`)
+	if got, want := srv.clientReleaseDownloadURL(req, release), "https://lwylink.xyz/downloads/client/client.exe"; got != want {
+		t.Fatalf("forwarded download URL=%q, want %q", got, want)
+	}
+}

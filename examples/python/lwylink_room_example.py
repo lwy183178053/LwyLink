@@ -19,9 +19,9 @@ def main() -> int:
     client = RoomClient(args.api, args.token)
 
     if args.command == "register":
-        print_json(client.register(args.username, args.password, args.display_name))
+        print_json(client.register(args.email, args.password, args.display_name))
     elif args.command == "login":
-        print_json(client.login(args.username, args.password))
+        print_json(client.login(args.email, args.password))
     elif args.command == "me":
         print_json(client.me())
     elif args.command == "rooms":
@@ -55,12 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     register = sub.add_parser("register")
-    register.add_argument("--username", required=True)
+    register.add_argument("--email", required=True)
     register.add_argument("--password", required=True)
     register.add_argument("--display-name", default="")
 
     login = sub.add_parser("login")
-    login.add_argument("--username", required=True)
+    login.add_argument("--email", required=True)
     login.add_argument("--password", required=True)
 
     sub.add_parser("me")

@@ -97,7 +97,8 @@ async function renderDownload() {
     setLines(box, [
       `Windows 客户端 ${release.version}`,
       `${release.fileName || "LwyLink.exe"} · ${formatBytes(release.sizeBytes)}`,
-      release.notes || "",
+      `SHA256: ${release.sha256 || "未提供"}`,
+      release.notes ? `更新说明: ${release.notes}` : "",
     ]);
   } catch (err) {
     box.textContent = err.message;

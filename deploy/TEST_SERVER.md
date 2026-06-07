@@ -1,6 +1,6 @@
 # 测试服务器速查
 
-这份文档用于后续 IDE/Codex 会话快速接手测试环境。开始部署前先看这里，重点是不要误动旧服务，也不要把敏感配置写进文档或聊天。
+这份文档用于后续 IDE/Codex 会话快速接手测试环境。开始部署前先看这里，重点是不要把敏感配置写进文档或聊天。
 
 ## 服务器信息
 
@@ -9,11 +9,12 @@
 | 主机 | `64.83.34.53` |
 | 系统 | Ubuntu |
 | SSH | `root@64.83.34.53:22` |
-| 控制 API | `http://64.83.34.53:8080` |
+| 官网 / 控制 API | `https://www.lwylink.xyz` |
+| 控制 API 内网监听 | `http://64.83.34.53:8080` |
 | Overlay | `64.83.34.53:35768` |
 | 远端目录 | `/opt/lwylink` |
 
-重要：`443/tcp` 是旧的 LwyV-Net 服务，进程通常显示为 `lwyvnet-linux-a`。LwyLink 测试只使用 `8080` 和 `35768`，不要停止、重启、覆盖或抢占 `443` 服务。
+`443/tcp` 现在归 LwyLink 官网 HTTPS 反向代理使用，反代到本机 `8080`。旧的 LwyV-Net 443 服务已不再作为测试服务器入口。
 
 SSH 密码不要写进 README、代码或提交记录。部署时临时设置：
 
@@ -63,7 +64,7 @@ ss -ltnup | grep -E ':(443|8080|35768) '
 | `8080/tcp` | `lwylink-control` |
 | `35768/tcp` | `lwylink-node` 控制/中继 |
 | `35768/udp` | `lwylink-node` UDP 打洞协商 |
-| `443/tcp` | 旧服务，不属于 LwyLink |
+| `443/tcp` | HTTPS 反向代理，域名 `www.lwylink.xyz` / `lwylink.xyz` |
 
 ## 一键发布
 
@@ -82,7 +83,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 4. 上传服务端二进制到 `/opt/lwylink/deploy/dist`。
 5. 安装到 `/opt/lwylink`。
 6. 重启 `lwylink-control` 和 `lwylink-node`。
-7. 检查 `8080`、`35768/tcp`、`35768/udp`、`443`。
+7. 检查 `443/https`、`8080`、`35768/tcp`、`35768/udp`。
 8. 跑远端 smoke 测试。
 9. 上传 Windows 客户端更新包并校验 latest 版本和 SHA256。
 
@@ -110,7 +111,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 
 ```powershell
 $env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
-go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:35768
+go run .\cmd\lwylink-smoke -api https://www.lwylink.xyz -overlay 64.83.34.53:35768
 ```
 
 期望最后出现：

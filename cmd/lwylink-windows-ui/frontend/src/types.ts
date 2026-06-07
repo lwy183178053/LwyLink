@@ -90,9 +90,9 @@ export type AppState = {
 };
 
 export const emptyState: AppState = {
-  apiBaseURL: "http://64.83.34.53:8080",
+  apiBaseURL: "https://www.lwylink.xyz",
   interfaceName: "LwyLink",
-  p2pEnabled: false,
+  p2pEnabled: true,
   rooms: [],
   members: [],
   chatMessages: [],
@@ -107,7 +107,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.16",
+    currentVersion: "0.1.17",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

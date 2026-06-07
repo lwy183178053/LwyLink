@@ -17,11 +17,11 @@ public final class LwyLinkRoomExample {
         LwyLink.RoomClient client = new LwyLink.RoomClient(cli.value("api", LwyLink.DEFAULT_API), cli.value("token", ""));
         switch (cli.command) {
             case "register" -> System.out.println(client.register(
-                    cli.required("username"),
+                    cli.required("email"),
                     cli.required("password"),
                     cli.value("display-name", "")
             ));
-            case "login" -> System.out.println(client.login(cli.required("username"), cli.required("password")));
+            case "login" -> System.out.println(client.login(cli.required("email"), cli.required("password")));
             case "me" -> System.out.println(client.me());
             case "rooms" -> System.out.println(client.rooms());
             case "create-room" -> System.out.println(client.createRoom(
@@ -57,8 +57,8 @@ public final class LwyLinkRoomExample {
                 Usage:
                   javac examples/java/LwyLink.java examples/java/LwyLinkRoomExample.java
                   java -cp examples/java LwyLinkRoomExample --self-test
-                  java -cp examples/java LwyLinkRoomExample --api <url> register --username <u> --password <p>
-                  java -cp examples/java LwyLinkRoomExample --api <url> login --username <u> --password <p>
+                  java -cp examples/java LwyLinkRoomExample --api <url> register --email <email> --password <p>
+                  java -cp examples/java LwyLinkRoomExample --api <url> login --email <email> --password <p>
                   java -cp examples/java LwyLinkRoomExample --api <url> --token <token> create-room --name <name>
                   java -cp examples/java LwyLinkRoomExample --api <url> --token <token> events
                 """);

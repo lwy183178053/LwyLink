@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultAPIBaseURL = "http://64.83.34.53:8080"
+	defaultAPIBaseURL = "https://www.lwylink.xyz"
 	defaultIfName     = "LwyLink"
 	maxChatMessages   = 120
 
@@ -29,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.16"
+var AppVersion = "0.1.17"
 
 type App struct {
 	ctx context.Context
@@ -72,14 +72,12 @@ type SettingsInput struct {
 
 type RegisterInput struct {
 	Email       string `json:"email"`
-	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
 }
 
 type LoginInput struct {
 	Email    string `json:"email"`
-	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
@@ -285,10 +283,7 @@ func (a *App) commitStateLocked() AppState {
 }
 
 func (a *App) SetSettings(input SettingsInput) (AppState, error) {
-	apiBaseURL := strings.TrimRight(strings.TrimSpace(input.APIBaseURL), "/")
-	if apiBaseURL == "" {
-		apiBaseURL = defaultAPIBaseURL
-	}
+	apiBaseURL := normalizeSavedAPIBaseURL(input.APIBaseURL)
 	ifName := strings.TrimSpace(input.InterfaceName)
 	if ifName == "" {
 		ifName = defaultIfName
@@ -336,7 +331,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 }
 
 func (a *App) Register(input RegisterInput) (AppState, error) {
-	input.Email = strings.TrimSpace(firstNonEmpty(input.Email, input.Username))
+	input.Email = strings.TrimSpace(input.Email)
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -365,7 +360,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 }
 
 func (a *App) Login(input LoginInput) (AppState, error) {
-	input.Email = strings.TrimSpace(firstNonEmpty(input.Email, input.Username))
+	input.Email = strings.TrimSpace(input.Email)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

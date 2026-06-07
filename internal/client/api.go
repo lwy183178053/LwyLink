@@ -51,7 +51,6 @@ func (a *API) Register(ctx context.Context, email, password, displayName string)
 	var out account.LoginResult
 	err := a.request(ctx, http.MethodPost, "/api/register", map[string]string{
 		"email":       email,
-		"username":    email,
 		"password":    password,
 		"displayName": displayName,
 	}, &out)
@@ -65,7 +64,6 @@ func (a *API) Login(ctx context.Context, email, password string) (account.LoginR
 	var out account.LoginResult
 	err := a.request(ctx, http.MethodPost, "/api/login", map[string]string{
 		"email":    email,
-		"username": email,
 		"password": password,
 	}, &out)
 	if err == nil {

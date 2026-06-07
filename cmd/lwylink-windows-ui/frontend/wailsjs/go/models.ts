@@ -191,7 +191,6 @@ export namespace main {
 	}
 	export class LoginInput {
 	    email: string;
-	    username: string;
 	    password: string;
 	
 	    static createFrom(source: any = {}) {
@@ -201,7 +200,6 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
-	        this.username = source["username"];
 	        this.password = source["password"];
 	    }
 	}
@@ -219,7 +217,6 @@ export namespace main {
 	}
 	export class RegisterInput {
 	    email: string;
-	    username: string;
 	    password: string;
 	    displayName: string;
 	
@@ -230,7 +227,6 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
-	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.displayName = source["displayName"];
 	    }

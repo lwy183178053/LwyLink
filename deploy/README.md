@@ -37,7 +37,7 @@
 | `8080/tcp` | `lwylink-control` | HTTP API 和管理后台 |
 | `35768/tcp` | `lwylink-node` | Overlay TCP 控制/中继 |
 | `35768/udp` | `lwylink-node` | UDP 打洞协商 |
-| `443/tcp` | 旧服务 | 不属于 LwyLink，不要停止、覆盖或抢占 |
+| `443/tcp` | HTTPS 反向代理 | `www.lwylink.xyz` / `lwylink.xyz`，反代到控制端 `8080` |
 
 ## 日常一键发布
 
@@ -222,7 +222,7 @@ systemctl status lwylink-node --no-pager
 - 控制平面配置里的 `tokenSecret`、`adminToken` 可以留空；控制端第一次启动时会自动生成并写回 JSON 文件。
 - 房间节点配置里的 `overlayPrivateKey` 可以留空；节点第一次打印公钥时会自动生成并写回。
 - 房间节点配置里的 `tokenSecret` 必须和控制平面一致。
-- HTTP API 当前仍是普通 HTTP，公网生产部署建议放到 HTTPS 反向代理后面。
+- 公网入口使用 HTTPS 反向代理，控制端仍只在 `8080` 提供本机 HTTP 服务。
 
 ## 故障排查命令
 
@@ -238,5 +238,5 @@ journalctl -u lwylink-node -n 50 --no-pager
 
 ```powershell
 $env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
-go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:35768
+go run .\cmd\lwylink-smoke -api https://www.lwylink.xyz -overlay 64.83.34.53:35768
 ```

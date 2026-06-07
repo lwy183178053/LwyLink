@@ -25,6 +25,14 @@ type savedLoginFile struct {
 	ProtectedPassword string `json:"protectedPassword"`
 }
 
+func normalizeSavedAPIBaseURL(value string) string {
+	apiBaseURL := strings.TrimRight(strings.TrimSpace(value), "/")
+	if apiBaseURL == "" {
+		return defaultAPIBaseURL
+	}
+	return apiBaseURL
+}
+
 func loadSavedLogin() (savedLogin, bool, error) {
 	path, err := savedLoginPath()
 	if err != nil {
@@ -52,22 +60,15 @@ func loadSavedLogin() (savedLogin, bool, error) {
 	if err != nil {
 		return savedLogin{}, false, err
 	}
-	apiBaseURL := strings.TrimRight(strings.TrimSpace(file.APIBaseURL), "/")
-	if apiBaseURL == "" {
-		apiBaseURL = defaultAPIBaseURL
-	}
 	return savedLogin{
-		APIBaseURL: apiBaseURL,
+		APIBaseURL: normalizeSavedAPIBaseURL(file.APIBaseURL),
 		Username:   strings.TrimSpace(file.Username),
 		Password:   string(plain),
 	}, true, nil
 }
 
 func saveSavedLogin(login savedLogin) error {
-	login.APIBaseURL = strings.TrimRight(strings.TrimSpace(login.APIBaseURL), "/")
-	if login.APIBaseURL == "" {
-		login.APIBaseURL = defaultAPIBaseURL
-	}
+	login.APIBaseURL = normalizeSavedAPIBaseURL(login.APIBaseURL)
 	login.Username = strings.TrimSpace(login.Username)
 	if login.Username == "" || login.Password == "" {
 		return clearSavedLogin()

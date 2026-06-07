@@ -47,9 +47,9 @@ public final class LwyLink {
             return token;
         }
 
-        public String register(String username, String password, String displayName) throws Exception {
+        public String register(String email, String password, String displayName) throws Exception {
             String result = post("/api/register", jsonObject(Map.of(
-                    "username", username,
+                    "email", email,
                     "password", password,
                     "displayName", displayName
             )));
@@ -57,9 +57,9 @@ public final class LwyLink {
             return result;
         }
 
-        public String login(String username, String password) throws Exception {
+        public String login(String email, String password) throws Exception {
             String result = post("/api/login", jsonObject(Map.of(
-                    "username", username,
+                    "email", email,
                     "password", password
             )));
             token = jsonField(result, "token");

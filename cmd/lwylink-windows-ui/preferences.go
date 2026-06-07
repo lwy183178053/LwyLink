@@ -11,8 +11,12 @@ type clientPreferences struct {
 	P2PEnabled bool `json:"p2pEnabled"`
 }
 
+type clientPreferencesFile struct {
+	P2PEnabled *bool `json:"p2pEnabled,omitempty"`
+}
+
 func defaultClientPreferences() clientPreferences {
-	return clientPreferences{}
+	return clientPreferences{P2PEnabled: true}
 }
 
 func loadClientPreferences() clientPreferences {
@@ -28,7 +32,10 @@ func loadClientPreferences() clientPreferences {
 	if err != nil {
 		return prefs
 	}
-	_ = json.Unmarshal(data, &prefs)
+	var file clientPreferencesFile
+	if err := json.Unmarshal(data, &file); err == nil && file.P2PEnabled != nil {
+		prefs.P2PEnabled = *file.P2PEnabled
+	}
 	return prefs
 }
 
@@ -40,7 +47,9 @@ func saveClientPreferences(prefs clientPreferences) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(prefs, "", "  ")
+	data, err := json.MarshalIndent(clientPreferencesFile{
+		P2PEnabled: &prefs.P2PEnabled,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}

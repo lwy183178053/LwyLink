@@ -9,7 +9,10 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">LwyLink</a>
+    <a class="brand" href="/" aria-label="LwyLink 首页">
+      <img src="/site/assets/lwylink-icon.png" alt="">
+      <span>LwyLink</span>
+    </a>
     <nav>
       <a href="/download">下载</a>
       <a href="/dashboard">用户中心</a>
@@ -19,55 +22,114 @@
 
   <main data-page="{{.Page}}">
     <section class="hero" data-view="home">
-      <div>
-        <p class="eyebrow">TCP relay + UDP punch</p>
-        <h1>LwyLink 虚拟组网</h1>
-        <p class="lead">为联机游戏和小队协作准备的低延迟虚拟局域网。UDP 直连优先，失败后自动回到 TCP 加密中继。</p>
+      <div class="hero-copy">
+        <p class="eyebrow">Game virtual LAN</p>
+        <h1>LwyLink 游戏虚拟局域网</h1>
+        <p class="lead">创建房间、邀请好友、连进同一个加密 Overlay。P2P UDP 直连优先，打洞失败自动回到 TCP relay，让联机配置少一点折腾。</p>
         <div class="actions">
           <a class="button primary" href="/download">下载 Windows 客户端</a>
-          <a class="button" href="/register">注册账号</a>
+          <a class="button" href="/register">注册邮箱账号</a>
+        </div>
+        <div class="trust-row" aria-label="核心能力">
+          <span>邮箱账号</span>
+          <span>房间联机</span>
+          <span>UDP 打洞</span>
+          <span>TCP 兜底</span>
         </div>
       </div>
-      <div class="status-panel">
-        <span>Overlay</span>
-        <strong>TCP reliable relay</strong>
-        <span>NAT traversal</span>
-        <strong>UDP direct path</strong>
-        <span>Security</span>
-        <strong>Encrypted transport</strong>
+      <div class="network-console" aria-label="LwyLink 网络状态示意">
+        <div class="console-head">
+          <span class="dot"></span>
+          <span>Room overlay</span>
+          <strong>online</strong>
+        </div>
+        <div class="link-map">
+          <div class="node local">
+            <span>你</span>
+            <strong>172.16.8.1</strong>
+          </div>
+          <div class="path direct">
+            <span>P2P direct</span>
+          </div>
+          <div class="node peer">
+            <span>好友</span>
+            <strong>172.16.8.2</strong>
+          </div>
+          <div class="path relay">
+            <span>TCP relay fallback</span>
+          </div>
+        </div>
+        <dl class="metric-grid">
+          <div><dt>控制信令</dt><dd>TCP 加密</dd></div>
+          <div><dt>游戏流量</dt><dd>UDP 优先</dd></div>
+          <div><dt>NAT 失败</dt><dd>自动中继</dd></div>
+        </dl>
       </div>
     </section>
 
+    <section class="feature-band" data-view="home">
+      <article>
+        <h2>为小队开房间</h2>
+        <p>房主创建房间后复制房间密钥，其他成员加入即可获得虚拟 IP。</p>
+      </article>
+      <article>
+        <h2>稳定优先</h2>
+        <p>P2P 成功就走直连，失败或抖动时回 TCP relay，不把游戏会话卡在打洞上。</p>
+      </article>
+      <article>
+        <h2>可控下载</h2>
+        <p>客户端包通过登录、短期链接和限流保护，下载页提供版本和 SHA256。</p>
+      </article>
+    </section>
+
     <section class="panel auth-panel" data-view="login">
-      <h1>登录 LwyLink</h1>
+      <div class="panel-title">
+        <p class="eyebrow">Account</p>
+        <h1>登录 LwyLink</h1>
+        <p class="muted">使用邮箱账号进入用户中心和下载客户端。</p>
+      </div>
       <form data-login-form>
         <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
         <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="button primary" type="submit">登录</button>
       </form>
-      <p>还没有账号？<a href="/register">立即注册</a></p>
+      <p class="form-note">还没有账号？<a href="/register">立即注册</a></p>
     </section>
 
     <section class="panel auth-panel" data-view="register">
-      <h1>注册账号</h1>
+      <div class="panel-title">
+        <p class="eyebrow">Join</p>
+        <h1>注册账号</h1>
+        <p class="muted">账号必须是邮箱格式，显示名可之后在客户端里展示。</p>
+      </div>
       <form data-register-form>
         <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
         <label>显示名<input name="displayName" maxlength="64" placeholder="可留空"></label>
         <label>密码<input name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
         <button class="button primary" type="submit">注册并登录</button>
       </form>
-      <p>已有账号？<a href="/login">去登录</a></p>
+      <p class="form-note">已有账号？<a href="/login">去登录</a></p>
     </section>
 
-    <section class="panel" data-view="download">
-      <h1>下载客户端</h1>
-      <p class="muted">下载需要登录。这样可以保护服务器流量，也方便你收到后续版本更新。</p>
+    <section class="panel download-panel" data-view="download">
+      <div class="panel-title">
+        <p class="eyebrow">Client</p>
+        <h1>下载客户端</h1>
+        <p class="muted">下载需要登录。这样可以保护服务器流量，也方便你收到后续版本更新。</p>
+      </div>
       <div class="release-box" data-release-box>正在获取最新版本...</div>
-      <button class="button primary" data-download-button>获取下载链接</button>
+      <div class="actions">
+        <button class="button primary" data-download-button>获取下载链接</button>
+        <a class="button" href="/dashboard">用户中心</a>
+      </div>
     </section>
 
-    <section class="panel" data-view="dashboard">
-      <h1>用户中心</h1>
+    <section class="panel dashboard-panel" data-view="dashboard">
+      <div class="panel-title">
+        <p class="eyebrow">Dashboard</p>
+        <h1>用户中心</h1>
+        <p class="muted">查看账号状态并获取客户端。</p>
+      </div>
       <div class="profile" data-profile>正在读取账号信息...</div>
       <div class="actions">
         <a class="button primary" href="/download">下载客户端</a>

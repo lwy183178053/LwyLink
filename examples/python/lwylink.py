@@ -56,13 +56,13 @@ class RoomClient:
             raise LwyLinkError(f"http {exc.code}: {message}") from exc
         return json.loads(raw) if raw.strip() else None
 
-    def register(self, username: str, password: str, display_name: str = "") -> dict[str, Any]:
-        result = self.request("POST", "/api/register", {"username": username, "password": password, "displayName": display_name})
+    def register(self, email: str, password: str, display_name: str = "") -> dict[str, Any]:
+        result = self.request("POST", "/api/register", {"email": email, "password": password, "displayName": display_name})
         self.token = result["token"]
         return result
 
-    def login(self, username: str, password: str) -> dict[str, Any]:
-        result = self.request("POST", "/api/login", {"username": username, "password": password})
+    def login(self, email: str, password: str) -> dict[str, Any]:
+        result = self.request("POST", "/api/login", {"email": email, "password": password})
         self.token = result["token"]
         return result
 

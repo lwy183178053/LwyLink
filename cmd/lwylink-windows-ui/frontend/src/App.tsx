@@ -242,11 +242,10 @@ export default function App() {
     }
     const ok =
       authMode === "login"
-        ? await run("登录", () => Login({ email: loginForm.email, username: loginForm.email, password: loginForm.password }))
+        ? await run("登录", () => Login({ email: loginForm.email, password: loginForm.password }))
         : await run("注册", () =>
             Register({
               email: loginForm.email,
-              username: loginForm.email,
               password: loginForm.password,
               displayName: loginForm.displayName,
             }),

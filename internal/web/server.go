@@ -115,7 +115,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Email       string `json:"email"`
-		Username    string `json:"username"`
 		Password    string `json:"password"`
 		DisplayName string `json:"displayName"`
 	}
@@ -123,7 +122,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.accounts.Register(r.Context(), firstNonEmpty(req.Email, req.Username), req.Password, req.DisplayName)
+	result, err := s.accounts.Register(r.Context(), req.Email, req.Password, req.DisplayName)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -137,14 +136,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Email    string `json:"email"`
-		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.accounts.Login(r.Context(), firstNonEmpty(req.Email, req.Username), req.Password)
+	result, err := s.accounts.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
@@ -1091,7 +1089,12 @@ func (s *Server) adminURL(path string) string {
 }
 
 func (s *Server) clientReleaseDownloadURL(r *http.Request, release clientrelease.Release) string {
-	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	scheme, host := requestPublicSchemeHost(r)
+	return scheme + "://" + host + "/downloads/client/" + url.PathEscape(release.StoredFileName)
+}
+
+func requestPublicSchemeHost(r *http.Request) (string, string) {
+	scheme := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
 	if scheme == "" {
 		if r.TLS != nil {
 			scheme = "https"
@@ -1100,10 +1103,59 @@ func (s *Server) clientReleaseDownloadURL(r *http.Request, release clientrelease
 		}
 	}
 	host := r.Host
-	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+	if forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
 		host = forwardedHost
 	}
-	return scheme + "://" + host + "/downloads/client/" + url.PathEscape(release.StoredFileName)
+	if forwarded := parseForwardedHeader(r.Header.Get("Forwarded")); forwarded != nil {
+		if forwarded["proto"] != "" {
+			scheme = forwarded["proto"]
+		}
+		if forwarded["host"] != "" {
+			host = forwarded["host"]
+		}
+	}
+	if scheme != "https" {
+		scheme = "http"
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	return scheme, host
+}
+
+func firstForwardedValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if i := strings.IndexByte(value, ','); i >= 0 {
+		value = value[:i]
+	}
+	return strings.TrimSpace(value)
+}
+
+func parseForwardedHeader(value string) map[string]string {
+	value = firstForwardedValue(value)
+	if value == "" {
+		return nil
+	}
+	out := make(map[string]string)
+	for _, part := range strings.Split(value, ";") {
+		key, raw, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		raw = strings.Trim(strings.TrimSpace(raw), `"`)
+		switch key {
+		case "proto", "host":
+			out[key] = raw
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *Server) publicClientRelease(r *http.Request, release clientrelease.Release) clientrelease.PublicRelease {
