@@ -18,7 +18,8 @@ param(
   [switch]$SkipTests,
   [switch]$NoVet,
   [switch]$NoInstallWails,
-  [switch]$Commit
+  [switch]$Commit,
+  [switch]$ValidateReleaseApiURL
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,17 +103,55 @@ function Get-Artifact {
   return $item
 }
 
+function Normalize-ReleaseBaseURL {
+  param(
+    [string]$Value,
+    [string]$Source
+  )
+  $raw = $Value.Trim()
+  if ($raw -eq "") {
+    throw "$Source 不能为空。"
+  }
+  if ($raw -notmatch '^https?://') {
+    $raw = "http://$raw"
+  }
+  try {
+    $uri = [System.Uri]::new($raw)
+  } catch {
+    throw "$Source 不是合法的 HTTP URL：$Value"
+  }
+  if (($uri.Scheme -ne "http" -and $uri.Scheme -ne "https") -or $uri.Host -eq "") {
+    throw "$Source 必须是 http/https URL：$Value"
+  }
+  return $raw.TrimEnd("/")
+}
+
+function Test-HostHasExplicitPort {
+  param([string]$Value)
+  if ($Value -match '^\[[^\]]+\]:\d+$') {
+    return $true
+  }
+  return $Value -match '^[^:]+:\d+$'
+}
+
 function Resolve-ReleaseApiURL {
-  if ($ApiURL -ne "") {
-    return $ApiURL.TrimEnd("/")
+  if (-not [string]::IsNullOrWhiteSpace($ApiURL)) {
+    return Normalize-ReleaseBaseURL $ApiURL "ApiURL"
   }
   $hostForURL = $HostName
-  if ($hostForURL -eq "") { $hostForURL = $env:LWYLINK_DEPLOY_HOST }
-  if ($hostForURL -eq "") { $hostForURL = "64.83.34.53" }
+  if ([string]::IsNullOrWhiteSpace($hostForURL)) { $hostForURL = $env:LWYLINK_DEPLOY_HOST }
+  if ([string]::IsNullOrWhiteSpace($hostForURL)) { $hostForURL = "64.83.34.53" }
+  $hostForURL = $hostForURL.Trim()
   if ($hostForURL -match '^https?://') {
-    return $hostForURL.TrimEnd("/")
+    return Normalize-ReleaseBaseURL $hostForURL "HostName"
   }
-  return "http://${hostForURL}:8080"
+  if ($hostForURL.Contains("@")) {
+    $hostForURL = ($hostForURL -split "@")[-1]
+  }
+  if (Test-HostHasExplicitPort $hostForURL) {
+    return Normalize-ReleaseBaseURL $hostForURL "HostName"
+  }
+  return Normalize-ReleaseBaseURL "${hostForURL}:8080" "HostName"
 }
 
 function Publish-ClientRelease {
@@ -182,6 +221,11 @@ function Invoke-GitCommit {
 }
 
 Set-Location $repoRoot
+
+if ($ValidateReleaseApiURL) {
+  Resolve-ReleaseApiURL | Write-Output
+  return
+}
 
 Invoke-Step "同步版本号 $Version" {
   Sync-VersionFiles

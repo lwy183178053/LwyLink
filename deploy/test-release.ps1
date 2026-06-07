@@ -34,4 +34,41 @@ foreach ($item in $checks.GetEnumerator()) {
   }
 }
 
+$urlChecks = @(
+  @{
+    name = "无参数默认值"
+    args = @()
+    want = "http://64.83.34.53:8080"
+  },
+  @{
+    name = "默认 HostName"
+    args = @("-HostName", "64.83.34.53")
+    want = "http://64.83.34.53:8080"
+  },
+  @{
+    name = "显式 ApiURL"
+    args = @("-ApiURL", "http://64.83.34.53:8080")
+    want = "http://64.83.34.53:8080"
+  },
+  @{
+    name = "带协议 HostName"
+    args = @("-HostName", "http://64.83.34.53:8080")
+    want = "http://64.83.34.53:8080"
+  }
+)
+
+foreach ($case in $urlChecks) {
+  $actual = PowerShell -NoProfile -ExecutionPolicy Bypass -File ".\deploy\release.ps1" `
+    -Version $Version `
+    -ValidateReleaseApiURL `
+    @($case.args)
+  if ($LASTEXITCODE -ne 0) {
+    throw "release API URL 校验命令失败：$($case.name)"
+  }
+  $actual = [string]::Join("", $actual).Trim()
+  if ($actual -ne $case.want) {
+    throw "release API URL 校验失败：$($case.name)，got $actual, want $($case.want)"
+  }
+}
+
 Write-Host "release 脚本自测通过：$Version" -ForegroundColor Green
