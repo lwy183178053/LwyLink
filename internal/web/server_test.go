@@ -113,3 +113,18 @@ func TestAdminReleaseUploadRejectsOversizedBodyBeforeMultipartParse(t *testing.T
 		t.Fatalf("expected too large error, got %q", rec.Body.String())
 	}
 }
+
+func TestSitePagesRender(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil)
+	for _, path := range []string{"/", "/login", "/register", "/dashboard", "/download"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.handleSite(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status=%d, want 200", path, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "LwyLink") {
+			t.Fatalf("%s page did not render site content", path)
+		}
+	}
+}

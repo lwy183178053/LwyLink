@@ -35,8 +35,21 @@ type SessionStore interface {
 	DeleteCurrentSession(ctx context.Context, userID int64) error
 }
 
+type accountRepository interface {
+	Create(ctx context.Context, username, passwordHash, displayName string) (User, error)
+	FindByUsername(ctx context.Context, username string) (User, error)
+	FindByID(ctx context.Context, id int64) (User, error)
+	List(ctx context.Context, filter UserFilter) ([]User, error)
+	Stats(ctx context.Context) (Stats, error)
+	SetDisabled(ctx context.Context, userID int64, disabled bool) error
+	SetMembership(ctx context.Context, userID int64, membership string) error
+	AddRelayTraffic(ctx context.Context, userID, bytes int64) error
+	ConsumeRelayTraffic(ctx context.Context, userID, bytes int64) error
+	Delete(ctx context.Context, userID int64) error
+}
+
 type Service struct {
-	repo     *Repository
+	repo     accountRepository
 	tokens   *TokenManager
 	sessions SessionStore
 	tokenTTL time.Duration
@@ -47,7 +60,7 @@ type LoginResult struct {
 	Token string     `json:"token"`
 }
 
-func NewService(repo *Repository, tokenSecret string, sessions SessionStore) *Service {
+func NewService(repo accountRepository, tokenSecret string, sessions SessionStore) *Service {
 	tokenTTL := 24 * time.Hour
 	return &Service{
 		repo:     repo,

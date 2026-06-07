@@ -16,12 +16,21 @@ import (
 
 const maxReleaseUploadBytes = 512 << 20
 
+type releaseRepository interface {
+	Create(ctx context.Context, release Release) (Release, error)
+	List(ctx context.Context, filter Filter) ([]Release, error)
+	Count(ctx context.Context) (int, error)
+	FindByStoredFileName(ctx context.Context, storedFileName string) (Release, error)
+	Delete(ctx context.Context, id int64) (Release, error)
+	LogDownload(ctx context.Context, item DownloadLog) error
+}
+
 type Service struct {
-	repo       *Repository
+	repo       releaseRepository
 	storageDir string
 }
 
-func NewService(repo *Repository, storageDir string) *Service {
+func NewService(repo releaseRepository, storageDir string) *Service {
 	if strings.TrimSpace(storageDir) == "" {
 		storageDir = filepath.Join("data", "client-releases")
 	}
