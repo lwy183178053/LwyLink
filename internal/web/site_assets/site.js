@@ -1,6 +1,7 @@
 const tokenKey = "lwylink.site.token";
 const page = document.currentScript?.dataset.page || "home";
 const toast = document.querySelector("[data-toast]");
+let currentUser = null;
 
 function token() {
   return localStorage.getItem(tokenKey) || "";
@@ -67,41 +68,79 @@ function wireAuthForms() {
   });
 }
 
+async function fetchCurrentUser() {
+  if (!token()) return null;
+  try {
+    currentUser = await api("/api/me");
+    return currentUser;
+  } catch {
+    localStorage.removeItem(tokenKey);
+    currentUser = null;
+    return null;
+  }
+}
+
+function renderAuthNav(user) {
+  const login = document.querySelector("[data-auth-login]");
+  const userLink = document.querySelector("[data-auth-user]");
+  if (!login || !userLink) return;
+  if (!user) {
+    login.hidden = false;
+    userLink.hidden = true;
+    return;
+  }
+  login.hidden = true;
+  userLink.hidden = false;
+  const name = displayName(user);
+  setText("[data-auth-avatar]", initial(name));
+  setText("[data-auth-name]", name);
+  setText("[data-auth-email]", user.email || user.username || "");
+  setText("[data-auth-member]", membershipLabel(user.membership));
+}
+
 async function renderDashboard() {
-  const box = document.querySelector("[data-profile]");
-  if (!box) return;
   if (!token()) {
     location.href = "/login";
     return;
   }
-  try {
-    const user = await api("/api/me");
-    setLines(box, [
-      user.displayName || user.email || user.username,
-      `邮箱: ${user.email || user.username}`,
-      `会员: ${user.membership}`,
-      `剩余中继流量: ${formatBytes(user.relayTrafficRemainingBytes)}`,
-    ]);
-  } catch {
-    localStorage.removeItem(tokenKey);
+  const user = currentUser || await fetchCurrentUser();
+  if (!user) {
     location.href = "/login";
+    return;
   }
+  const name = displayName(user);
+  setText("[data-profile-avatar]", initial(name));
+  setText("[data-profile-name]", name);
+  setText("[data-profile-email]", user.email || user.username || "");
+  setText("[data-profile-membership]", membershipLabel(user.membership));
+  setText("[data-profile-member-note]", membershipNote(user.membership));
+  setText("[data-profile-traffic-used]", formatBytes(user.relayTrafficUsedBytes));
+  setText("[data-profile-traffic]", formatBytes(user.relayTrafficRemainingBytes));
+  setText("[data-profile-traffic-quota]", formatBytes(user.relayTrafficQuotaBytes));
+  const usedPercent = trafficPercent(user);
+  setText("[data-profile-traffic-percent]", `${usedPercent}%`);
+  const bar = document.querySelector("[data-profile-traffic-bar]");
+  if (bar) bar.style.width = `${usedPercent}%`;
+  setText("[data-profile-period]", user.relayTrafficPeriod ? `周期: ${user.relayTrafficPeriod}` : "当前周期");
+  setText("[data-profile-id]", `#${user.id}`);
+  setText("[data-profile-account]", user.email || user.username || "");
+  setText("[data-profile-role]", roleLabel(user.role));
+  setText("[data-profile-created]", formatDate(user.createdAt));
 }
 
 async function renderDownload() {
-  const box = document.querySelector("[data-release-box]");
   const button = document.querySelector("[data-download-button]");
-  if (!box || !button) return;
+  if (!button) return;
   try {
     const release = await api("/api/client/releases/latest?platform=windows-amd64");
-    setLines(box, [
-      `Windows 客户端 ${release.version}`,
-      `${release.fileName || "LwyLink.exe"} · ${formatBytes(release.sizeBytes)}`,
-      `SHA256: ${release.sha256 || "未提供"}`,
-      release.notes ? `更新说明: ${release.notes}` : "",
-    ]);
+    setText("[data-release-version]", `版本 ${release.version}`);
+    setText("[data-release-platform]", release.platform || "windows-amd64");
+    setText("[data-release-file]", release.fileName || "LwyLink.exe");
+    setText("[data-release-size]", formatBytes(release.sizeBytes));
+    setText("[data-release-sha]", shortSHA(release.sha256));
+    setText("[data-release-notes]", release.notes || "当前版本暂无额外更新说明。");
   } catch (err) {
-    box.textContent = err.message;
+    setText("[data-release-notes]", err.message);
   }
   button.addEventListener("click", async () => {
     if (!token()) {
@@ -138,17 +177,61 @@ function setLines(target, lines) {
   });
 }
 
+function setText(selector, text) {
+  const node = document.querySelector(selector);
+  if (node) node.textContent = text;
+}
+
+function displayName(user) {
+  return user.displayName || user.email || user.username || "LwyLink 玩家";
+}
+
+function initial(value) {
+  const trimmed = String(value || "L").trim();
+  return trimmed.slice(0, 1).toUpperCase();
+}
+
+function membershipLabel(value) {
+  return value === "vip" ? "VIP" : "Free";
+}
+
+function membershipNote(value) {
+  return value === "vip" ? "月卡权益已生效，拥有更高的中继流量额度。" : "当前为免费账号，可正常创建房间和使用 P2P。";
+}
+
+function roleLabel(value) {
+  return value === "admin" ? "管理员" : "玩家";
+}
+
+function trafficPercent(user) {
+  const used = Number(user.relayTrafficUsedBytes || 0);
+  const quota = Number(user.relayTrafficQuotaBytes || 0);
+  if (quota <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((used / quota) * 100)));
+}
+
+function formatDate(value) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function shortSHA(value) {
+  const text = String(value || "");
+  if (text.length <= 18) return text || "--";
+  return `${text.slice(0, 12)}...${text.slice(-8)}`;
+}
+
 document.querySelector("[data-logout-button]")?.addEventListener("click", () => {
   localStorage.removeItem(tokenKey);
   location.href = "/";
 });
 
-const authLink = document.querySelector("[data-auth-link]");
-if (authLink && token()) {
-  authLink.textContent = "用户中心";
-  authLink.setAttribute("href", "/dashboard");
-}
-
 wireAuthForms();
-if (page === "dashboard") renderDashboard();
-if (page === "download") renderDownload();
+
+(async function init() {
+  renderAuthNav(await fetchCurrentUser());
+  if (page === "dashboard") renderDashboard();
+  if (page === "download") renderDownload();
+})();

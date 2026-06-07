@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LwyLink</title>
+  <link rel="icon" type="image/png" href="/site/assets/lwylink-icon.png">
+  <link rel="apple-touch-icon" href="/site/assets/lwylink-icon.png">
   <link rel="stylesheet" href="/site/assets/site.css">
   <script defer src="/site/assets/site.js" data-page="{{.Page}}"></script>
 </head>
@@ -13,10 +15,17 @@
       <img src="/site/assets/lwylink-icon.png" alt="">
       <span>LwyLink</span>
     </a>
-    <nav>
+    <nav class="site-nav">
       <a href="/download">下载</a>
-      <a href="/dashboard">用户中心</a>
-      <a href="/login" data-auth-link>登录</a>
+      <a class="nav-login" href="/login" data-auth-login>登录</a>
+      <a class="nav-user" href="/dashboard" data-auth-user hidden>
+        <span class="nav-avatar" data-auth-avatar>L</span>
+        <span class="nav-user-copy">
+          <strong data-auth-name>用户中心</strong>
+          <small data-auth-email></small>
+        </span>
+        <span class="nav-badge" data-auth-member>Free</span>
+      </a>
     </nav>
   </header>
 
@@ -111,29 +120,109 @@
       <p class="form-note">已有账号？<a href="/login">去登录</a></p>
     </section>
 
-    <section class="panel download-panel" data-view="download">
-      <div class="panel-title">
-        <p class="eyebrow">Client</p>
-        <h1>下载客户端</h1>
-        <p class="muted">下载需要登录。这样可以保护服务器流量，也方便你收到后续版本更新。</p>
+    <section class="download-page" data-view="download">
+      <div class="download-hero">
+        <div>
+          <p class="eyebrow">Client Center</p>
+          <h1>客户端下载</h1>
+          <p class="muted">获取最新 Windows 客户端。下载入口需要登录，版本信息公开展示，安装包通过短期链接和限流保护。</p>
+        </div>
+        <div class="download-status">
+          <span>Latest</span>
+          <strong data-release-version>正在获取版本...</strong>
+        </div>
       </div>
-      <div class="release-box" data-release-box>正在获取最新版本...</div>
-      <div class="actions">
-        <button class="button primary" data-download-button>获取下载链接</button>
-        <a class="button" href="/dashboard">用户中心</a>
+      <div class="download-layout">
+        <div class="download-card featured">
+          <div class="app-head">
+            <img src="/site/assets/lwylink-icon.png" alt="">
+            <div>
+              <strong>LwyLink</strong>
+              <span>Windows 游戏虚拟局域网客户端</span>
+            </div>
+          </div>
+          <dl class="release-meta">
+            <div><dt>平台</dt><dd data-release-platform>windows-amd64</dd></div>
+            <div><dt>文件</dt><dd data-release-file>LwyLink.exe</dd></div>
+            <div><dt>大小</dt><dd data-release-size>--</dd></div>
+            <div><dt>校验</dt><dd data-release-sha>--</dd></div>
+          </dl>
+          <p class="release-note" data-release-notes>正在获取最新版本...</p>
+          <div class="actions">
+            <button class="button primary" data-download-button>获取下载链接</button>
+            <a class="button" href="/dashboard">用户中心</a>
+          </div>
+        </div>
+        <aside class="download-side">
+          <div class="mini-card">
+            <span>接口入口</span>
+            <strong>HTTPS</strong>
+            <small>客户端默认连接 www.lwylink.xyz</small>
+          </div>
+          <div class="mini-card">
+            <span>P2P 策略</span>
+            <strong>默认开启</strong>
+            <small>UDP 直连优先，失败自动 TCP relay</small>
+          </div>
+          <div class="mini-card">
+            <span>下载保护</span>
+            <strong>登录下载</strong>
+            <small>短期 ticket、限流与下载日志</small>
+          </div>
+        </aside>
       </div>
     </section>
 
-    <section class="panel dashboard-panel" data-view="dashboard">
-      <div class="panel-title">
-        <p class="eyebrow">Dashboard</p>
-        <h1>用户中心</h1>
-        <p class="muted">查看账号状态并获取客户端。</p>
+    <section class="dashboard-page" data-view="dashboard">
+      <div class="dashboard-hero">
+        <div class="profile-avatar" data-profile-avatar>L</div>
+        <div>
+          <p class="eyebrow">Player Dashboard</p>
+          <h1 data-profile-name>用户中心</h1>
+          <p class="muted" data-profile-email>正在读取账号信息...</p>
+        </div>
+        <div class="dashboard-actions">
+          <a class="button primary" href="/download">下载客户端</a>
+          <button class="button" data-logout-button>退出登录</button>
+        </div>
       </div>
-      <div class="profile" data-profile>正在读取账号信息...</div>
-      <div class="actions">
-        <a class="button primary" href="/download">下载客户端</a>
-        <button class="button" data-logout-button>退出登录</button>
+
+      <div class="dashboard-grid">
+        <section class="member-card">
+          <div class="card-icon">月</div>
+          <span>会员 / 月卡</span>
+          <strong data-profile-membership>--</strong>
+          <p data-profile-member-note>正在读取会员信息...</p>
+        </section>
+
+        <section class="traffic-card">
+          <div class="card-title">
+            <span>中继流量</span>
+            <strong data-profile-traffic-percent>--</strong>
+          </div>
+          <div class="traffic-bar" aria-label="中继流量使用情况">
+            <span data-profile-traffic-bar></span>
+          </div>
+          <dl class="traffic-stats">
+            <div><dt>已用</dt><dd data-profile-traffic-used>--</dd></div>
+            <div><dt>剩余</dt><dd data-profile-traffic>--</dd></div>
+            <div><dt>总额度</dt><dd data-profile-traffic-quota>--</dd></div>
+          </dl>
+          <p class="traffic-period" data-profile-period>当前周期</p>
+        </section>
+
+        <section class="account-panel">
+          <div class="account-row"><span>账号 ID</span><strong data-profile-id>--</strong></div>
+          <div class="account-row"><span>邮箱账号</span><strong data-profile-account>--</strong></div>
+          <div class="account-row"><span>账号角色</span><strong data-profile-role>--</strong></div>
+          <div class="account-row"><span>注册时间</span><strong data-profile-created>--</strong></div>
+        </section>
+
+        <section class="quick-card">
+          <span>下一步</span>
+          <strong>进入客户端创建房间</strong>
+          <p>登录同一个邮箱账号后即可创建房间、复制房间密钥并邀请好友加入。</p>
+        </section>
       </div>
     </section>
   </main>
