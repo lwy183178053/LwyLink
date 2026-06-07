@@ -3,8 +3,8 @@
 1. 编译示例：
 
 ```powershell
-javac .\examples\java\LwyLinkRoomExample.java
-javac .\examples\java\LwyLinkNetExample.java
+javac .\examples\java\LwyLink.java .\examples\java\LwyLinkRoomExample.java
+javac .\examples\java\LwyLink.java .\examples\java\LwyLinkNetExample.java
 ```
 
 2. 登录并保存 token：

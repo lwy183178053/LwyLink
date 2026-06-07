@@ -1,28 +1,15 @@
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public final class LwyLinkNetExample {
-    private static final Path REPO_ROOT = Path.of("").toAbsolutePath().normalize();
-    private static final Path DEFAULT_EXE = REPO_ROOT.resolve("build").resolve("lwylink-net.exe");
-    private static final Pattern JSON_STRING_FIELD =
-            Pattern.compile("\"([A-Za-z0-9_]+)\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
-    private static final Pattern JSON_NUMBER_FIELD =
-            Pattern.compile("\"([A-Za-z0-9_]+)\"\\s*:\\s*(-?\\d+)");
+    private static final Path DEFAULT_EXE = Path.of("").toAbsolutePath().normalize()
+            .resolve("build")
+            .resolve("lwylink-net.exe");
 
     public static void main(String[] args) throws Exception {
         int code = run(args);
@@ -47,113 +34,80 @@ public final class LwyLinkNetExample {
     }
 
     private static int selfTest(Path exe) throws Exception {
-        exe = resolveExe(exe);
-        Process help = new ProcessBuilder(exe.toString(), "--help")
-                .redirectErrorStream(true)
-                .start();
-        String helpOutput;
-        try (BufferedReader reader = reader(help)) {
-            helpOutput = reader.lines().collect(Collectors.joining(System.lineSeparator()));
-        }
-        int helpCode = help.waitFor();
-        if (helpCode != 0 || !helpOutput.contains("lwylink-net.exe connect")) {
-            System.err.println("unexpected help output from lwylink-net.exe");
-            System.err.println(helpOutput);
-            return helpCode == 0 ? 1 : helpCode;
-        }
-
-        List<String> command = List.of(
-                exe.toString(),
-                "connect",
-                "--token", "self-test-token",
-                "--user-id", "1",
-                "--room-id", "1",
-                "--room-public-key", "self-test-room-key",
-                "--network-cidr", "172.16.1.0/24",
-                "--overlay-addr", "127.0.0.1:1",
-                "--server-public-key", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "--p2p=false"
-        );
-        Process probe = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
-        List<Map<String, String>> events = new ArrayList<>();
-        try (BufferedReader reader = reader(probe)) {
-            long deadline = System.nanoTime() + Duration.ofSeconds(8).toNanos();
-            while (System.nanoTime() < deadline && events.size() < 4) {
-                if (!reader.ready()) {
-                    Thread.sleep(50);
-                    continue;
-                }
-                String line = reader.readLine();
-                if (line == null) {
-                    break;
-                }
-                if (!line.isBlank()) {
-                    events.add(parseEvent(line));
-                }
-                Set<String> types = eventTypes(events);
-                if (types.contains("preparing") && types.contains("connecting")) {
-                    break;
-                }
+        try (LwyLink.NetEngine engine = new LwyLink.NetEngine(exe)) {
+            Process help = new ProcessBuilder(engine.exe().toString(), "--help")
+                    .redirectErrorStream(true)
+                    .start();
+            int helpCode = help.waitFor();
+            if (helpCode != 0) {
+                System.err.println("unexpected help return code from lwylink-net.exe: " + helpCode);
+                return helpCode;
             }
-        } finally {
-            terminate(probe);
-        }
 
-        Set<String> types = eventTypes(events);
-        if (!types.contains("preparing") || !types.contains("connecting")) {
-            System.err.println("self-test did not receive expected JSON events");
-            System.err.println(events);
+            LwyLink.ConnectOptions options = new LwyLink.ConnectOptions();
+            options.token = "self-test-token";
+            options.userID = 1;
+            options.roomID = 1;
+            options.roomPublicKey = "self-test-room-key";
+            options.networkCIDR = "172.16.1.0/24";
+            options.overlayAddr = "127.0.0.1:1";
+            options.serverPublicKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            options.p2p = false;
+
+            List<Map<String, String>> events = new ArrayList<>();
+            engine.start(options, event -> {
+                synchronized (events) {
+                    events.add(event);
+                }
+            });
+
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(8).toNanos();
+            while (System.nanoTime() < deadline) {
+                synchronized (events) {
+                    if (hasEventTypes(events, "preparing", "connecting")) {
+                        System.out.println("self-test ok: Java launched lwylink-net.exe and parsed JSON status events");
+                        return 0;
+                    }
+                }
+                Thread.sleep(50);
+            }
+
+            synchronized (events) {
+                System.err.println("self-test did not receive expected JSON events");
+                System.err.println(events);
+            }
             return 1;
         }
-        System.out.println("self-test ok: Java launched lwylink-net.exe and parsed JSON status events");
-        return 0;
     }
 
     private static int runConnect(Cli cli) throws Exception {
-        Path exe = resolveExe(cli.exe);
-        List<String> command = new ArrayList<>();
-        command.add(exe.toString());
-        command.add("connect");
-        add(command, "--api", cli.value("api", env("LWYLINK_API", "http://127.0.0.1:8080")));
-        add(command, "--if", cli.value("if-name", env("LWYLINK_IF", "LwyLink")));
-        add(command, "--p2p", cli.value("p2p", env("LWYLINK_P2P", "true")));
-        addIfPresent(command, "--token", cli.value("token", env("LWYLINK_TOKEN", "")));
-        addIfPositive(command, "--room-id", cli.value("room-id", env("LWYLINK_ROOM_ID", "")));
-        addIfPositive(command, "--user-id", cli.value("user-id", env("LWYLINK_USER_ID", "")));
-        addIfPresent(command, "--room-name", cli.value("room-name", env("LWYLINK_ROOM_NAME", "")));
-        addIfPresent(command, "--room-public-key", cli.value("room-public-key", env("LWYLINK_ROOM_PUBLIC_KEY", "")));
-        addIfPresent(command, "--network-cidr", cli.value("network-cidr", env("LWYLINK_NETWORK_CIDR", "")));
-        addIfPresent(command, "--overlay-addr", cli.value("overlay-addr", env("LWYLINK_OVERLAY_ADDR", "")));
-        addIfPresent(command, "--server-public-key", cli.value("server-public-key", env("LWYLINK_SERVER_PUBLIC_KEY", "")));
-        return streamProcess(command);
+        LwyLink.ConnectOptions options = new LwyLink.ConnectOptions();
+        options.api = cli.value("api", LwyLink.env("LWYLINK_API", LwyLink.DEFAULT_API));
+        options.token = cli.value("token", LwyLink.env("LWYLINK_TOKEN", ""));
+        options.roomID = longValue(cli.value("room-id", LwyLink.env("LWYLINK_ROOM_ID", "0")));
+        options.ifName = cli.value("if-name", LwyLink.env("LWYLINK_IF", "LwyLink"));
+        options.p2p = boolValue(cli.value("p2p", LwyLink.env("LWYLINK_P2P", "true")));
+        options.userID = longValue(cli.value("user-id", LwyLink.env("LWYLINK_USER_ID", "0")));
+        options.roomName = cli.value("room-name", LwyLink.env("LWYLINK_ROOM_NAME", ""));
+        options.roomPublicKey = cli.value("room-public-key", LwyLink.env("LWYLINK_ROOM_PUBLIC_KEY", ""));
+        options.networkCIDR = cli.value("network-cidr", LwyLink.env("LWYLINK_NETWORK_CIDR", ""));
+        options.overlayAddr = cli.value("overlay-addr", LwyLink.env("LWYLINK_OVERLAY_ADDR", ""));
+        options.serverPublicKey = cli.value("server-public-key", LwyLink.env("LWYLINK_SERVER_PUBLIC_KEY", ""));
+
+        try (LwyLink.NetEngine engine = new LwyLink.NetEngine(cli.exe)) {
+            Runtime.getRuntime().addShutdownHook(new Thread(engine::close));
+            engine.start(options, LwyLinkNetExample::handleEvent);
+            return engine.waitFor();
+        }
     }
 
     private static int runCleanup(Cli cli) throws Exception {
-        Path exe = resolveExe(cli.exe);
-        List<String> command = new ArrayList<>();
-        command.add(exe.toString());
-        command.add("cleanup");
-        add(command, "--if", cli.value("if-name", env("LWYLINK_IF", "LwyLink")));
-        addIfPresent(command, "--cidr", cli.value("cidr", env("LWYLINK_NETWORK_CIDR", "")));
-        return streamProcess(command);
-    }
-
-    private static int streamProcess(List<String> command) throws Exception {
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> terminate(process)));
-        try (BufferedReader reader = reader(process)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.isBlank()) {
-                    handleEvent(parseEvent(line));
-                }
-            }
+        try (LwyLink.NetEngine engine = new LwyLink.NetEngine(cli.exe)) {
+            return engine.cleanup(
+                    cli.value("if-name", LwyLink.env("LWYLINK_IF", "LwyLink")),
+                    cli.value("cidr", LwyLink.env("LWYLINK_NETWORK_CIDR", ""))
+            );
         }
-        return process.waitFor();
     }
 
     private static void handleEvent(Map<String, String> event) {
@@ -178,97 +132,38 @@ public final class LwyLinkNetExample {
         }
     }
 
-    private static Map<String, String> parseEvent(String line) {
-        Map<String, String> out = new LinkedHashMap<>();
-        Matcher stringMatcher = JSON_STRING_FIELD.matcher(line);
-        while (stringMatcher.find()) {
-            out.put(stringMatcher.group(1), unescapeJsonString(stringMatcher.group(2)));
-        }
-        Matcher numberMatcher = JSON_NUMBER_FIELD.matcher(line);
-        while (numberMatcher.find()) {
-            out.putIfAbsent(numberMatcher.group(1), numberMatcher.group(2));
-        }
-        if (out.isEmpty()) {
-            out.put("type", "raw");
-            out.put("message", line);
-        }
-        return out;
-    }
-
-    private static String unescapeJsonString(String value) {
-        return value
-                .replace("\\\"", "\"")
-                .replace("\\\\", "\\")
-                .replace("\\n", "\n")
-                .replace("\\r", "\r")
-                .replace("\\t", "\t");
-    }
-
-    private static Set<String> eventTypes(List<Map<String, String>> events) {
-        return events.stream()
-                .map(event -> event.get("type"))
-                .collect(Collectors.toSet());
-    }
-
-    private static BufferedReader reader(Process process) {
-        return new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-    }
-
-    private static Path resolveExe(Path path) {
-        Path resolved = path.isAbsolute() ? path : REPO_ROOT.resolve(path);
-        resolved = resolved.normalize();
-        if (!Files.exists(resolved)) {
-            throw new IllegalArgumentException("lwylink-net.exe not found: " + resolved);
-        }
-        return resolved;
-    }
-
-    private static void terminate(Process process) {
-        if (!process.isAlive()) {
-            return;
-        }
-        process.destroy();
-        try {
-            if (!process.waitFor(3, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        }
-    }
-
-    private static void add(List<String> command, String key, String value) {
-        command.add(key);
-        command.add(value);
-    }
-
-    private static void addIfPresent(List<String> command, String key, String value) {
-        if (value != null && !value.isBlank()) {
-            add(command, key, value);
-        }
-    }
-
-    private static void addIfPositive(List<String> command, String key, String value) {
+    private static long longValue(String value) {
         if (value == null || value.isBlank()) {
-            return;
+            return 0;
         }
         try {
-            if (Long.parseLong(value) > 0) {
-                add(command, key, value);
-            }
+            return Long.parseLong(value);
         } catch (NumberFormatException ignored) {
+            return 0;
         }
     }
 
-    private static String env(String key, String fallback) {
-        String value = System.getenv(key);
-        return value == null || value.isBlank() ? fallback : value.trim();
+    private static boolean boolValue(String value) {
+        return value == null || !java.util.List.of("0", "false", "no", "off").contains(value.trim().toLowerCase());
+    }
+
+    private static boolean hasEventTypes(List<Map<String, String>> events, String... expected) {
+        Set<String> types = new HashSet<>();
+        for (Map<String, String> event : events) {
+            types.add(event.get("type"));
+        }
+        for (String type : expected) {
+            if (!types.contains(type)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void printUsage() {
         System.out.println("""
                 Usage:
+                  javac examples/java/LwyLink.java examples/java/LwyLinkNetExample.java
                   java -cp examples/java LwyLinkNetExample --self-test
                   java -cp examples/java LwyLinkNetExample connect [options]
                   java -cp examples/java LwyLinkNetExample cleanup [options]
@@ -279,6 +174,7 @@ public final class LwyLinkNetExample {
                   --api <url>               Control API URL
                   --room-id <id>            Room ID
                   --if-name <name>          Wintun adapter name
+                  --p2p true|false          Enable UDP direct path
                 """);
     }
 

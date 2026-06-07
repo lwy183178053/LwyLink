@@ -6,9 +6,12 @@
 
 | 文件 | 说明 |
 | --- | --- |
+| `lwylink.py` | 可复制到项目里的标准库客户端小库 |
 | `lwylink_room_example.py` | HTTP JSON API + SSE 房间事件示例 |
 | `lwylink_net_example.py` | 调用 `lwylink-net.exe` 的虚拟组网示例 |
 | `FULL_FLOW.md` | 从登录、建房、监听事件到启动组网的完整流程 |
+
+`lwylink.py` 封装了房间 API、SSE 事件流，以及启动/停止 `lwylink-net.exe` 的基础逻辑；两个 `*_example.py` 文件只保留 CLI 演示代码。
 
 `lwylink_net_example.py` 会：
 

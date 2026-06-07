@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""Example Python wrapper for the LwyLink virtual network engine.
-
-The wrapper treats lwylink-net.exe as an external process and consumes its
-stdout as JSON Lines. This keeps Python out of the Wintun, routing, encryption,
-and UDP direct-path details.
-"""
+"""CLI example that calls the copy-paste friendly lwylink.py library."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import signal
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from lwylink import ConnectOptions, NetEngine, env_bool, install_sigint_stop, parse_event
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--token", default=os.getenv("LWYLINK_TOKEN", ""))
     connect.add_argument("--room-id", type=int, default=int(os.getenv("LWYLINK_ROOM_ID", "0") or "0"))
     connect.add_argument("--if-name", default=os.getenv("LWYLINK_IF", "LwyLink"))
-    connect.add_argument("--p2p", action=argparse.BooleanOptionalAction, default=parse_bool(os.getenv("LWYLINK_P2P", "true")))
+    connect.add_argument("--p2p", action=argparse.BooleanOptionalAction, default=env_bool("LWYLINK_P2P", True))
     connect.add_argument("--user-id", type=int, default=int(os.getenv("LWYLINK_USER_ID", "0") or "0"))
     connect.add_argument("--room-name", default=os.getenv("LWYLINK_ROOM_NAME", ""))
     connect.add_argument("--room-public-key", default=os.getenv("LWYLINK_ROOM_PUBLIC_KEY", ""))
@@ -65,9 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def self_test(exe: Path) -> int:
-    exe = resolve_exe(exe)
+    engine = NetEngine(exe)
     completed = subprocess.run(
-        [str(exe), "--help"],
+        [str(engine.exe), "--help"],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -82,9 +77,9 @@ def self_test(exe: Path) -> int:
         print(output, file=sys.stderr)
         return 1
 
-    probe = subprocess.Popen(
+    process = subprocess.Popen(
         [
-            str(exe),
+            str(engine.exe),
             "connect",
             "--token",
             "self-test-token",
@@ -104,14 +99,14 @@ def self_test(exe: Path) -> int:
         ],
         text=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         bufsize=1,
     )
     events: list[dict[str, Any]] = []
     try:
-        assert probe.stdout is not None
+        assert process.stdout is not None
         for _ in range(4):
-            line = probe.stdout.readline()
+            line = process.stdout.readline()
             if not line:
                 break
             events.append(parse_event(line.strip()))
@@ -119,20 +114,18 @@ def self_test(exe: Path) -> int:
             if "preparing" in event_types and "connecting" in event_types:
                 break
     finally:
-        if probe.poll() is None:
-            probe.terminate()
+        if process.poll() is None:
+            process.terminate()
             try:
-                probe.wait(timeout=3)
+                process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                probe.kill()
-                probe.wait(timeout=3)
+                process.kill()
+                process.wait(timeout=3)
 
     event_types = {event.get("type") for event in events}
     if "preparing" not in event_types or "connecting" not in event_types:
         print("self-test did not receive expected JSON events", file=sys.stderr)
-        print(json.dumps(events, ensure_ascii=False), file=sys.stderr)
-        if probe.stderr is not None:
-            print(probe.stderr.read(), file=sys.stderr)
+        print(events, file=sys.stderr)
         return 1
 
     print("self-test ok: Python launched lwylink-net.exe and parsed JSON status events")
@@ -140,89 +133,29 @@ def self_test(exe: Path) -> int:
 
 
 def run_connect(args: argparse.Namespace) -> int:
-    exe = resolve_exe(args.exe)
-    command = [
-        str(exe),
-        "connect",
-        "--api",
-        args.api,
-        "--if",
-        args.if_name,
-        "--p2p=" + bool_text(args.p2p),
-    ]
-    if args.token:
-        command += ["--token", args.token]
-    if args.room_id > 0:
-        command += ["--room-id", str(args.room_id)]
-    command += direct_connect_args(args)
-
-    return stream_process(command)
-
-
-def direct_connect_args(args: argparse.Namespace) -> list[str]:
-    fields = [
-        ("--user-id", args.user_id),
-        ("--room-name", args.room_name),
-        ("--room-public-key", args.room_public_key),
-        ("--network-cidr", args.network_cidr),
-        ("--overlay-addr", args.overlay_addr),
-        ("--server-public-key", args.server_public_key),
-    ]
-    out: list[str] = []
-    for flag, value in fields:
-        if value:
-            out += [flag, str(value)]
-    return out
+    engine = NetEngine(args.exe)
+    install_sigint_stop(engine)
+    engine.start(
+        ConnectOptions(
+            api=args.api,
+            token=args.token,
+            room_id=args.room_id,
+            if_name=args.if_name,
+            p2p=args.p2p,
+            user_id=args.user_id,
+            room_name=args.room_name,
+            room_public_key=args.room_public_key,
+            network_cidr=args.network_cidr,
+            overlay_addr=args.overlay_addr,
+            server_public_key=args.server_public_key,
+        ),
+        handle_event,
+    )
+    return engine.wait()
 
 
 def run_cleanup(args: argparse.Namespace) -> int:
-    exe = resolve_exe(args.exe)
-    command = [str(exe), "cleanup", "--if", args.if_name]
-    if args.cidr:
-        command += ["--cidr", args.cidr]
-    return stream_process(command)
-
-
-def stream_process(command: Iterable[str]) -> int:
-    process = subprocess.Popen(
-        list(command),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        bufsize=1,
-    )
-
-    def stop_child(signum: int, _frame: Any) -> None:
-        del signum
-        if process.poll() is None:
-            process.terminate()
-
-    previous_sigint = signal.signal(signal.SIGINT, stop_child)
-    try:
-        assert process.stdout is not None
-        for line in process.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            handle_event(parse_event(line))
-        stderr = process.stderr.read() if process.stderr else ""
-        if stderr.strip():
-            print(stderr.strip(), file=sys.stderr)
-        return process.wait()
-    finally:
-        signal.signal(signal.SIGINT, previous_sigint)
-        if process.poll() is None:
-            process.terminate()
-
-
-def parse_event(line: str) -> dict[str, Any]:
-    try:
-        value = json.loads(line)
-    except json.JSONDecodeError:
-        return {"type": "raw", "message": line}
-    if isinstance(value, dict):
-        return value
-    return {"type": "raw", "message": line}
+    return NetEngine(args.exe).cleanup(args.if_name, args.cidr)
 
 
 def handle_event(event: dict[str, Any]) -> None:
@@ -236,23 +169,6 @@ def handle_event(event: dict[str, Any]) -> None:
     else:
         message = event.get("message", "")
         print(f"{event_type}: {message}" if message else event_type)
-
-
-def resolve_exe(path: Path) -> Path:
-    resolved = path.expanduser()
-    if not resolved.is_absolute():
-        resolved = (Path.cwd() / resolved).resolve()
-    if not resolved.exists():
-        raise SystemExit(f"lwylink-net.exe not found: {resolved}")
-    return resolved
-
-
-def parse_bool(value: str) -> bool:
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def bool_text(value: bool) -> str:
-    return "true" if value else "false"
 
 
 if __name__ == "__main__":

@@ -9,11 +9,13 @@
 
 ## Python
 
+- `examples/python/lwylink.py`：可复制到项目里的标准库客户端小库。
 - `examples/python/lwylink_room_example.py`：账号、房间、聊天、SSE 示例。
 - `examples/python/lwylink_net_example.py`：调用独立虚拟组网 EXE 示例。
 
 ## Java
 
+- `examples/java/LwyLink.java`：可复制到项目里的 JDK 标准库客户端小库。
 - `examples/java/LwyLinkRoomExample.java`：账号、房间、聊天、SSE 示例。
 - `examples/java/LwyLinkNetExample.java`：调用独立虚拟组网 EXE 示例。
 

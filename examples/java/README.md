@@ -8,9 +8,12 @@
 
 | 文件 | 说明 |
 | --- | --- |
+| `LwyLink.java` | 可复制到项目里的 JDK 标准库客户端小库 |
 | `LwyLinkRoomExample.java` | HTTP JSON API + SSE 房间事件示例 |
 | `LwyLinkNetExample.java` | 调用 `lwylink-net.exe` 的虚拟组网示例 |
 | `FULL_FLOW.md` | 从登录、建房、监听事件到启动组网的完整流程 |
+
+`LwyLink.java` 封装了房间 API、SSE 事件流，以及启动/停止 `lwylink-net.exe` 的基础逻辑；两个 `*Example.java` 文件只保留 CLI 演示代码。
 
 `LwyLinkNetExample.java` 会：
 
@@ -23,8 +26,8 @@
 ## 编译
 
 ```powershell
-javac .\examples\java\LwyLinkRoomExample.java
-javac .\examples\java\LwyLinkNetExample.java
+javac .\examples\java\LwyLink.java .\examples\java\LwyLinkRoomExample.java
+javac .\examples\java\LwyLink.java .\examples\java\LwyLinkNetExample.java
 ```
 
 ## 自测

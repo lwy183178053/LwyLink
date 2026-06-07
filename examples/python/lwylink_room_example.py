@@ -1,97 +1,14 @@
 #!/usr/bin/env python3
-"""Example Python client for LwyLink room APIs and SSE room events."""
+"""CLI example that calls the copy-paste friendly lwylink.py library."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-from dataclasses import dataclass
 from typing import Any
 
-
-DEFAULT_API = "http://127.0.0.1:8080"
-
-
-@dataclass
-class LwyLinkRoomClient:
-    api: str
-    token: str = ""
-
-    def request(self, method: str, path: str, body: Any | None = None) -> Any:
-        data = None
-        headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = "Bearer " + self.token
-        if body is not None:
-            data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(self.api.rstrip("/") + path, data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = resp.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
-            try:
-                message = json.loads(raw).get("error") or raw
-            except json.JSONDecodeError:
-                message = raw
-            raise RuntimeError(f"http {exc.code}: {message}") from exc
-        return json.loads(raw) if raw.strip() else None
-
-    def register(self, username: str, password: str, display_name: str = "") -> dict[str, Any]:
-        result = self.request("POST", "/api/register", {"username": username, "password": password, "displayName": display_name})
-        self.token = result["token"]
-        return result
-
-    def login(self, username: str, password: str) -> dict[str, Any]:
-        result = self.request("POST", "/api/login", {"username": username, "password": password})
-        self.token = result["token"]
-        return result
-
-    def me(self) -> dict[str, Any]:
-        return self.request("GET", "/api/me")
-
-    def rooms(self) -> list[dict[str, Any]]:
-        return self.request("GET", "/api/rooms")
-
-    def create_room(self, name: str, max_members: int) -> dict[str, Any]:
-        return self.request("POST", "/api/rooms", {"name": name, "maxMembers": max_members})
-
-    def join_room(self, room_public_key: str) -> dict[str, Any]:
-        return self.request("POST", "/api/rooms/join", {"roomPublicKey": room_public_key})
-
-    def members(self, room_id: int) -> list[dict[str, Any]]:
-        query = urllib.parse.urlencode({"roomID": room_id})
-        return self.request("GET", "/api/rooms/members?" + query)
-
-    def send_chat(self, room_id: int, message: str) -> dict[str, Any]:
-        return self.request("POST", "/api/rooms/chat", {"roomID": room_id, "message": message})
-
-    def leave_room(self, room_id: int) -> Any:
-        return self.request("POST", "/api/rooms/leave", {"roomID": room_id})
-
-    def delete_room(self, room_id: int) -> Any:
-        return self.request("POST", "/api/rooms/delete", {"roomID": room_id})
-
-    def room_events(self):
-        headers = {}
-        if self.token:
-            headers["Authorization"] = "Bearer " + self.token
-        req = urllib.request.Request(self.api.rstrip() + "/api/rooms/events", method="GET", headers=headers)
-        with urllib.request.urlopen(req, timeout=None) as resp:
-            event_data: list[str] = []
-            for raw in resp:
-                line = raw.decode("utf-8").rstrip("\r\n")
-                if line == "":
-                    if event_data:
-                        yield json.loads("\n".join(event_data))
-                        event_data.clear()
-                    continue
-                if line.startswith("data:"):
-                    event_data.append(line.removeprefix("data:").strip())
+from lwylink import DEFAULT_API, RoomClient
 
 
 def main() -> int:
@@ -99,7 +16,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_test:
         return self_test()
-    client = LwyLinkRoomClient(args.api, args.token)
+    client = RoomClient(args.api, args.token)
 
     if args.command == "register":
         print_json(client.register(args.username, args.password, args.display_name))
@@ -189,7 +106,7 @@ def self_test() -> int:
     if parsed != [{"type": "connected", "roomID": 1}]:
         print("self-test failed to parse SSE sample", file=sys.stderr)
         return 1
-    print("self-test ok: room API helpers and SSE parser are ready")
+    print("self-test ok: room API library is ready")
     return 0
 
 
