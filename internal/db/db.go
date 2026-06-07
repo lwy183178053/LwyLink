@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-			username VARCHAR(64) NOT NULL UNIQUE,
+			username VARCHAR(254) NOT NULL UNIQUE,
 			password_hash VARCHAR(255) NOT NULL,
 			display_name VARCHAR(64) NOT NULL,
 			role VARCHAR(32) NOT NULL DEFAULT 'player',
@@ -101,6 +101,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			UNIQUE INDEX uniq_client_releases_platform_version (platform, version),
 			INDEX idx_client_releases_platform_created (platform, created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS client_download_logs (
+			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			user_id BIGINT NULL,
+			ip VARCHAR(64) NOT NULL DEFAULT '',
+			platform VARCHAR(32) NOT NULL DEFAULT '',
+			version VARCHAR(32) NOT NULL DEFAULT '',
+			file_name VARCHAR(255) NOT NULL DEFAULT '',
+			stored_file_name VARCHAR(255) NOT NULL DEFAULT '',
+			result VARCHAR(32) NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_client_download_logs_user_created (user_id, created_at),
+			INDEX idx_client_download_logs_ip_created (ip, created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS app_settings (
 			setting_key VARCHAR(64) NOT NULL PRIMARY KEY,
 			setting_value TEXT NOT NULL,
@@ -117,6 +130,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	if err := ensureColumn(ctx, db, "users", "membership", "VARCHAR(16) NOT NULL DEFAULT 'free' AFTER role"); err != nil {
 		return fmt.Errorf("migrate users.membership: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE users MODIFY COLUMN username VARCHAR(254) NOT NULL`); err != nil {
+		return fmt.Errorf("migrate users.username: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "users", "relay_traffic_used_bytes", "BIGINT NOT NULL DEFAULT 0 AFTER disabled"); err != nil {
 		return fmt.Errorf("migrate users.relay_traffic_used_bytes: %w", err)

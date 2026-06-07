@@ -28,6 +28,7 @@ type User struct {
 type PublicUser struct {
 	ID                         int64     `json:"id"`
 	Username                   string    `json:"username"`
+	Email                      string    `json:"email"`
 	DisplayName                string    `json:"displayName"`
 	Role                       string    `json:"role"`
 	Membership                 string    `json:"membership"`
@@ -51,6 +52,7 @@ func (u User) Public() PublicUser {
 	return PublicUser{
 		ID:                         u.ID,
 		Username:                   u.Username,
+		Email:                      u.Username,
 		DisplayName:                u.DisplayName,
 		Role:                       u.Role,
 		Membership:                 normalizeMembership(u.Membership),

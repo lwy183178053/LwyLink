@@ -98,6 +98,23 @@ func (r *Repository) Count(ctx context.Context) (int, error) {
 	return total, err
 }
 
+func (r *Repository) LogDownload(ctx context.Context, item DownloadLog) error {
+	if r == nil || r.db == nil {
+		return nil
+	}
+	var userID any
+	if item.UserID > 0 {
+		userID = item.UserID
+	}
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO client_download_logs
+		 (user_id, ip, platform, version, file_name, stored_file_name, result)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		userID, item.IP, item.Platform, item.Version, item.FileName, item.StoredFileName, item.Result,
+	)
+	return err
+}
+
 func releaseWhere(filter Filter) (string, []any) {
 	var parts []string
 	var args []any

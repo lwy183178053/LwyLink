@@ -3,6 +3,7 @@ export namespace account {
 	export class PublicUser {
 	    id: number;
 	    username: string;
+	    email: string;
 	    displayName: string;
 	    role: string;
 	    membership: string;
@@ -23,6 +24,7 @@ export namespace account {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.username = source["username"];
+	        this.email = source["email"];
 	        this.displayName = source["displayName"];
 	        this.role = source["role"];
 	        this.membership = source["membership"];
@@ -188,6 +190,7 @@ export namespace main {
 	    }
 	}
 	export class LoginInput {
+	    email: string;
 	    username: string;
 	    password: string;
 	
@@ -197,6 +200,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
 	        this.username = source["username"];
 	        this.password = source["password"];
 	    }
@@ -214,6 +218,7 @@ export namespace main {
 	    }
 	}
 	export class RegisterInput {
+	    email: string;
 	    username: string;
 	    password: string;
 	    displayName: string;
@@ -224,6 +229,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
 	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.displayName = source["displayName"];

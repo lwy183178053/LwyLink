@@ -102,6 +102,7 @@ func (a *App) startUpdateCheckLocked(message string) {
 	a.updateSeq++
 	seq := a.updateSeq
 	apiBaseURL := a.apiBaseURL
+	token := a.api.Token()
 	a.preparedUpdatePath = ""
 	a.update = UpdateState{
 		Status:         updateStatusChecking,
@@ -109,10 +110,10 @@ func (a *App) startUpdateCheckLocked(message string) {
 		CurrentVersion: AppVersion,
 		Platform:       updatePlatform,
 	}
-	go a.runUpdateCheck(seq, apiBaseURL)
+	go a.runUpdateCheck(seq, apiBaseURL, token)
 }
 
-func (a *App) runUpdateCheck(seq int64, apiBaseURL string) {
+func (a *App) runUpdateCheck(seq int64, apiBaseURL, token string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -145,11 +146,15 @@ func (a *App) runUpdateCheck(seq int64, apiBaseURL string) {
 		}, "")
 		return
 	}
+	if strings.TrimSpace(token) == "" {
+		a.applyUpdateState(seq, updateStateFromRelease(release, updateStatusIdle, "发现新版本，请登录后下载"), "")
+		return
+	}
 
 	downloading := updateStateFromRelease(release, updateStatusDownloading, "发现新版本，正在后台下载")
 	a.applyUpdateState(seq, downloading, "")
 
-	path, err := downloadPreparedUpdate(ctx, apiBaseURL, release)
+	path, err := downloadPreparedUpdate(ctx, apiBaseURL, token, release)
 	if err != nil {
 		failed := updateStateFromRelease(release, updateStatusError, "下载更新失败: "+err.Error())
 		a.applyUpdateState(seq, failed, "")
@@ -247,7 +252,7 @@ func fetchLatestRelease(ctx context.Context, apiBaseURL string) (clientrelease.P
 	return release, nil
 }
 
-func downloadPreparedUpdate(ctx context.Context, apiBaseURL string, release clientrelease.PublicRelease) (string, error) {
+func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, release clientrelease.PublicRelease) (string, error) {
 	downloadURL, err := resolveDownloadURL(apiBaseURL, release.DownloadURL)
 	if err != nil {
 		return "", err
@@ -276,6 +281,9 @@ func downloadPreparedUpdate(ctx context.Context, apiBaseURL string, release clie
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	}
 	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
 	if err != nil {

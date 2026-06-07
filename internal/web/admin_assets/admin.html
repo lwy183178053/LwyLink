@@ -411,7 +411,7 @@
         <td>{{timeText .CreatedAt}}</td>
         <td>
           <div class="row-actions">
-            <a class="button" href="/downloads/client/{{.StoredFileName}}">下载</a>
+            <a class="button" href="/downloads/client/{{.StoredFileName}}?token={{$.Token}}">下载</a>
             <form method="post" action="/admin/releases/delete" data-confirm="确认删除该版本？客户端将不再收到这个更新包。">
               {{template "context-inputs" $}}
               <input type="hidden" name="releaseID" value="{{.ID}}">

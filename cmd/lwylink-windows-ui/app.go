@@ -71,12 +71,14 @@ type SettingsInput struct {
 }
 
 type RegisterInput struct {
+	Email       string `json:"email"`
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
 }
 
 type LoginInput struct {
+	Email    string `json:"email"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
@@ -145,6 +147,15 @@ func newConnectionState(status, message string) ConnectionState {
 		Status:  status,
 		Message: message,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func newRoomConnectionState(status, message string, selected room.Room) ConnectionState {
@@ -325,7 +336,7 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 }
 
 func (a *App) Register(input RegisterInput) (AppState, error) {
-	input.Username = strings.TrimSpace(input.Username)
+	input.Email = strings.TrimSpace(firstNonEmpty(input.Email, input.Username))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -335,7 +346,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	api := a.api.Clone()
 	a.mu.Unlock()
 
-	res, err := api.Register(ctx, input.Username, input.Password, input.DisplayName)
+	res, err := api.Register(ctx, input.Email, input.Password, input.DisplayName)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -349,12 +360,12 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	a.api = api
 	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
 	state := a.commitStateLocked()
-	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Username, Password: input.Password})
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Email, Password: input.Password})
 	return state, nil
 }
 
 func (a *App) Login(input LoginInput) (AppState, error) {
-	input.Username = strings.TrimSpace(input.Username)
+	input.Email = strings.TrimSpace(firstNonEmpty(input.Email, input.Username))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -363,7 +374,7 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 	api := a.api.Clone()
 	a.mu.Unlock()
 
-	res, err := api.Login(ctx, input.Username, input.Password)
+	res, err := api.Login(ctx, input.Email, input.Password)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -377,7 +388,7 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 	a.api = api
 	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
 	state := a.commitStateLocked()
-	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Username, Password: input.Password})
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Email, Password: input.Password})
 	return state, nil
 }
 

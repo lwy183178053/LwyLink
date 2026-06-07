@@ -1,6 +1,7 @@
 export type PublicUser = {
   id: number;
   username: string;
+  email: string;
   displayName: string;
   role: string;
   membership: "free" | "vip" | string;

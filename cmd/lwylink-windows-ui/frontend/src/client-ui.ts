@@ -1,16 +1,16 @@
 import type { PublicUser } from "./types";
 
-export const usernameMinLength = 3;
-export const usernameMaxLength = 32;
+export const emailMinLength = 6;
+export const emailMaxLength = 254;
 export const passwordMinLength = 6;
 export const passwordMaxLength = 128;
 
-const usernamePattern = /^[a-z0-9_-]+$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type PageKey = "account" | "room" | "settings";
 
 export type LoginForm = {
-  username: string;
+  email: string;
   password: string;
   displayName: string;
 };
@@ -68,11 +68,11 @@ const updateStatusTones: Record<string, string> = {
   error: "bad",
 };
 
-export function authRuleState(username: string, password: string) {
-  const name = username.trim();
+export function authRuleState(email: string, password: string) {
+  const value = email.trim();
   return {
-    usernameLength: name.length >= usernameMinLength && name.length <= usernameMaxLength,
-    usernameCharset: name === "" || usernamePattern.test(name),
+    emailLength: value.length >= emailMinLength && value.length <= emailMaxLength,
+    emailFormat: value === "" || emailPattern.test(value),
     passwordLength: password.length >= passwordMinLength && password.length <= passwordMaxLength,
   };
 }

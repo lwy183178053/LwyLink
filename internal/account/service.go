@@ -14,17 +14,17 @@ import (
 
 var (
 	ErrNotFound             = errors.New("account not found")
-	ErrUnauthorized         = errors.New("invalid username or password")
+	ErrUnauthorized         = errors.New("invalid email or password")
 	ErrDisabled             = errors.New("account is disabled")
 	ErrSessionStore         = errors.New("account session store unavailable")
 	ErrSessionStale         = errors.New("account has logged in elsewhere")
-	ErrUsernameUsed         = errors.New("用户名已存在")
+	ErrUsernameUsed         = errors.New("邮箱已注册")
 	ErrRelayTrafficExceeded = errors.New("中继流量额度已用尽")
 )
 
 const (
-	UsernameMinLength = 3
-	UsernameMaxLength = 32
+	UsernameMinLength = 6
+	UsernameMaxLength = 254
 	PasswordMinLength = 6
 	PasswordMaxLength = 128
 )
@@ -58,10 +58,10 @@ func NewService(repo *Repository, tokenSecret string, sessions SessionStore) *Se
 }
 
 func (s *Service) Register(ctx context.Context, username, password, displayName string) (LoginResult, error) {
-	username = normalizeUsername(username)
+	username = NormalizeEmail(username)
 	displayName = strings.TrimSpace(displayName)
 	if displayName == "" {
-		displayName = username
+		displayName = defaultDisplayName(username)
 	}
 	if err := validateUsernamePassword(username, password); err != nil {
 		return LoginResult{}, err
@@ -82,7 +82,7 @@ func (s *Service) Register(ctx context.Context, username, password, displayName 
 }
 
 func (s *Service) Login(ctx context.Context, username, password string) (LoginResult, error) {
-	u, err := s.repo.FindByUsername(ctx, normalizeUsername(username))
+	u, err := s.repo.FindByUsername(ctx, NormalizeEmail(username))
 	if err != nil {
 		return LoginResult{}, ErrUnauthorized
 	}
@@ -206,21 +206,50 @@ func randomSessionID() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf[:]), nil
 }
 
-func normalizeUsername(v string) string {
+func NormalizeEmail(v string) string {
 	return strings.ToLower(strings.TrimSpace(v))
 }
 
 func validateUsernamePassword(username, password string) error {
-	if len(username) < UsernameMinLength || len(username) > UsernameMaxLength {
-		return fmt.Errorf("用户名长度必须是 %d-%d 位", UsernameMinLength, UsernameMaxLength)
-	}
-	for _, r := range username {
-		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' {
-			return fmt.Errorf("用户名只能包含小写字母、数字、下划线和短横线")
-		}
+	if !IsValidEmail(username) {
+		return fmt.Errorf("请输入有效邮箱地址")
 	}
 	if len(password) < PasswordMinLength || len(password) > PasswordMaxLength {
 		return fmt.Errorf("密码长度必须是 %d-%d 位", PasswordMinLength, PasswordMaxLength)
 	}
 	return nil
+}
+
+func IsValidEmail(email string) bool {
+	email = NormalizeEmail(email)
+	if len(email) < UsernameMinLength || len(email) > UsernameMaxLength {
+		return false
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	if strings.ContainsAny(email, " \t\r\n") || strings.Contains(parts[1], "..") {
+		return false
+	}
+	if !strings.Contains(parts[1], ".") || strings.HasPrefix(parts[1], ".") || strings.HasSuffix(parts[1], ".") {
+		return false
+	}
+	for _, r := range email {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
+}
+
+func defaultDisplayName(email string) string {
+	local, _, ok := strings.Cut(email, "@")
+	if !ok || strings.TrimSpace(local) == "" {
+		return email
+	}
+	if len([]rune(local)) > 32 {
+		return string([]rune(local)[:32])
+	}
+	return local
 }

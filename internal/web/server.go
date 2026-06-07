@@ -23,26 +23,28 @@ import (
 const maxAdminReleaseUploadBodyBytes = (512 << 20) + (1 << 20)
 
 type Server struct {
-	addr       string
-	adminToken string
-	accounts   *account.Service
-	settings   *appsettings.Service
-	rooms      *room.Service
-	nodes      *node.Service
-	releases   *clientrelease.Service
-	httpServer *http.Server
+	addr            string
+	adminToken      string
+	accounts        *account.Service
+	settings        *appsettings.Service
+	rooms           *room.Service
+	nodes           *node.Service
+	releases        *clientrelease.Service
+	downloadLimiter *downloadLimiter
+	httpServer      *http.Server
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
 func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service) *Server {
 	return &Server{
-		addr:       addr,
-		adminToken: adminToken,
-		accounts:   accounts,
-		settings:   settings,
-		rooms:      rooms,
-		nodes:      nodes,
-		releases:   releases,
+		addr:            addr,
+		adminToken:      adminToken,
+		accounts:        accounts,
+		settings:        settings,
+		rooms:           rooms,
+		nodes:           nodes,
+		releases:        releases,
+		downloadLimiter: newDownloadLimiter(downloadRateLimitWindow),
 	}
 }
 
@@ -63,9 +65,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
 	mux.HandleFunc("/api/rooms/transfer-owner", s.handleTransferRoomOwner)
+	mux.HandleFunc("/api/client/releases/ticket", s.handleClientReleaseTicket)
 	mux.HandleFunc("/api/client/releases/latest", s.handleLatestClientRelease)
 	mux.HandleFunc("/downloads/client/", s.handleClientReleaseDownload)
+	mux.Handle("/site/assets/", http.StripPrefix("/site/assets/", siteAssetHandler()))
 	mux.Handle("/admin/assets/", http.StripPrefix("/admin/assets/", adminAssetHandler()))
+	mux.HandleFunc("/", s.handleSite)
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/nodes", s.handleAdminNodes)
 	mux.HandleFunc("/admin/users", s.handleAdminUsers)
@@ -109,6 +114,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		Email       string `json:"email"`
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		DisplayName string `json:"displayName"`
@@ -117,7 +123,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.accounts.Register(r.Context(), req.Username, req.Password, req.DisplayName)
+	result, err := s.accounts.Register(r.Context(), firstNonEmpty(req.Email, req.Username), req.Password, req.DisplayName)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -130,6 +136,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		Email    string `json:"email"`
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
@@ -137,7 +144,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.accounts.Login(r.Context(), req.Username, req.Password)
+	result, err := s.accounts.Login(r.Context(), firstNonEmpty(req.Email, req.Username), req.Password)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
@@ -459,6 +466,18 @@ func (s *Server) handleClientReleaseDownload(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	auth, err := s.authorizeClientDownload(r, release)
+	if err != nil {
+		s.logClientDownload(r, release, 0, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "login required")
+		return
+	}
+	if !s.allowClientDownload(r, auth) {
+		s.logClientDownload(r, release, auth.userID, "rate_limited")
+		writeError(w, http.StatusTooManyRequests, "download requests are too frequent")
+		return
+	}
+	s.logClientDownload(r, release, auth.userID, auth.result)
 	if release.ContentType != "" {
 		w.Header().Set("Content-Type", release.ContentType)
 	}

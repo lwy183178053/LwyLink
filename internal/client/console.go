@@ -47,7 +47,7 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 		fmt.Println("0. 退出")
 		switch prompt(reader, "选择: ") {
 		case "1":
-			username := prompt(reader, "用户名: ")
+			username := prompt(reader, "邮箱: ")
 			password := prompt(reader, "密码: ")
 			displayName := prompt(reader, "昵称(可空): ")
 			res, err := api.Register(ctx, username, password, displayName)
@@ -58,7 +58,7 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 			fmt.Printf("注册成功，已登录为 %s\n", res.User.Username)
 			return &res.User, false
 		case "2":
-			username := prompt(reader, "用户名: ")
+			username := prompt(reader, "邮箱: ")
 			password := prompt(reader, "密码: ")
 			res, err := api.Login(ctx, username, password)
 			if err != nil {

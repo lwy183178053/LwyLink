@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LwyLink</title>
+  <link rel="stylesheet" href="/site/assets/site.css">
+  <script defer src="/site/assets/site.js" data-page="{{.Page}}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">LwyLink</a>
+    <nav>
+      <a href="/download">下载</a>
+      <a href="/dashboard">用户中心</a>
+      <a href="/login" data-auth-link>登录</a>
+    </nav>
+  </header>
+
+  <main data-page="{{.Page}}">
+    <section class="hero" data-view="home">
+      <div>
+        <p class="eyebrow">TCP relay + UDP punch</p>
+        <h1>LwyLink 虚拟组网</h1>
+        <p class="lead">为联机游戏和小队协作准备的低延迟虚拟局域网。UDP 直连优先，失败后自动回到 TCP 加密中继。</p>
+        <div class="actions">
+          <a class="button primary" href="/download">下载 Windows 客户端</a>
+          <a class="button" href="/register">注册账号</a>
+        </div>
+      </div>
+      <div class="status-panel">
+        <span>Overlay</span>
+        <strong>TCP reliable relay</strong>
+        <span>NAT traversal</span>
+        <strong>UDP direct path</strong>
+        <span>Security</span>
+        <strong>Encrypted transport</strong>
+      </div>
+    </section>
+
+    <section class="panel auth-panel" data-view="login">
+      <h1>登录 LwyLink</h1>
+      <form data-login-form>
+        <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="button primary" type="submit">登录</button>
+      </form>
+      <p>还没有账号？<a href="/register">立即注册</a></p>
+    </section>
+
+    <section class="panel auth-panel" data-view="register">
+      <h1>注册账号</h1>
+      <form data-register-form>
+        <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+        <label>显示名<input name="displayName" maxlength="64" placeholder="可留空"></label>
+        <label>密码<input name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
+        <button class="button primary" type="submit">注册并登录</button>
+      </form>
+      <p>已有账号？<a href="/login">去登录</a></p>
+    </section>
+
+    <section class="panel" data-view="download">
+      <h1>下载客户端</h1>
+      <p class="muted">下载需要登录。这样可以保护服务器流量，也方便你收到后续版本更新。</p>
+      <div class="release-box" data-release-box>正在获取最新版本...</div>
+      <button class="button primary" data-download-button>获取下载链接</button>
+    </section>
+
+    <section class="panel" data-view="dashboard">
+      <h1>用户中心</h1>
+      <div class="profile" data-profile>正在读取账号信息...</div>
+      <div class="actions">
+        <a class="button primary" href="/download">下载客户端</a>
+        <button class="button" data-logout-button>退出登录</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" data-toast hidden></div>
+</body>
+</html>

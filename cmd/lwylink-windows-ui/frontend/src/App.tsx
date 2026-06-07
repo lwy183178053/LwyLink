@@ -58,6 +58,8 @@ import {
   pageEyebrow,
   pageSubtitle,
   pageTitle,
+  emailMaxLength,
+  emailMinLength,
   passwordMaxLength,
   passwordMinLength,
   roomMemberOptions,
@@ -72,8 +74,6 @@ import {
   type PageKey,
   type RoomForm,
   type SettingsForm,
-  usernameMaxLength,
-  usernameMinLength,
   userLabel,
 } from "./client-ui";
 import { Avatar, ChatBubble, MemberRow, Metric, NavButton, Rule } from "./components";
@@ -97,7 +97,7 @@ export default function App() {
   const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
   const [chatSending, setChatSending] = useState(false);
   const [dismissedUpdate, setDismissedUpdate] = useState("");
-  const [loginForm, setLoginForm] = useState<LoginForm>({ username: "", password: "", displayName: "" });
+  const [loginForm, setLoginForm] = useState<LoginForm>({ email: "", password: "", displayName: "" });
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
@@ -153,11 +153,11 @@ export default function App() {
     state.update.latestVersion !== "" &&
     (state.update.mandatory || dismissedUpdate !== state.update.latestVersion);
   const isBusy = busy !== "";
-  const authRules = authRuleState(loginForm.username, loginForm.password);
+  const authRules = authRuleState(loginForm.email, loginForm.password);
   const canSubmitAuth =
     authMode === "login"
-      ? loginForm.username.trim() !== "" && loginForm.password !== ""
-      : authRules.usernameLength && authRules.usernameCharset && authRules.passwordLength;
+      ? loginForm.email.trim() !== "" && loginForm.password !== ""
+      : authRules.emailLength && authRules.emailFormat && authRules.passwordLength;
   const selectedMaxMembers = Number.parseInt(roomForm.maxMembers, 10) || defaultRoomMemberLimit;
   const roomSizeAllowed = canCreateRoomSize(selectedMaxMembers, state.user);
   const trafficPercent = trafficUsedPercent(state.user);
@@ -237,15 +237,16 @@ export default function App() {
   async function handleAuthSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmitAuth) {
-      showNotice(authMode === "login" ? "请输入用户名和密码" : "请先完成账号规则", "error");
+      showNotice(authMode === "login" ? "请输入邮箱和密码" : "请先完成账号规则", "error");
       return;
     }
     const ok =
       authMode === "login"
-        ? await run("登录", () => Login({ username: loginForm.username, password: loginForm.password }))
+        ? await run("登录", () => Login({ email: loginForm.email, username: loginForm.email, password: loginForm.password }))
         : await run("注册", () =>
             Register({
-              username: loginForm.username,
+              email: loginForm.email,
+              username: loginForm.email,
               password: loginForm.password,
               displayName: loginForm.displayName,
             }),
@@ -317,8 +318,8 @@ export default function App() {
     }
   }
 
-  function handleUsernameChange(value: string) {
-    setLoginForm((current) => ({ ...current, username: value.trim().toLowerCase() }));
+  function handleEmailChange(value: string) {
+    setLoginForm((current) => ({ ...current, email: value.trim().toLowerCase() }));
   }
 
   async function copyText(text: string, label: string) {
@@ -509,8 +510,8 @@ export default function App() {
                   注册
                 </button>
               </div>
-              <Field label="用户名">
-                <Input className="pretty-input" value={loginForm.username} onChange={(_, data) => handleUsernameChange(data.value)} />
+              <Field label="邮箱">
+                <Input className="pretty-input" type="email" value={loginForm.email} onChange={(_, data) => handleEmailChange(data.value)} />
               </Field>
               {authMode === "register" && (
                 <Field label="昵称">
@@ -531,8 +532,8 @@ export default function App() {
               </Field>
               {authMode === "register" && (
                 <div className="rules">
-                  <Rule ok={authRules.usernameLength} text={`${usernameMinLength}-${usernameMaxLength} 位用户名`} />
-                  <Rule ok={authRules.usernameCharset} text="小写字母、数字、下划线或短横线" />
+                  <Rule ok={authRules.emailLength} text={`${emailMinLength}-${emailMaxLength} 位邮箱`} />
+                  <Rule ok={authRules.emailFormat} text="请输入有效邮箱格式" />
                   <Rule ok={authRules.passwordLength} text={`${passwordMinLength}-${passwordMaxLength} 位密码`} />
                 </div>
               )}

@@ -49,3 +49,13 @@ type UploadInput struct {
 	Mandatory   bool
 	InstallArgs string
 }
+
+type DownloadLog struct {
+	UserID         int64
+	IP             string
+	Platform       string
+	Version        string
+	FileName       string
+	StoredFileName string
+	Result         string
+}
