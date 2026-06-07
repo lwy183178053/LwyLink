@@ -172,11 +172,19 @@ func failf(format string, args ...any) {
 }
 
 func registerSmokeUser(ctx context.Context, cleaner *smokeCleaner, api *client.API, username, password, displayName string) (account.LoginResult, error) {
-	result, err := api.Register(ctx, username, password, displayName)
+	result, err := api.Register(ctx, smokeEmail(username), password, displayName)
 	if err == nil {
 		cleaner.track(result.User.ID)
 	}
 	return result, err
+}
+
+func smokeEmail(seed string) string {
+	seed = strings.TrimSpace(strings.ToLower(seed))
+	if strings.Contains(seed, "@") {
+		return seed
+	}
+	return seed + "@smoke.lwylink.test"
 }
 
 type smokeCleaner struct {
