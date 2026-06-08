@@ -34,6 +34,8 @@
 
       {{if eq .Active "overview"}}
         {{template "overview" .}}
+      {{else if eq .Active "metrics"}}
+        {{template "monitoring" .}}
       {{else if eq .Active "users"}}
         {{template "users" .}}
       {{else if eq .Active "rooms"}}
@@ -85,6 +87,71 @@
 </section>
 <section class="panel">
   <div class="panel-head"><h2>服务器节点</h2></div>
+  {{template "node-table" .}}
+</section>
+{{end}}
+
+{{define "monitoring"}}
+<section class="monitor-grid">
+  <div class="monitor-card">
+    <strong>{{.Metrics.OverlayConnections}}</strong>
+    <span>Overlay 连接</span>
+  </div>
+  <div class="monitor-card">
+    <strong>{{.Metrics.VoiceParticipants}}</strong>
+    <span>语音人数</span>
+    <small>{{.Metrics.VoiceRooms}} 个语音房，{{.Metrics.VoiceSpeakers}} 人开麦</small>
+  </div>
+  <div class="monitor-card">
+    <strong>{{formatBytes .Metrics.RelayTrafficUsedBytes}}</strong>
+    <span>本期中继流量</span>
+  </div>
+  <div class="monitor-card">
+    <strong>{{.Metrics.DownloadsLastHour}}</strong>
+    <span>近 1 小时下载</span>
+  </div>
+  <div class="monitor-card">
+    {{if .Metrics.LatestWindowsRelease}}
+    <strong>{{.Metrics.LatestWindowsRelease.Version}}</strong>
+    <span>Windows 最新版</span>
+    <small>{{if .Metrics.LatestWindowsRelease.Mandatory}}强制更新{{else}}可选更新{{end}}</small>
+    {{else}}
+    <strong>-</strong>
+    <span>Windows 最新版</span>
+    {{end}}
+  </div>
+</section>
+
+<section class="overview-grid">
+  <div class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>实时状态</h2>
+        <p>生成时间 {{timeText .Metrics.GeneratedAt}}</p>
+      </div>
+      <a href="{{.CurrentURL}}">刷新</a>
+    </div>
+    <div class="status-list">
+      <div><span>玩家账号</span><strong>{{.Metrics.ActiveUsers}} / {{.Metrics.Users}}</strong></div>
+      <div><span>开放房间</span><strong>{{.Metrics.OpenRooms}} / {{.Metrics.Rooms}}</strong></div>
+      <div><span>发布版本</span><strong>{{.Metrics.Releases}}</strong></div>
+      <div><span>语音开麦</span><strong>{{.Metrics.VoiceSpeakers}}</strong></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>最近错误</h2><span>节点上报</span></div>
+    <ul class="error-list">
+      {{range .Metrics.RecentErrors}}
+      <li>{{.}}</li>
+      {{else}}
+      <li class="empty">暂无错误</li>
+      {{end}}
+    </ul>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>服务器节点</h2><span>{{len .Nodes}} 条</span></div>
   {{template "node-table" .}}
 </section>
 {{end}}
@@ -353,7 +420,7 @@
   </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
-    <label>版本号<input name="version" placeholder="例如 0.1.25" required></label>
+    <label>版本号<input name="version" placeholder="例如 0.1.26" required></label>
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新

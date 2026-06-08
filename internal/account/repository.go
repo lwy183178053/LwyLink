@@ -92,9 +92,10 @@ func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error
 }
 
 type Stats struct {
-	Total    int
-	Active   int
-	Disabled int
+	Total                 int
+	Active                int
+	Disabled              int
+	RelayTrafficUsedBytes int64
 }
 
 func (r *Repository) Stats(ctx context.Context) (Stats, error) {
@@ -102,9 +103,10 @@ func (r *Repository) Stats(ctx context.Context) (Stats, error) {
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*),
 		        COALESCE(SUM(CASE WHEN disabled = FALSE THEN 1 ELSE 0 END), 0),
-		        COALESCE(SUM(CASE WHEN disabled = TRUE THEN 1 ELSE 0 END), 0)
+		        COALESCE(SUM(CASE WHEN disabled = TRUE THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN relay_traffic_period = `+relayTrafficPeriodSQL()+` THEN relay_traffic_used_bytes ELSE 0 END), 0)
 		   FROM users`,
-	).Scan(&stats.Total, &stats.Active, &stats.Disabled)
+	).Scan(&stats.Total, &stats.Active, &stats.Disabled, &stats.RelayTrafficUsedBytes)
 	return stats, err
 }
 

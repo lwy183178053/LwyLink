@@ -70,6 +70,33 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 		}
 	}
 
+	data.Active = "metrics"
+	data.Title = "监控"
+	data.Metrics = adminMetrics{
+		GeneratedAt:           time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+		Users:                 1,
+		ActiveUsers:           1,
+		Rooms:                 1,
+		OpenRooms:             1,
+		OverlayConnections:    1,
+		VoiceRooms:            1,
+		VoiceParticipants:     2,
+		VoiceSpeakers:         1,
+		RelayTrafficUsedBytes: 2048,
+		DownloadsLastHour:     3,
+		Releases:              1,
+		LatestWindowsRelease:  &clientrelease.Release{Version: "0.1.26", Mandatory: true},
+		RecentErrors:          []string{"node: last check failed"},
+	}
+	rec = httptest.NewRecorder()
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	html = rec.Body.String()
+	for _, want := range []string{"实时状态", "Overlay 连接", "0.1.26", "node: last check failed"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered metrics html missing %q", want)
+		}
+	}
+
 	data.Active = "users"
 	data.Title = "玩家账号"
 	rec = httptest.NewRecorder()

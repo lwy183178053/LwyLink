@@ -5,6 +5,7 @@ import (
 	"context"
 	"mime/multipart"
 	"testing"
+	"time"
 )
 
 func TestServiceUploadAlwaysCreatesMandatoryRelease(t *testing.T) {
@@ -62,6 +63,9 @@ func (r *fakeReleaseRepo) Create(_ context.Context, release Release) (Release, e
 }
 func (r *fakeReleaseRepo) List(context.Context, Filter) ([]Release, error) { return nil, nil }
 func (r *fakeReleaseRepo) Count(context.Context) (int, error)              { return 0, nil }
+func (r *fakeReleaseRepo) DownloadCountSince(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
 func (r *fakeReleaseRepo) FindByStoredFileName(context.Context, string) (Release, error) {
 	return Release{}, ErrNotFound
 }

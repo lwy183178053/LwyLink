@@ -106,10 +106,22 @@ export type UpdateState = {
   sha256: string;
 };
 
+export type VoiceSettings = {
+  inputDeviceID: string;
+  outputDeviceID: string;
+  micVolume: number;
+  outputVolume: number;
+  silenceThreshold: number;
+  autoGainControl: boolean;
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+};
+
 export type AppState = {
   apiBaseURL: string;
   interfaceName: string;
   p2pEnabled: boolean;
+  voiceSettings: VoiceSettings;
   user?: PublicUser;
   rooms: Room[];
   currentRoom?: Room;
@@ -127,6 +139,16 @@ export const emptyState: AppState = {
   apiBaseURL: "https://www.lwylink.xyz",
   interfaceName: "LwyLink",
   p2pEnabled: true,
+  voiceSettings: {
+    inputDeviceID: "",
+    outputDeviceID: "",
+    micVolume: 1,
+    outputVolume: 1,
+    silenceThreshold: 0.012,
+    autoGainControl: true,
+    noiseSuppression: true,
+    echoCancellation: true,
+  },
   rooms: [],
   members: [],
   chatMessages: [],
@@ -152,7 +174,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.25",
+    currentVersion: "0.1.26",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

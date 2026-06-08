@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.25"
+var AppVersion = "0.1.26"
 
 type App struct {
 	ctx context.Context
@@ -41,6 +41,7 @@ type App struct {
 	apiBaseURL string
 	ifName     string
 	p2pEnabled bool
+	voicePrefs VoicePreferences
 
 	user         *account.PublicUser
 	rooms        []room.Room
@@ -71,9 +72,10 @@ type App struct {
 }
 
 type SettingsInput struct {
-	APIBaseURL    string `json:"apiBaseURL"`
-	InterfaceName string `json:"interfaceName"`
-	P2PEnabled    *bool  `json:"p2pEnabled,omitempty"`
+	APIBaseURL    string            `json:"apiBaseURL"`
+	InterfaceName string            `json:"interfaceName"`
+	P2PEnabled    *bool             `json:"p2pEnabled,omitempty"`
+	VoiceSettings *VoicePreferences `json:"voiceSettings,omitempty"`
 }
 
 type RegisterInput struct {
@@ -135,6 +137,7 @@ type AppState struct {
 	APIBaseURL    string            `json:"apiBaseURL"`
 	InterfaceName string            `json:"interfaceName"`
 	P2PEnabled    bool              `json:"p2pEnabled"`
+	VoiceSettings VoicePreferences  `json:"voiceSettings"`
 	User          *ViewUser         `json:"user,omitempty"`
 	Rooms         []ViewRoom        `json:"rooms"`
 	CurrentRoom   *ViewRoom         `json:"currentRoom,omitempty"`
@@ -259,6 +262,7 @@ func NewApp() *App {
 		apiBaseURL:   defaultAPIBaseURL,
 		ifName:       defaultIfName,
 		p2pEnabled:   prefs.P2PEnabled,
+		voicePrefs:   prefs.VoiceSettings,
 		announcement: appsettings.DefaultAnnouncement,
 		connection:   newConnectionState(statusDisconnected, "未连接"),
 		voiceSend:    make(chan client.VoicePacket, 256),
@@ -438,11 +442,14 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 	a.ifName = ifName
 	if input.P2PEnabled != nil && a.p2pEnabled != *input.P2PEnabled {
 		a.p2pEnabled = *input.P2PEnabled
-		_ = saveClientPreferences(clientPreferences{P2PEnabled: a.p2pEnabled})
 		if !a.p2pEnabled {
 			a.connection.DirectPeerIPs = nil
 		}
 	}
+	if input.VoiceSettings != nil {
+		a.voicePrefs = normalizeVoicePreferences(*input.VoiceSettings)
+	}
+	_ = saveClientPreferences(clientPreferences{P2PEnabled: a.p2pEnabled, VoiceSettings: a.voicePrefs})
 	a.startRoomEventsLocked()
 	if announcementAPI == nil {
 		return a.commitStateLocked(), nil
@@ -1388,6 +1395,7 @@ func (a *App) stateLocked() AppState {
 		APIBaseURL:    a.apiBaseURL,
 		InterfaceName: a.ifName,
 		P2PEnabled:    a.p2pEnabled,
+		VoiceSettings: a.voicePrefs,
 		User:          user,
 		Rooms:         rooms,
 		CurrentRoom:   currentRoom,

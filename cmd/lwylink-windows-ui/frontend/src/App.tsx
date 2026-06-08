@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Field, Input, Spinner, Switch, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Select, Slider, Spinner, Switch, Textarea } from "@fluentui/react-components";
 import {
   Copy,
   Gamepad2,
@@ -17,6 +17,7 @@ import {
   Settings,
   SlidersHorizontal,
   Square,
+  Volume2,
   UserCircle,
   UserPlus,
   X,
@@ -46,6 +47,7 @@ import {
   ChangePassword,
   TransferOwner,
 } from "../wailsjs/go/main/App";
+import { main as goModels } from "../wailsjs/go/models";
 import { EventsOn, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
 import {
   authRuleState,
@@ -82,14 +84,18 @@ import {
 } from "./client-ui";
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
-import { VoiceSession, type IncomingVoiceFrame } from "./voice";
-import type { AppState, RoomEvent } from "./types";
+import { VoiceSession, listVoiceDevices, runVoiceLocalTest, type IncomingVoiceFrame } from "./voice";
+import type { AppState, RoomEvent, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
 type NoticeTone = "info" | "success" | "error";
 type PendingChat = {
   id: string;
   message: string;
+};
+type VoiceDevice = {
+  deviceID: string;
+  label: string;
 };
 
 export default function App() {
@@ -104,6 +110,8 @@ export default function App() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceMicActive, setVoiceMicActive] = useState(false);
   const [voiceConnectPrompt, setVoiceConnectPrompt] = useState(false);
+  const [voiceDevices, setVoiceDevices] = useState<{ inputs: VoiceDevice[]; outputs: VoiceDevice[] }>({ inputs: [], outputs: [] });
+  const [voiceTesting, setVoiceTesting] = useState(false);
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
     password: "",
@@ -118,6 +126,7 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
     p2pEnabled: emptyState.p2pEnabled,
+    voiceSettings: emptyState.voiceSettings,
   });
   const connectionSignature = useRef("");
   const settingsSignature = useRef("");
@@ -237,6 +246,13 @@ export default function App() {
     });
   }, [state.user?.id, state.user?.username, state.user?.displayName, state.user?.membership, state.user?.role]);
 
+  useEffect(() => {
+    if (page !== "settings") {
+      return;
+    }
+    void refreshVoiceDevices(false);
+  }, [page]);
+
   function applyState(next: AppState) {
     const normalized = normalizeAppState(next);
     setState(normalized);
@@ -246,6 +262,7 @@ export default function App() {
       setSettingsForm({
         apiBaseURL: normalized.apiBaseURL,
         p2pEnabled: normalized.p2pEnabled,
+        voiceSettings: normalized.voiceSettings,
       });
     }
 
@@ -393,7 +410,7 @@ export default function App() {
     if (!currentRoom || !state.user) {
       return;
     }
-    const session = new VoiceSession(currentRoom, state.user.id, {
+    const session = new VoiceSession(currentRoom, state.user.id, state.voiceSettings, {
       onError: (message) => showNotice(message, "error"),
     });
     try {
@@ -462,7 +479,49 @@ export default function App() {
 
   async function handleSaveSettings(event: FormEvent) {
     event.preventDefault();
-    await run("保存设置", () => SetSettings({ apiBaseURL: settingsForm.apiBaseURL, interfaceName: state.interfaceName, p2pEnabled: settingsForm.p2pEnabled }));
+    await run("保存设置", () =>
+      SetSettings(goModels.SettingsInput.createFrom({
+        apiBaseURL: settingsForm.apiBaseURL,
+        interfaceName: state.interfaceName,
+        p2pEnabled: settingsForm.p2pEnabled,
+        voiceSettings: settingsForm.voiceSettings,
+      })),
+    );
+  }
+
+  async function refreshVoiceDevices(notify = true) {
+    try {
+      const devices = await listVoiceDevices();
+      setVoiceDevices(devices);
+      if (notify) {
+        showNotice("语音设备已刷新", "success");
+      }
+    } catch (err) {
+      showNotice(errorText(err), "error");
+    }
+  }
+
+  async function handleVoiceTest() {
+    setVoiceTesting(true);
+    try {
+      await runVoiceLocalTest(settingsForm.voiceSettings);
+      showNotice("语音测试已播放", "success");
+      await refreshVoiceDevices(false);
+    } catch (err) {
+      showNotice(errorText(err), "error");
+    } finally {
+      setVoiceTesting(false);
+    }
+  }
+
+  function updateVoiceSettings(patch: Partial<VoiceSettings>) {
+    setSettingsForm((current) => ({
+      ...current,
+      voiceSettings: {
+        ...current.voiceSettings,
+        ...patch,
+      },
+    }));
   }
 
   async function handleCheckUpdates() {
@@ -1002,6 +1061,7 @@ export default function App() {
           connectionRunning={connectionRunning}
           directPeerNames={directPeerNames}
           directPeerIPSet={directPeerIPSet}
+          voiceState={state.voice}
           isOwner={isOwner}
           disabled={isBusy}
           onKick={(userID) => run("移出成员", () => KickMember({ userID }))}
@@ -1038,6 +1098,69 @@ export default function App() {
             <div className="command-actions">
               <Button appearance="primary" type="submit" disabled={isBusy}>
                 保存
+              </Button>
+            </div>
+          </div>
+        </form>
+
+        <form className="surface voice-settings-panel" onSubmit={handleSaveSettings}>
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">Voice</span>
+              <h2>语音设置</h2>
+            </div>
+            <Volume2 size={18} />
+          </div>
+          <div className="form-stack voice-settings-form">
+            <Field label="输入设备">
+              <Select className="pretty-input" value={settingsForm.voiceSettings.inputDeviceID} onChange={(event) => updateVoiceSettings({ inputDeviceID: event.target.value })}>
+                <option value="">默认麦克风</option>
+                {voiceDevices.inputs.map((device) => (
+                  <option key={device.deviceID} value={device.deviceID}>
+                    {device.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="输出设备">
+              <Select className="pretty-input" value={settingsForm.voiceSettings.outputDeviceID} onChange={(event) => updateVoiceSettings({ outputDeviceID: event.target.value })}>
+                <option value="">默认扬声器</option>
+                {voiceDevices.outputs.map((device) => (
+                  <option key={device.deviceID} value={device.deviceID}>
+                    {device.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="voice-slider-row">
+              <span>麦克风音量</span>
+              <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.micVolume} onChange={(_, data) => updateVoiceSettings({ micVolume: data.value })} />
+              <strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong>
+            </div>
+            <div className="voice-slider-row">
+              <span>播放音量</span>
+              <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
+              <strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong>
+            </div>
+            <div className="voice-slider-row">
+              <span>静音门限</span>
+              <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
+              <strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong>
+            </div>
+            <div className="voice-toggle-grid">
+              <Switch label="自动增益" checked={settingsForm.voiceSettings.autoGainControl} onChange={(_, data) => updateVoiceSettings({ autoGainControl: data.checked })} />
+              <Switch label="降噪" checked={settingsForm.voiceSettings.noiseSuppression} onChange={(_, data) => updateVoiceSettings({ noiseSuppression: data.checked })} />
+              <Switch label="回声消除" checked={settingsForm.voiceSettings.echoCancellation} onChange={(_, data) => updateVoiceSettings({ echoCancellation: data.checked })} />
+            </div>
+            <div className="settings-actions inline">
+              <Button type="button" onClick={() => refreshVoiceDevices()}>
+                刷新设备
+              </Button>
+              <Button type="button" icon={voiceTesting ? <Spinner size="tiny" /> : <Volume2 size={16} />} disabled={voiceTesting} onClick={handleVoiceTest}>
+                语音测试
+              </Button>
+              <Button appearance="primary" type="submit" disabled={isBusy}>
+                保存语音
               </Button>
             </div>
           </div>
@@ -1135,6 +1258,10 @@ function normalizeAppState(next: AppState): AppState {
       ...emptyState.voice,
       ...(next.voice ?? emptyState.voice),
       participants: Array.isArray(next.voice?.participants) ? next.voice.participants : [],
+    },
+    voiceSettings: {
+      ...emptyState.voiceSettings,
+      ...(next.voiceSettings ?? emptyState.voiceSettings),
     },
     connection: {
       ...emptyState.connection,

@@ -84,6 +84,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.Handle("/admin/assets/", http.StripPrefix("/admin/assets/", adminAssetHandler()))
 	mux.HandleFunc("/", s.handleSite)
 	mux.HandleFunc("/admin", s.handleAdmin)
+	mux.HandleFunc("/admin/metrics", s.handleAdminMetrics)
 	mux.HandleFunc("/admin/nodes", s.handleAdminNodes)
 	mux.HandleFunc("/admin/users", s.handleAdminUsers)
 	mux.HandleFunc("/admin/users/status", s.handleAdminUserStatus)
@@ -902,6 +903,36 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	s.renderAdmin(w, data)
 }
 
+func (s *Server) handleAdminMetrics(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	metrics, err := s.adminMetrics(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("format") == "json" {
+		writeJSON(w, http.StatusOK, metrics)
+		return
+	}
+	stats, err := s.adminStats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	data := adminPageData{
+		Active:       "metrics",
+		Title:        "监控",
+		Token:        s.adminToken,
+		Stats:        stats,
+		Metrics:      metrics,
+		Nodes:        metrics.Nodes,
+		ReadOnlyRows: true,
+	}
+	s.renderAdmin(w, data)
+}
+
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -1008,6 +1039,7 @@ func (s *Server) handleAdminReleases(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 	data.Nav = []adminNavItem{
 		{Key: "overview", Label: "概览", URL: s.adminURL("/admin")},
+		{Key: "metrics", Label: "监控", URL: s.adminURL("/admin/metrics")},
 		{Key: "nodes", Label: "节点", URL: s.adminURL("/admin/nodes")},
 		{Key: "users", Label: "玩家", URL: s.adminURL("/admin/users")},
 		{Key: "rooms", Label: "房间", URL: s.adminURL("/admin/rooms")},
@@ -1263,6 +1295,7 @@ type adminPageData struct {
 	PrevURL      string
 	NextURL      string
 	Stats        adminStats
+	Metrics      adminMetrics
 	Nav          []adminNavItem
 	Users        []account.User
 	Rooms        []room.Room
@@ -1302,6 +1335,24 @@ type adminStats struct {
 	Releases      int
 }
 
+type adminMetrics struct {
+	GeneratedAt           time.Time              `json:"generatedAt"`
+	Users                 int                    `json:"users"`
+	ActiveUsers           int                    `json:"activeUsers"`
+	Rooms                 int                    `json:"rooms"`
+	OpenRooms             int                    `json:"openRooms"`
+	OverlayConnections    int                    `json:"overlayConnections"`
+	VoiceRooms            int                    `json:"voiceRooms"`
+	VoiceParticipants     int                    `json:"voiceParticipants"`
+	VoiceSpeakers         int                    `json:"voiceSpeakers"`
+	RelayTrafficUsedBytes int64                  `json:"relayTrafficUsedBytes"`
+	DownloadsLastHour     int                    `json:"downloadsLastHour"`
+	Releases              int                    `json:"releases"`
+	LatestWindowsRelease  *clientrelease.Release `json:"latestWindowsRelease,omitempty"`
+	Nodes                 []node.Node            `json:"nodes,omitempty"`
+	RecentErrors          []string               `json:"recentErrors"`
+}
+
 func (s *Server) adminStats(ctx context.Context) (adminStats, error) {
 	stats := adminStats{}
 	userStats, err := s.accounts.Stats(ctx)
@@ -1337,6 +1388,83 @@ func (s *Server) adminStats(ctx context.Context) (adminStats, error) {
 		stats.Releases = releases
 	}
 	return stats, nil
+}
+
+func (s *Server) adminMetrics(ctx context.Context) (adminMetrics, error) {
+	metrics := adminMetrics{GeneratedAt: time.Now()}
+	userStats, err := s.accounts.Stats(ctx)
+	if err != nil {
+		return metrics, err
+	}
+	metrics.Users = userStats.Total
+	metrics.ActiveUsers = userStats.Active
+	metrics.RelayTrafficUsedBytes = userStats.RelayTrafficUsedBytes
+
+	roomStats, err := s.rooms.Stats(ctx)
+	if err != nil {
+		return metrics, err
+	}
+	metrics.Rooms = roomStats.Total
+	metrics.OpenRooms = roomStats.Open
+	voiceStats := s.rooms.VoiceStats()
+	metrics.VoiceRooms = voiceStats.Rooms
+	metrics.VoiceParticipants = voiceStats.Participants
+	metrics.VoiceSpeakers = voiceStats.Speakers
+	metrics.OverlayConnections = s.overlayConnectionCount(ctx, &metrics)
+
+	if s.nodes != nil {
+		nodes, err := s.nodes.List(ctx)
+		if err != nil {
+			return metrics, err
+		}
+		metrics.Nodes = nodes
+		for _, item := range nodes {
+			if strings.TrimSpace(item.LastError) != "" {
+				metrics.RecentErrors = append(metrics.RecentErrors, fmt.Sprintf("%s: %s", item.Name, item.LastError))
+			}
+		}
+	}
+	if s.releases != nil {
+		releaseCount, err := s.releases.Count(ctx)
+		if err != nil {
+			return metrics, err
+		}
+		metrics.Releases = releaseCount
+		downloadCount, err := s.releases.DownloadCountSince(ctx, time.Now().Add(-time.Hour))
+		if err != nil {
+			return metrics, err
+		}
+		metrics.DownloadsLastHour = downloadCount
+		latest, err := s.releases.Latest(ctx, "windows-amd64")
+		if err == nil {
+			metrics.LatestWindowsRelease = &latest
+		}
+	}
+	return metrics, nil
+}
+
+func (s *Server) overlayConnectionCount(ctx context.Context, metrics *adminMetrics) int {
+	if s.rooms == nil {
+		return 0
+	}
+	rooms, err := s.rooms.Search(ctx, room.Filter{Status: room.StatusOpen, Limit: 1000})
+	if err != nil {
+		metrics.RecentErrors = append(metrics.RecentErrors, "overlay metrics: "+err.Error())
+		return 0
+	}
+	connections := 0
+	for _, item := range rooms {
+		members, err := s.rooms.ListMembers(ctx, item.OwnerUserID, item.ID)
+		if err != nil {
+			continue
+		}
+		for _, member := range members {
+			if member.VirtualIP != "" {
+				connections++
+			}
+		}
+	}
+	return connections
 }
 
 func (s *Server) adminURL(path string) string {

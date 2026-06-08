@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const maxReleaseUploadBytes = 512 << 20
@@ -20,6 +21,7 @@ type releaseRepository interface {
 	Create(ctx context.Context, release Release) (Release, error)
 	List(ctx context.Context, filter Filter) ([]Release, error)
 	Count(ctx context.Context) (int, error)
+	DownloadCountSince(ctx context.Context, since time.Time) (int, error)
 	FindByStoredFileName(ctx context.Context, storedFileName string) (Release, error)
 	Delete(ctx context.Context, id int64) (Release, error)
 	LogDownload(ctx context.Context, item DownloadLog) error
@@ -104,6 +106,10 @@ func (s *Service) List(ctx context.Context, filter Filter) ([]Release, error) {
 
 func (s *Service) Count(ctx context.Context) (int, error) {
 	return s.repo.Count(ctx)
+}
+
+func (s *Service) DownloadCountSince(ctx context.Context, since time.Time) (int, error) {
+	return s.repo.DownloadCountSince(ctx, since)
 }
 
 func (s *Service) LogDownload(ctx context.Context, item DownloadLog) error {

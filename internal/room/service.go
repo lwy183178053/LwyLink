@@ -41,6 +41,12 @@ type RuntimeStore interface {
 	EventBus
 }
 
+type VoiceStats struct {
+	Rooms        int `json:"rooms"`
+	Participants int `json:"participants"`
+	Speakers     int `json:"speakers"`
+}
+
 type NodeScheduler interface {
 	SelectForRoom(ctx context.Context) (node.Node, error)
 }
@@ -392,6 +398,25 @@ func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
 
 func (s *Service) Stats(ctx context.Context) (Stats, error) {
 	return s.repo.Stats(ctx)
+}
+
+func (s *Service) VoiceStats() VoiceStats {
+	s.voiceMu.Lock()
+	defer s.voiceMu.Unlock()
+	stats := VoiceStats{}
+	for _, participants := range s.voiceRooms {
+		if len(participants) == 0 {
+			continue
+		}
+		stats.Rooms++
+		stats.Participants += len(participants)
+		for _, participant := range participants {
+			if participant.Speaking {
+				stats.Speakers++
+			}
+		}
+	}
+	return stats
 }
 
 func (s *Service) SyncOpenRoomKeys(ctx context.Context) error {

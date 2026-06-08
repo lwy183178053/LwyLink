@@ -1322,6 +1322,10 @@ code {
   background: #ffffff;
 }
 
+.member-row.speaking {
+  background: #f0fbf6;
+}
+
 .member-identity {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr);
@@ -1392,6 +1396,12 @@ code {
   color: #3f2c09;
   border-color: #e1c271;
   background: #f7dda0;
+}
+
+.role.speaking {
+  color: #0f6a4e;
+  border-color: #9ed5c2;
+  background: #e8f8f0;
 }
 
 .chat-list {
@@ -1495,6 +1505,7 @@ code {
   grid-template-columns: minmax(380px, 430px) minmax(0, 1fr);
   grid-template-areas:
     "settings update"
+    "voice update"
     "announcement update";
   grid-template-rows: auto auto;
   gap: 16px;
@@ -1512,6 +1523,41 @@ code {
 .announcement-panel {
   grid-area: announcement;
   align-self: start;
+}
+
+.voice-settings-panel {
+  grid-area: voice;
+  align-self: start;
+}
+
+.voice-settings-form {
+  gap: 10px;
+}
+
+.voice-slider-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 48px;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  color: #596763;
+  font-size: 12px;
+}
+
+.voice-slider-row strong {
+  color: #182128;
+  font-size: 12px;
+  text-align: right;
+}
+
+.voice-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settings-actions.inline {
+  padding: 0;
 }
 
 .announcement-body {

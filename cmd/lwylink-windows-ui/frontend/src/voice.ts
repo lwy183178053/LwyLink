@@ -1,5 +1,6 @@
 import { SendVoiceAudioFrame } from "../wailsjs/go/main/App";
 import type { Room, VoiceState } from "./types";
+import type { VoiceSettings } from "./types";
 
 type VoiceSessionCallbacks = {
   onError: (message: string) => void;
@@ -30,7 +31,6 @@ const pcmFallbackSampleRate = 16000;
 const frameDurationMS = 20;
 const frameSamples = (targetSampleRate * frameDurationMS) / 1000;
 const opusBitrate = 24000;
-const silenceThreshold = 0.012;
 const playoutDelaySeconds = 0.08;
 const maxBufferedSeconds = 0.45;
 const maxIncomingAgeMS = 2000;
@@ -38,6 +38,7 @@ const maxIncomingAgeMS = 2000;
 export class VoiceSession {
   private room: Room;
   private callbacks: VoiceSessionCallbacks;
+  private settings: VoiceSettings;
   private audioContext?: AudioContext;
   private stream?: MediaStream;
   private source?: MediaStreamAudioSourceNode;
@@ -51,8 +52,9 @@ export class VoiceSession {
   private started = false;
   private playbackAtByUser = new Map<number, number>();
 
-  constructor(room: Room, _userID: number, callbacks: VoiceSessionCallbacks) {
+  constructor(room: Room, _userID: number, settings: VoiceSettings, callbacks: VoiceSessionCallbacks) {
     this.room = room;
+    this.settings = settings;
     this.callbacks = callbacks;
   }
 
@@ -62,9 +64,10 @@ export class VoiceSession {
     }
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        deviceId: this.settings.inputDeviceID ? { exact: this.settings.inputDeviceID } : undefined,
+        echoCancellation: this.settings.echoCancellation,
+        noiseSuppression: this.settings.noiseSuppression,
+        autoGainControl: this.settings.autoGainControl,
         channelCount: 1,
       },
       video: false,
@@ -146,10 +149,12 @@ export class VoiceSession {
     while (this.micBuffer.length >= frameSamples) {
       const frame = this.micBuffer.slice(0, frameSamples);
       this.micBuffer = this.micBuffer.slice(frameSamples);
-      if (rms(frame) < silenceThreshold) {
+      const gain = clampNumber(this.settings.micVolume, 0.05, 2, 1);
+      const amplified = gain === 1 ? frame : scaleSamples(frame, gain);
+      if (rms(amplified) < clampNumber(this.settings.silenceThreshold, 0, 0.2, 0.012)) {
         continue;
       }
-      this.encoder.encode(frame, Date.now());
+      this.encoder.encode(amplified, Date.now());
     }
   }
 
@@ -172,8 +177,11 @@ export class VoiceSession {
     const buffer = this.audioContext.createBuffer(1, samples.length, frame.sampleRate || targetSampleRate);
     buffer.copyToChannel(samples, 0);
     const source = this.audioContext.createBufferSource();
+    const gain = this.audioContext.createGain();
+    gain.gain.value = clampNumber(this.settings.outputVolume, 0.05, 2, 1);
     source.buffer = buffer;
-    source.connect(this.audioContext.destination);
+    source.connect(gain);
+    gain.connect(this.audioContext.destination);
     const now = this.audioContext.currentTime;
     let startAt = this.playbackAtByUser.get(frame.fromUserID) || now + playoutDelaySeconds;
     if (startAt < now || startAt - now > maxBufferedSeconds) {
@@ -182,6 +190,64 @@ export class VoiceSession {
     source.start(startAt);
     this.playbackAtByUser.set(frame.fromUserID, startAt + buffer.duration);
   }
+}
+
+export async function listVoiceDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    return { inputs: [], outputs: [] };
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return {
+    inputs: devices.filter((item) => item.kind === "audioinput").map(viewDevice),
+    outputs: devices.filter((item) => item.kind === "audiooutput").map(viewDevice),
+  };
+}
+
+export async function runVoiceLocalTest(settings: VoiceSettings) {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      deviceId: settings.inputDeviceID ? { exact: settings.inputDeviceID } : undefined,
+      echoCancellation: settings.echoCancellation,
+      noiseSuppression: settings.noiseSuppression,
+      autoGainControl: settings.autoGainControl,
+      channelCount: 1,
+    },
+    video: false,
+  });
+  try {
+    const recorder = new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    recorder.start();
+    await delay(1400);
+    recorder.stop();
+    await new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve();
+    });
+    const audio = new Audio(URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || "audio/webm" })));
+    audio.volume = clampNumber(settings.outputVolume, 0.05, 1, 1);
+    if (settings.outputDeviceID && "setSinkId" in audio) {
+      await (audio as HTMLAudioElement & { setSinkId: (sinkId: string) => Promise<void> }).setSinkId(settings.outputDeviceID).catch(() => undefined);
+    }
+    await audio.play();
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+}
+
+function viewDevice(device: MediaDeviceInfo) {
+  return {
+    deviceID: device.deviceId,
+    label: device.label || "默认设备",
+  };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 type DecodedVoiceFrame = {
@@ -413,6 +479,21 @@ function rms(input: Float32Array) {
     sum += input[i] * input[i];
   }
   return Math.sqrt(sum / Math.max(1, input.length));
+}
+
+function scaleSamples(input: Float32Array, gain: number) {
+  const out = new Float32Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    out[i] = Math.max(-1, Math.min(1, input[i] * gain));
+  }
+  return out;
+}
+
+function clampNumber(value: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, value));
 }
 
 function payloadBytes(payload: number[] | string) {

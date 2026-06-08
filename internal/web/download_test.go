@@ -220,6 +220,9 @@ func (r *ticketReleaseRepo) List(context.Context, clientrelease.Filter) ([]clien
 }
 
 func (r *ticketReleaseRepo) Count(context.Context) (int, error) { return 1, nil }
+func (r *ticketReleaseRepo) DownloadCountSince(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
 
 func (r *ticketReleaseRepo) FindByStoredFileName(_ context.Context, storedFileName string) (clientrelease.Release, error) {
 	if storedFileName == r.release.StoredFileName {

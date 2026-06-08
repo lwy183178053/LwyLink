@@ -56,6 +56,7 @@ export function MemberRow({
   member,
   isSelf,
   p2pLabel,
+  speaking,
   canManage,
   disabled,
   onKick,
@@ -64,13 +65,14 @@ export function MemberRow({
   member: RoomMember;
   isSelf: boolean;
   p2pLabel?: string;
+  speaking: boolean;
   canManage: boolean;
   disabled: boolean;
   onKick: () => void;
   onTransfer: () => void;
 }) {
   return (
-    <div className="member-row">
+    <div className={speaking ? "member-row speaking" : "member-row"}>
       <div className="member-identity">
         <span className={`presence ${member.online ? "online" : ""}`} />
         <div>
@@ -83,6 +85,12 @@ export function MemberRow({
         </div>
       </div>
       <div className="member-role">
+        {speaking && (
+          <span className="role speaking">
+            <Mic size={13} />
+            说话中
+          </span>
+        )}
         {member.role === "owner" ? (
           <span className="role owner">
             <Crown size={13} />
@@ -205,6 +213,7 @@ export function RoomPlayersPanel({
   connectionRunning,
   directPeerNames,
   directPeerIPSet,
+  voiceState,
   isOwner,
   disabled,
   onKick,
@@ -216,6 +225,7 @@ export function RoomPlayersPanel({
   connectionRunning: boolean;
   directPeerNames: string[];
   directPeerIPSet: Set<string>;
+  voiceState: VoiceState;
   isOwner: boolean;
   disabled: boolean;
   onKick: (userID: number) => void;
@@ -238,6 +248,7 @@ export function RoomPlayersPanel({
             member={member}
             isSelf={member.userID === currentUserID}
             p2pLabel={memberP2PLabel(member, currentUserID, connectionRunning, directPeerNames, directPeerIPSet)}
+            speaking={isVoiceSpeaking(voiceState, member.userID)}
             canManage={isOwner && member.userID !== currentUserID}
             disabled={disabled}
             onKick={() => onKick(member.userID)}
@@ -247,6 +258,10 @@ export function RoomPlayersPanel({
       </div>
     </section>
   );
+}
+
+function isVoiceSpeaking(voiceState: VoiceState, userID: number) {
+  return (voiceState.participants || []).some((item) => item.userID === userID && item.speaking);
 }
 
 function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerNames: string[], directPeerIPSet: Set<string>) {

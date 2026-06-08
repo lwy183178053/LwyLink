@@ -250,10 +250,37 @@ export namespace main {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
+	export class VoicePreferences {
+	    inputDeviceID: string;
+	    outputDeviceID: string;
+	    micVolume: number;
+	    outputVolume: number;
+	    silenceThreshold: number;
+	    autoGainControl: boolean;
+	    noiseSuppression: boolean;
+	    echoCancellation: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoicePreferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.inputDeviceID = source["inputDeviceID"];
+	        this.outputDeviceID = source["outputDeviceID"];
+	        this.micVolume = source["micVolume"];
+	        this.outputVolume = source["outputVolume"];
+	        this.silenceThreshold = source["silenceThreshold"];
+	        this.autoGainControl = source["autoGainControl"];
+	        this.noiseSuppression = source["noiseSuppression"];
+	        this.echoCancellation = source["echoCancellation"];
+	    }
+	}
 	export class AppState {
 	    apiBaseURL: string;
 	    interfaceName: string;
 	    p2pEnabled: boolean;
+	    voiceSettings: VoicePreferences;
 	    user?: ViewUser;
 	    rooms: ViewRoom[];
 	    currentRoom?: ViewRoom;
@@ -275,6 +302,7 @@ export namespace main {
 	        this.apiBaseURL = source["apiBaseURL"];
 	        this.interfaceName = source["interfaceName"];
 	        this.p2pEnabled = source["p2pEnabled"];
+	        this.voiceSettings = this.convertValues(source["voiceSettings"], VoicePreferences);
 	        this.user = this.convertValues(source["user"], ViewUser);
 	        this.rooms = this.convertValues(source["rooms"], ViewRoom);
 	        this.currentRoom = this.convertValues(source["currentRoom"], ViewRoom);
@@ -439,6 +467,7 @@ export namespace main {
 	    apiBaseURL: string;
 	    interfaceName: string;
 	    p2pEnabled?: boolean;
+	    voiceSettings?: VoicePreferences;
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsInput(source);
@@ -449,7 +478,26 @@ export namespace main {
 	        this.apiBaseURL = source["apiBaseURL"];
 	        this.interfaceName = source["interfaceName"];
 	        this.p2pEnabled = source["p2pEnabled"];
+	        this.voiceSettings = this.convertValues(source["voiceSettings"], VoicePreferences);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	

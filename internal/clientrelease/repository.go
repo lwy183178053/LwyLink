@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -95,6 +96,12 @@ func (r *Repository) List(ctx context.Context, filter Filter) ([]Release, error)
 func (r *Repository) Count(ctx context.Context) (int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM client_releases`).Scan(&total)
+	return total, err
+}
+
+func (r *Repository) DownloadCountSince(ctx context.Context, since time.Time) (int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM client_download_logs WHERE created_at >= ?`, since).Scan(&total)
 	return total, err
 }
 

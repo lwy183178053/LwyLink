@@ -29,6 +29,16 @@ export type RoomForm = {
 export type SettingsForm = {
   apiBaseURL: string;
   p2pEnabled: boolean;
+  voiceSettings: {
+    inputDeviceID: string;
+    outputDeviceID: string;
+    micVolume: number;
+    outputVolume: number;
+    silenceThreshold: number;
+    autoGainControl: boolean;
+    noiseSuppression: boolean;
+    echoCancellation: boolean;
+  };
 };
 
 const pageTitles: Record<PageKey, string> = {

@@ -120,7 +120,7 @@ h2 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -144,6 +144,71 @@ h2 {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.monitor-card {
+  min-height: 104px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.monitor-card strong {
+  display: block;
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.monitor-card span {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.monitor-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.status-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.status-list span,
+.error-list {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error-list {
+  margin: 0;
+  padding: 14px 16px 16px 32px;
+  line-height: 1.6;
 }
 
 .overview-grid {
