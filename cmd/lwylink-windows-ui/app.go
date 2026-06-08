@@ -1027,6 +1027,7 @@ func (a *App) startRoomConnectionLocked(selected room.Room, message string) erro
 func (a *App) Disconnect() (AppState, error) {
 	a.mu.Lock()
 	if a.connectCancel == nil {
+		a.resetVoiceLocked("未加入语音")
 		a.connection = newConnectionState(statusDisconnected, "未连接")
 		return a.commitStateLocked(), nil
 	}
@@ -1077,6 +1078,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 	} else {
 		a.connection = newConnectionState(statusDisconnected, "已断开")
 	}
+	a.resetVoiceLocked("未加入语音")
 	a.commitStateLocked()
 }
 
@@ -1159,6 +1161,7 @@ func (a *App) cancelConnectionLocked() {
 		a.connectCancel()
 		a.connectCancel = nil
 	}
+	a.resetVoiceLocked("未加入语音")
 }
 
 func (a *App) startRoomEventsLocked() {
@@ -1288,6 +1291,7 @@ func (a *App) clearRoomStateLocked() {
 	a.currentRoom = nil
 	a.members = nil
 	a.chatMessages = nil
+	a.resetVoiceLocked("未加入语音")
 }
 
 func (a *App) applyRoomStateLocked(next fetchedRoomState) {
@@ -1302,7 +1306,7 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.members = nil
 	if next.currentRoom == nil {
 		a.chatMessages = nil
-		a.voiceState = room.VoiceState{}
+		a.resetVoiceLocked("未加入语音")
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
 			a.connection = newConnectionState(statusDisconnected, "已离开房间，虚拟网卡已断开")
@@ -1313,7 +1317,7 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.currentRoom = &current
 	if previousRoomID > 0 && previousRoomID != current.ID {
 		a.chatMessages = nil
-		a.voiceState = room.VoiceState{}
+		a.resetVoiceLocked("未加入语音")
 	}
 	if activeRoomID > 0 && activeRoomID != current.ID {
 		a.cancelConnectionLocked()
@@ -1321,6 +1325,22 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	}
 	a.members = next.members
 	a.voiceState = next.voice
+}
+
+func (a *App) resetVoiceLocked(message string) {
+	a.voiceState = room.VoiceState{}
+	a.voiceMode = "idle"
+	if strings.TrimSpace(message) == "" {
+		message = "未加入语音"
+	}
+	a.voiceMessage = message
+	for {
+		select {
+		case <-a.voiceSend:
+		default:
+			return
+		}
+	}
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {

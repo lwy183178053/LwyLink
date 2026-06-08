@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"testing"
@@ -123,6 +124,44 @@ func TestSendVoiceAudioFrameRequiresOpenMicAndTargetsVoicePeers(t *testing.T) {
 	select {
 	case pkt := <-app.voiceSend:
 		t.Fatalf("unexpected extra voice packet to %s", pkt.PeerVirtualIP)
+	default:
+	}
+}
+
+func TestCancelConnectionResetsVoiceStateAndQueue(t *testing.T) {
+	app := NewApp()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app.mu.Lock()
+	app.connectCancel = cancel
+	app.voiceState = room.VoiceState{
+		RoomID: 7,
+		Participants: []room.VoiceParticipant{
+			{UserID: 10, Speaking: true},
+		},
+	}
+	app.voiceMode = "sending"
+	app.voiceMessage = "语音发送中"
+	app.voiceSend <- client.VoicePacket{PeerVirtualIP: "172.16.1.11", Payload: []byte{1}}
+	app.cancelConnectionLocked()
+	app.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatalf("connection context was not canceled")
+	}
+	got := app.CurrentState()
+	if got.Voice.RoomID != 0 || len(got.Voice.Participants) != 0 {
+		t.Fatalf("voice state was not reset: %+v", got.Voice)
+	}
+	if got.VoiceMode != "idle" || got.VoiceMessage != "未加入语音" {
+		t.Fatalf("voice mode/message=%q/%q", got.VoiceMode, got.VoiceMessage)
+	}
+	select {
+	case pkt := <-app.voiceSend:
+		t.Fatalf("stale voice packet remained queued for %s", pkt.PeerVirtualIP)
 	default:
 	}
 }
