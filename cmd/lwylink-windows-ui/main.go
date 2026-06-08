@@ -24,9 +24,9 @@ func main() {
 	if err := wails.Run(&options.App{
 		Title:     "LwyLink",
 		Width:     1240,
-		Height:    780,
+		Height:    840,
 		MinWidth:  1040,
-		MinHeight: 680,
+		MinHeight: 720,
 		Frameless: true,
 		BackgroundColour: &options.RGBA{
 			R: 15,

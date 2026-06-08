@@ -1505,8 +1505,8 @@ code {
   grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
   grid-template-areas:
     "settings voice"
-    "announcement voice"
-    "announcement update";
+    "settings update"
+    "settings announcement";
   gap: 16px;
   align-items: start;
   min-height: 0;
