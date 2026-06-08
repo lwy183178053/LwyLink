@@ -78,6 +78,31 @@ func TestAuthorizeClientDownload(t *testing.T) {
 	}
 }
 
+func TestClientIPUsesOnlyValidForwardedIPs(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
+	req.Header.Set("CF-Connecting-IP", "not-an-ip")
+	req.Header.Set("X-Real-IP", "still-not-an-ip")
+	req.Header.Set("X-Forwarded-For", "bad, 203.0.113.9, 203.0.113.10")
+	if got, want := clientIP(req), "203.0.113.9"; got != want {
+		t.Fatalf("clientIP=%q, want %q", got, want)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
+	req.Header.Set("Forwarded", `for="[2001:db8::1]";proto=https;host=lwylink.xyz`)
+	if got, want := clientIP(req), "2001:db8::1"; got != want {
+		t.Fatalf("forwarded clientIP=%q, want %q", got, want)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
+	req.Header.Set("X-Forwarded-For", "garbage")
+	if got, want := clientIP(req), "192.0.2.10"; got != want {
+		t.Fatalf("fallback clientIP=%q, want %q", got, want)
+	}
+}
+
 func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T) {
 	release := clientrelease.Release{
 		Version:        "0.1.17",

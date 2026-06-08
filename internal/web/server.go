@@ -1282,7 +1282,7 @@ func parseForwardedHeader(value string) map[string]string {
 		key = strings.ToLower(strings.TrimSpace(key))
 		raw = strings.Trim(strings.TrimSpace(raw), `"`)
 		switch key {
-		case "proto", "host":
+		case "proto", "host", "for":
 			out[key] = raw
 		}
 	}

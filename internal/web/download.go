@@ -231,20 +231,45 @@ func (l *downloadLimiter) Allow(key string, limit int) bool {
 
 func clientIP(r *http.Request) string {
 	for _, header := range []string{"CF-Connecting-IP", "X-Real-IP"} {
-		if ip := strings.TrimSpace(r.Header.Get(header)); ip != "" {
+		if ip := validHeaderIP(r.Header.Get(header)); ip != "" {
 			return ip
 		}
 	}
 	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
-			return first
+		for _, item := range strings.Split(forwarded, ",") {
+			if ip := validHeaderIP(item); ip != "" {
+				return ip
+			}
+		}
+	}
+	if forwarded := parseForwardedHeader(r.Header.Get("Forwarded")); forwarded != nil {
+		if ip := validHeaderIP(forwarded["for"]); ip != "" {
+			return ip
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
+	if err == nil && net.ParseIP(host) != nil {
 		return host
 	}
-	return r.RemoteAddr
+	if ip := validHeaderIP(r.RemoteAddr); ip != "" {
+		return ip
+	}
+	return "unknown"
+}
+
+func validHeaderIP(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), `"[]`)
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return ""
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
 }
 
 func firstNonEmpty(values ...string) string {
