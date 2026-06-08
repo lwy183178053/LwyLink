@@ -89,7 +89,7 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\test-release.ps1
 
 ## 日常自检
 
-代码整理、UI 调整或语音/Overlay 改动后，优先跑统一自检：
+代码整理、UI 调整、语音/Overlay 或外部示例改动后，优先跑统一自检：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1
@@ -99,10 +99,14 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1
 
 1. `go test ./...`
 2. Windows UI `npm.cmd run build`
-3. `deploy/test-release.ps1`
-4. `git diff --check`
+3. Python 示例 `py_compile` 和 `--self-test`
+4. Java 示例 `javac` 和 `--self-test`
+5. `deploy/test-release.ps1`
+6. `git diff --check`
 
-需要更重的并发检查时加 `-Race`；需要静态检查时加 `-Vet`。只改服务端时可以加 `-SkipFrontend`，只改业务代码且不涉及发布脚本时可以加 `-SkipReleaseScript`。
+示例组网自测需要已有 `build/lwylink-net.exe`；如果缺少该产物，先运行 `.\deploy\build-all.ps1`。
+
+需要更重的并发检查时加 `-Race`；需要静态检查时加 `-Vet`。只改服务端时可以加 `-SkipFrontend`，不涉及外部示例时可以加 `-SkipExamples`，只改业务代码且不涉及发布脚本时可以加 `-SkipReleaseScript`。
 
 ## 构建产物
 

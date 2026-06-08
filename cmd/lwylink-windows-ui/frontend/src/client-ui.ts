@@ -45,9 +45,9 @@ const pageEyebrows: Record<PageKey, string> = {
 
 const statusTexts: Record<string, string> = {
   connected: "已连接",
-  connecting: "连接中",
-  disconnecting: "断开中",
-  error: "错误",
+  connecting: "未连接",
+  disconnecting: "未连接",
+  error: "未连接",
 };
 
 const statusTones: Record<string, string> = {

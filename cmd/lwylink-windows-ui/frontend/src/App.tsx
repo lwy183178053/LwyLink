@@ -170,6 +170,7 @@ export default function App() {
   const isOwner = !!currentRoom && currentRoom.ownerUserID === state.user?.id;
   const connectionTone = statusTone(state.connection.status);
   const connectionRunning = isConnectionRunning(state.connection.status);
+  const networkDisplayIP = state.connection.ip || currentRoom?.networkCIDR || "";
   const directPeerIPSet = useMemo(() => new Set(state.connection.directPeerIPs ?? []), [state.connection.directPeerIPs]);
   const directPeerNames = useMemo(
     () =>
@@ -211,7 +212,7 @@ export default function App() {
     void voiceSessionRef.current?.applyState(state.voice);
     const selfInVoice = !!state.user && state.voice.participants.some((item) => item.userID === state.user?.id);
     if ((!selfInVoice || !connectionRunning) && voiceActive) {
-      void stopLocalVoice(false);
+      void stopLocalVoice(connectionRunning === false && selfInVoice);
     }
   }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id, connectionRunning, voiceActive]);
 
@@ -594,7 +595,7 @@ export default function App() {
             <span className={`status-light ${connectionTone}`} />
             <strong>{statusText(state.connection.status)}</strong>
           </div>
-          <span>{state.connection.ip || visibleConnectionMessage(state.connection.message) || "未连接"}</span>
+          {networkDisplayIP && <span>{networkDisplayIP}</span>}
           <div className="rail-actions">
             {currentRoom && connectionRunning ? (
               <button type="button" disabled={isBusy} onClick={disconnectCurrentRoom}>

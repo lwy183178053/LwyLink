@@ -139,6 +139,7 @@ export function RoomControlPanel({
   onDeleteRoom: () => void;
   onLeaveRoom: () => void;
 }) {
+  const roomIP = connection.ip || room.networkCIDR;
   return (
     <aside className="surface room-control-panel">
       <div className="room-title-block">
@@ -156,10 +157,12 @@ export function RoomControlPanel({
             <strong>{statusText(connection.status)}</strong>
           </div>
         </div>
-        <div className="connection-ip">
-          <Network size={15} />
-          <span>{connection.ip || room.networkCIDR}</span>
-        </div>
+        {roomIP && (
+          <div className="connection-ip">
+            <Network size={15} />
+            <span>{roomIP}</span>
+          </div>
+        )}
       </div>
 
       <div className="room-side-metrics">

@@ -1,5 +1,6 @@
 param(
   [switch]$SkipFrontend,
+  [switch]$SkipExamples,
   [switch]$SkipReleaseScript,
   [switch]$Race,
   [switch]$Vet
@@ -30,6 +31,16 @@ function Invoke-Native {
   }
 }
 
+function Remove-ExampleGeneratedFiles {
+  $examplesRoot = Resolve-Path (Join-Path $repoRoot "examples")
+  Get-ChildItem -Path $examplesRoot -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.FullName.StartsWith($examplesRoot.Path, [System.StringComparison]::OrdinalIgnoreCase)) {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    }
+  }
+  Remove-Item -Path (Join-Path $examplesRoot "java\*.class") -Force -ErrorAction SilentlyContinue
+}
+
 Set-Location $repoRoot
 
 Invoke-Step "Go 测试" {
@@ -55,6 +66,45 @@ if (-not $SkipFrontend) {
       Invoke-Native "Windows UI 前端构建" "npm.cmd" @("run", "build")
     } finally {
       Pop-Location
+    }
+  }
+}
+
+if (-not $SkipExamples) {
+  Invoke-Step "Python 示例自检" {
+    try {
+      $python = "python"
+      if (Get-Command uv -ErrorAction SilentlyContinue) {
+        Invoke-Native "Python 示例语法检查" "uv" @("run", "python", "-m", "py_compile", ".\examples\python\lwylink.py", ".\examples\python\lwylink_room_example.py", ".\examples\python\lwylink_net_example.py")
+        Invoke-Native "Python 房间示例自测" "uv" @("run", "python", ".\examples\python\lwylink_room_example.py", "--self-test")
+        $python = "uv"
+      } else {
+        Invoke-Native "Python 示例语法检查" $python @("-m", "py_compile", ".\examples\python\lwylink.py", ".\examples\python\lwylink_room_example.py", ".\examples\python\lwylink_net_example.py")
+        Invoke-Native "Python 房间示例自测" $python @(".\examples\python\lwylink_room_example.py", "--self-test")
+      }
+      if (-not (Test-Path ".\build\lwylink-net.exe")) {
+        throw "缺少 build\lwylink-net.exe，无法运行 Python 组网示例自测。请先执行 .\deploy\build-all.ps1。"
+      }
+      if ($python -eq "uv") {
+        Invoke-Native "Python 组网示例自测" "uv" @("run", "python", ".\examples\python\lwylink_net_example.py", "--self-test", "--exe", ".\build\lwylink-net.exe")
+      } else {
+        Invoke-Native "Python 组网示例自测" $python @(".\examples\python\lwylink_net_example.py", "--self-test", "--exe", ".\build\lwylink-net.exe")
+      }
+    } finally {
+      Remove-ExampleGeneratedFiles
+    }
+  }
+
+  Invoke-Step "Java 示例自检" {
+    try {
+      Invoke-Native "Java 示例编译" "javac" @(".\examples\java\LwyLink.java", ".\examples\java\LwyLinkRoomExample.java", ".\examples\java\LwyLinkNetExample.java")
+      Invoke-Native "Java 房间示例自测" "java" @("-cp", ".\examples\java", "LwyLinkRoomExample", "--self-test")
+      if (-not (Test-Path ".\build\lwylink-net.exe")) {
+        throw "缺少 build\lwylink-net.exe，无法运行 Java 组网示例自测。请先执行 .\deploy\build-all.ps1。"
+      }
+      Invoke-Native "Java 组网示例自测" "java" @("-cp", ".\examples\java", "LwyLinkNetExample", "--self-test", "--exe", ".\build\lwylink-net.exe")
+    } finally {
+      Remove-ExampleGeneratedFiles
     }
   }
 }
