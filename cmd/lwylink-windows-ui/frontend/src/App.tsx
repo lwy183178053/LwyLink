@@ -2,27 +2,21 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Field, Input, Spinner, Switch, Textarea } from "@fluentui/react-components";
 import {
   Copy,
-  DoorOpen,
   Gamepad2,
-  Headphones,
   KeyRound,
   LogIn,
   LogOut,
   Megaphone,
-  MessageSquare,
-  Mic,
   Minus,
   Network,
   PlugZap,
   Plus,
   Power,
-  Radio,
   RefreshCw,
   Send,
   Settings,
   SlidersHorizontal,
   Square,
-  Trash2,
   UserCircle,
   UserPlus,
   X,
@@ -82,7 +76,7 @@ import {
   type SettingsForm,
   userLabel,
 } from "./client-ui";
-import { Avatar, ChatBubble, MemberRow, Metric, NavButton, Rule } from "./components";
+import { Avatar, Metric, NavButton, RoomChatPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import type { AppState } from "./types";
 import { emptyState } from "./types";
@@ -787,170 +781,44 @@ export default function App() {
 
     return (
       <section className="room-workspace">
-        <aside className="surface room-control-panel">
-          <div className="room-title-block">
-            <div>
-              <span className="eyebrow">当前房间</span>
-              <h2>{currentRoom.name}</h2>
-            </div>
-            <span className={`status-pill ${currentRoom.status === "open" ? "good" : "bad"}`}>{currentRoom.status}</span>
-          </div>
-
-          <div className="connection-card">
-            <div className="connection-card-head">
-              <span className={`status-light ${connectionTone}`} />
-              <div>
-                <strong>{statusText(state.connection.status)}</strong>
-                <span>{state.connection.message || "稳定连接"}</span>
-              </div>
-            </div>
-            <div className="connection-ip">
-              <Network size={15} />
-              <span>{state.connection.ip || currentRoom.networkCIDR}</span>
-            </div>
-          </div>
-
-          <div className="room-side-metrics">
-            <Metric label="成员" value={`${currentRoom.memberCount} / ${currentRoom.maxMembers}`} />
-            <Metric label="在线" value={`${onlineCount} / ${members.length}`} />
-            <Metric label="节点" value={currentRoom.nodeName || "未分配"} />
-            <Metric label="中继剩余" value={state.user ? formatBytes(state.user.relayTrafficRemainingBytes) : "-"} />
-          </div>
-
-          <div className="room-key compact">
-            <span>房间密钥</span>
-            <code>{currentRoom.roomPublicKey}</code>
-            <Button icon={<Copy size={16} />} onClick={() => copyText(currentRoom.roomPublicKey, "房间密钥")}>
-              复制
-            </Button>
-          </div>
-
-          <div className="command-actions room-control-actions">
-            {connectionRunning ? (
-              <Button icon={<Power size={16} />} disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
-                断开虚拟网络
-              </Button>
-            ) : (
-              <Button appearance="primary" icon={<PlugZap size={16} />} disabled={isBusy} onClick={() => run("连接虚拟网络", () => ConnectRoom(currentRoom.id))}>
-                启动虚拟网络
-              </Button>
-            )}
-            {isOwner ? (
-              <Button icon={<Trash2 size={16} />} disabled={isBusy} onClick={() => run("删除房间", () => DeleteRoom(currentRoom.id))}>
-                删除房间
-              </Button>
-            ) : (
-              <Button icon={<DoorOpen size={16} />} disabled={isBusy} onClick={() => run("退出房间", LeaveCurrentRoom)}>
-                退出房间
-              </Button>
-            )}
-          </div>
-        </aside>
-
-        <section className="surface room-players-panel">
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">Players</span>
-              <h2>玩家与语音</h2>
-            </div>
-            <span>{onlineCount} 在线</span>
-          </div>
-
-          <div className="player-summary-strip">
-            <div>
-              <Radio size={16} />
-              <span>{directPeerNames.length > 0 ? `${directPeerNames.length} 条 P2P 直连` : "TCP relay 就绪"}</span>
-            </div>
-            <div>
-              <Network size={16} />
-              <span>{currentRoom.networkCIDR}</span>
-            </div>
-          </div>
-
-          <div className="member-table">
-            {members.map((member) => (
-              <MemberRow
-                key={member.userID}
-                member={member}
-                isSelf={member.userID === state.user?.id}
-                p2pLabel={
-                  connectionRunning && member.userID === state.user?.id && directPeerNames.length > 0
-                    ? `已与 ${directPeerNames.join("、")} P2P 直连`
-                    : connectionRunning && !!member.virtualIP && directPeerIPSet.has(member.virtualIP)
-                      ? "与我 P2P 直连"
-                      : undefined
-                }
-                canManage={isOwner && member.userID !== state.user?.id}
-                disabled={isBusy}
-                onKick={() => run("移出成员", () => KickMember({ userID: member.userID }))}
-                onTransfer={() => run("转让房主", () => TransferOwner({ userID: member.userID }))}
-              />
-            ))}
-          </div>
-
-          <div className="voice-dock">
-            <div className="voice-dock-title">
-              <Headphones size={16} />
-              <span>房间语音</span>
-            </div>
-            <div className="voice-actions">
-              <button type="button" disabled title="麦克风">
-                <Mic size={16} />
-                <span>麦克风</span>
-              </button>
-              <button type="button" disabled title="耳机">
-                <Headphones size={16} />
-                <span>耳机</span>
-              </button>
-              <button type="button" disabled title="按键说话">
-                <Radio size={16} />
-                <span>按键说话</span>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <aside className="surface chat-panel">
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">Chat</span>
-              <h2>聊天</h2>
-            </div>
-            <MessageSquare size={18} />
-          </div>
-          <div className="chat-list" ref={chatListRef}>
-            {chatMessages.map((message) => (
-              <ChatBubble key={message.id} message={message} mine={message.userID === state.user?.id} />
-            ))}
-            {pendingChats.map((message) => (
-              <div className="chat-bubble mine pending" key={message.id}>
-                <div className="pending-chat-line">
-                  <span className="chat-pending-spinner" />
-                  <p>{message.message}</p>
-                </div>
-              </div>
-            ))}
-            {chatMessages.length === 0 && pendingChats.length === 0 && <div className="empty-chat">暂无消息</div>}
-          </div>
-          <div className="chat-form">
-            <Textarea
-              className="pretty-textarea chat-input"
-              rows={2}
-              maxLength={500}
-              value={chatText}
-              onChange={(_, data) => setChatText(data.value)}
-            />
-            <Button
-              appearance="primary"
-              icon={chatSending ? <Spinner size="tiny" /> : <Send size={16} />}
-              type="button"
-              disabled={chatSending || chatText.trim() === ""}
-              onClick={handleSendChat}
-            >
-              {chatSending ? "发送中" : "发送"}
-            </Button>
-          </div>
-        </aside>
+        <RoomControlPanel
+          room={currentRoom}
+          connection={state.connection}
+          connectionRunning={connectionRunning}
+          onlineCount={onlineCount}
+          memberCount={members.length}
+          currentUser={state.user}
+          isOwner={isOwner}
+          disabled={isBusy}
+          onCopyKey={() => copyText(currentRoom.roomPublicKey, "房间密钥")}
+          onConnect={() => run("连接虚拟网络", () => ConnectRoom(currentRoom.id))}
+          onDisconnect={() => run("断开虚拟网络", Disconnect)}
+          onDeleteRoom={() => run("删除房间", () => DeleteRoom(currentRoom.id))}
+          onLeaveRoom={() => run("退出房间", LeaveCurrentRoom)}
+        />
+        <RoomPlayersPanel
+          room={currentRoom}
+          members={members}
+          currentUserID={state.user?.id}
+          onlineCount={onlineCount}
+          connectionRunning={connectionRunning}
+          directPeerNames={directPeerNames}
+          directPeerIPSet={directPeerIPSet}
+          isOwner={isOwner}
+          disabled={isBusy}
+          onKick={(userID) => run("移出成员", () => KickMember({ userID }))}
+          onTransfer={(userID) => run("转让房主", () => TransferOwner({ userID }))}
+        />
+        <RoomChatPanel
+          chatMessages={chatMessages}
+          pendingChats={pendingChats}
+          currentUserID={state.user?.id}
+          chatListRef={chatListRef}
+          chatText={chatText}
+          chatSending={chatSending}
+          onChatTextChange={setChatText}
+          onSendChat={handleSendChat}
+        />
       </section>
     );
   }
