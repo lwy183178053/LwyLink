@@ -10,7 +10,7 @@
 | 系统 | Ubuntu |
 | SSH | `root@64.83.34.53:22` |
 | 官网 / 控制 API | `https://www.lwylink.xyz` |
-| 控制 API 内网监听 | `http://64.83.34.53:8080` |
+| 控制 API 本机监听 | `http://127.0.0.1:8080` |
 | Overlay | `64.83.34.53:35768` |
 | 远端目录 | `/opt/lwylink` |
 
@@ -54,14 +54,14 @@ systemctl status lwylink-node
 端口检查：
 
 ```bash
-ss -ltnup | grep -E ':(443|8080|35768) '
+ss -ltnup | grep -E '(127\.0\.0\.1:8080|:443|:35768) '
 ```
 
 期望结果：
 
 | 端口 | 期望归属 |
 | --- | --- |
-| `8080/tcp` | `lwylink-control` |
+| `127.0.0.1:8080/tcp` | `lwylink-control`，只允许本机反代访问 |
 | `35768/tcp` | `lwylink-node` 控制/中继 |
 | `35768/udp` | `lwylink-node` UDP 打洞协商 |
 | `443/tcp` | HTTPS 反向代理，域名 `www.lwylink.xyz` / `lwylink.xyz` |
@@ -83,7 +83,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 4. 上传服务端二进制到 `/opt/lwylink/deploy/dist`。
 5. 安装到 `/opt/lwylink`。
 6. 重启 `lwylink-control` 和 `lwylink-node`。
-7. 检查 `443/https`、`8080`、`35768/tcp`、`35768/udp`。
+7. 检查 `443/https`、`127.0.0.1:8080`、`35768/tcp`、`35768/udp`。
 8. 跑远端 smoke 测试。
 9. 上传 Windows 客户端更新包并校验 latest 版本和 SHA256。
 
@@ -125,7 +125,7 @@ SMOKE OK
 ```bash
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnup | grep -E ':(443|8080|35768) ' || true
+ss -ltnup | grep -E '(127\.0\.0\.1:8080|:443|:35768) ' || true
 journalctl -u lwylink-control -n 50 --no-pager
 journalctl -u lwylink-node -n 50 --no-pager
 ```
@@ -155,7 +155,7 @@ go test -p 1 ./...
 ```bash
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnup | grep -E ':(443|8080|35768) '
+ss -ltnup | grep -E '(127\.0\.0\.1:8080|:443|:35768) '
 journalctl -u lwylink-control -n 50 --no-pager
 journalctl -u lwylink-node -n 50 --no-pager
 ```

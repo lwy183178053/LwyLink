@@ -34,7 +34,7 @@
 
 | 端口 | 归属 | 说明 |
 | --- | --- | --- |
-| `8080/tcp` | `lwylink-control` | HTTP API 和管理后台 |
+| `127.0.0.1:8080/tcp` | `lwylink-control` | 本机 HTTP API 和管理后台，只允许 HTTPS 反向代理访问 |
 | `35768/tcp` | `lwylink-node` | Overlay TCP 控制/中继 |
 | `35768/udp` | `lwylink-node` | UDP 打洞协商 |
 | `443/tcp` | HTTPS 反向代理 | `www.lwylink.xyz` / `lwylink.xyz`，反代到控制端 `8080` |
@@ -55,7 +55,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 5. 请求 `/api/client/releases/latest` 校验线上 latest 版本号和 SHA256。
 
 当前阶段客户端协议和账号/网络逻辑经常是不兼容更新，发布脚本会默认把 Windows 客户端标记为强制更新。
-客户端发布和 smoke 默认使用公网 HTTPS API：`https://www.lwylink.xyz`。如需临时绕过反向代理排障，可以显式传 `-ApiURL http://64.83.34.53:8080` 或设置 `LWYLINK_API_URL`。
+客户端发布和 smoke 默认使用公网 HTTPS API：`https://www.lwylink.xyz`。控制端 `8080` 只监听本机，不再作为公网排障入口；如需排查反向代理，优先在服务器本机 `curl http://127.0.0.1:8080`。
 
 常用参数：
 
@@ -226,14 +226,14 @@ systemctl status lwylink-node --no-pager
 - 控制平面配置里的 `tokenSecret`、`adminToken` 可以留空；控制端第一次启动时会自动生成并写回 JSON 文件。
 - 房间节点配置里的 `overlayPrivateKey` 可以留空；节点第一次打印公钥时会自动生成并写回。
 - 房间节点配置里的 `tokenSecret` 必须和控制平面一致。
-- 公网入口使用 HTTPS 反向代理，控制端仍只在 `8080` 提供本机 HTTP 服务。
+- 公网入口使用 HTTPS 反向代理，控制端必须只监听 `127.0.0.1:8080`，不要把 `8080/tcp` 暴露到公网。
 
 ## 故障排查命令
 
 ```bash
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnup | grep -E ':(443|8080|35768) ' || true
+ss -ltnup | grep -E '(127\.0\.0\.1:8080|:443|:35768) ' || true
 journalctl -u lwylink-control -n 50 --no-pager
 journalctl -u lwylink-node -n 50 --no-pager
 ```

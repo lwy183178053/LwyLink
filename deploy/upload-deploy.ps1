@@ -193,7 +193,7 @@ systemctl restart lwylink-node
 sleep 2
 systemctl is-active lwylink-control
 systemctl is-active lwylink-node
-ss -ltnup | grep -E ':(8080|35768) ' || true
+ss -ltnup | grep -E '(127\.0\.0\.1:8080|:35768) ' || true
 ss -ltnup | grep -E ':443 ' || true
 "@ 90
   }

@@ -109,11 +109,11 @@ go build -trimpath -o .\build\lwylink-net.exe .\cmd\lwylink-net
 SSH: root@64.83.34.53:22
 远端目录: /opt/lwylink
 官网 / 控制 API: https://www.lwylink.xyz
-控制 API 内网监听: http://64.83.34.53:8080
+控制 API 本机监听: http://127.0.0.1:8080
 Overlay: 64.83.34.53:35768
 ```
 
-`443/tcp` 现在归 LwyLink 官网 HTTPS 反向代理使用，反代到本机 `8080`。`8080` 只作为内网监听和排障直连入口。
+`443/tcp` 现在归 LwyLink 官网 HTTPS 反向代理使用，反代到本机 `127.0.0.1:8080`。`8080` 只作为服务器本机监听，不应暴露公网。
 
 创建远端目录：
 
@@ -297,7 +297,7 @@ systemctl status lwylink-node --no-pager
 
 | 端口 | 说明 |
 | --- | --- |
-| `8080/tcp` | HTTP API 和管理后台 |
+| `127.0.0.1:8080/tcp` | 本机 HTTP API 和管理后台，只允许 HTTPS 反向代理访问 |
 | `443/tcp` | HTTPS 官网和控制 API 反向代理 |
 | MySQL / Redis | 只允许控制服务和受信节点访问 |
 

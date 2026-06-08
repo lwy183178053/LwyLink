@@ -1,5 +1,5 @@
 {
-  "httpAddr": "0.0.0.0:8080",
+  "httpAddr": "127.0.0.1:8080",
   "mysqlDsn": "lwylink:CHANGE_ME_DB_PASSWORD@tcp(127.0.0.1:3306)/lwylink?parseTime=true&charset=utf8mb4&loc=Local",
   "redisAddr": "127.0.0.1:6379",
   "redisPassword": "",

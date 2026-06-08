@@ -59,13 +59,13 @@ $urlChecks = @(
   },
   @{
     name = "显式 ApiURL"
-    args = @("-ApiURL", "http://64.83.34.53:8080")
-    want = "http://64.83.34.53:8080"
+    args = @("-ApiURL", "http://127.0.0.1:8080")
+    want = "http://127.0.0.1:8080"
   },
   @{
     name = "带协议 HostName"
-    args = @("-HostName", "http://64.83.34.53:8080")
-    want = "http://64.83.34.53:8080"
+    args = @("-HostName", "https://www.lwylink.xyz")
+    want = "https://www.lwylink.xyz"
   }
 )
 
