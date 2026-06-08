@@ -111,7 +111,7 @@ export const emptyState: AppState = {
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",
-    mandatory: false,
+    mandatory: true,
     installArgs: "",
     fileName: "",
     sizeBytes: 0,

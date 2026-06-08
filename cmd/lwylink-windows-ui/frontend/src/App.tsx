@@ -99,7 +99,6 @@ export default function App() {
   const [chatText, setChatText] = useState("");
   const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
   const [chatSending, setChatSending] = useState(false);
-  const [dismissedUpdate, setDismissedUpdate] = useState("");
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
     password: "",
@@ -162,8 +161,7 @@ export default function App() {
   const updateTone = updateStatusTone(state.update.status);
   const showUpdatePrompt =
     state.update.status === "ready" &&
-    state.update.latestVersion !== "" &&
-    (state.update.mandatory || dismissedUpdate !== state.update.latestVersion);
+    state.update.latestVersion !== "";
   const isBusy = busy !== "";
   const authRules = authRuleState(loginForm.email, loginForm.password);
   const canSubmitAuth =
@@ -998,7 +996,7 @@ export default function App() {
               <span className="eyebrow">Update Ready</span>
               <h2>新版本 {state.update.latestVersion} 已准备好</h2>
             </div>
-            <span className={`status-pill ${state.update.mandatory ? "warn" : "good"}`}>{state.update.mandatory ? "强制" : "可选"}</span>
+            <span className="status-pill warn">强制更新</span>
           </div>
           <div className="update-body">
             <div className="update-version-line">
@@ -1009,11 +1007,6 @@ export default function App() {
             {state.update.notes ? <p>{state.update.notes}</p> : <p>更新包已经在后台下载并完成校验。</p>}
           </div>
           <div className="update-actions">
-            {!state.update.mandatory && (
-              <Button disabled={isBusy} onClick={() => setDismissedUpdate(state.update.latestVersion)}>
-                稍后
-              </Button>
-            )}
             <Button appearance="primary" icon={<Power size={16} />} disabled={isBusy} onClick={() => run("启动更新", InstallPreparedUpdate)}>
               立即重启更新
             </Button>
