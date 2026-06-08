@@ -2,11 +2,15 @@ package web
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
@@ -127,4 +131,116 @@ func TestSitePagesRender(t *testing.T) {
 			t.Fatalf("%s page did not render site content", path)
 		}
 	}
+}
+
+func TestSmokeRegisterRequiresAdminAndSmokeEmail(t *testing.T) {
+	accounts := account.NewService(&smokeAccountRepo{users: make(map[string]account.User)}, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil)
+
+	body := `{"email":"player@smoke.lwylink.test","password":"secret1","displayName":"Smoke"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/smoke/register", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.handleSmokeRegister(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d, want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/smoke/register?token=admin-token", strings.NewReader(`{"email":"player@example.com","password":"secret1"}`))
+	rec = httptest.NewRecorder()
+	srv.handleSmokeRegister(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/smoke/register?token=admin-token", strings.NewReader(body))
+	rec = httptest.NewRecorder()
+	srv.handleSmokeRegister(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var result account.LoginResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if result.Token == "" || result.User.Email != "player@smoke.lwylink.test" {
+		t.Fatalf("bad register result: %+v", result)
+	}
+}
+
+type smokeAccountRepo struct {
+	nextID int64
+	users  map[string]account.User
+}
+
+func (r *smokeAccountRepo) Create(_ context.Context, username, passwordHash, displayName string) (account.User, error) {
+	if _, ok := r.users[username]; ok {
+		return account.User{}, account.ErrUsernameUsed
+	}
+	r.nextID++
+	u := account.User{ID: r.nextID, Username: username, PasswordHash: passwordHash, DisplayName: displayName, Role: "player"}
+	r.users[username] = u
+	return u, nil
+}
+
+func (r *smokeAccountRepo) FindByUsername(_ context.Context, username string) (account.User, error) {
+	u, ok := r.users[username]
+	if !ok {
+		return account.User{}, account.ErrNotFound
+	}
+	return u, nil
+}
+
+func (r *smokeAccountRepo) FindByID(_ context.Context, id int64) (account.User, error) {
+	for _, u := range r.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return account.User{}, account.ErrNotFound
+}
+
+func (r *smokeAccountRepo) UpdatePassword(_ context.Context, userID int64, passwordHash string) error {
+	for email, u := range r.users {
+		if u.ID == userID {
+			u.PasswordHash = passwordHash
+			r.users[email] = u
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (r *smokeAccountRepo) List(context.Context, account.UserFilter) ([]account.User, error) {
+	return nil, nil
+}
+func (r *smokeAccountRepo) Stats(context.Context) (account.Stats, error) { return account.Stats{}, nil }
+func (r *smokeAccountRepo) SetDisabled(context.Context, int64, bool) error {
+	return nil
+}
+func (r *smokeAccountRepo) SetMembership(context.Context, int64, string) error {
+	return nil
+}
+func (r *smokeAccountRepo) AddRelayTraffic(context.Context, int64, int64) error { return nil }
+func (r *smokeAccountRepo) ConsumeRelayTraffic(context.Context, int64, int64) error {
+	return nil
+}
+func (r *smokeAccountRepo) Delete(context.Context, int64) error { return nil }
+
+type smokeSessionStore struct {
+	sessions map[int64]string
+}
+
+func (s *smokeSessionStore) SetCurrentSession(_ context.Context, userID int64, sessionID string, _ time.Duration) error {
+	s.sessions[userID] = sessionID
+	return nil
+}
+
+func (s *smokeSessionStore) CurrentSession(_ context.Context, userID int64) (string, bool, error) {
+	value, ok := s.sessions[userID]
+	return value, ok, nil
+}
+
+func (s *smokeSessionStore) DeleteCurrentSession(_ context.Context, userID int64) error {
+	delete(s.sessions, userID)
+	return nil
 }

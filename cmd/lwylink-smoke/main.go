@@ -172,7 +172,8 @@ func failf(format string, args ...any) {
 }
 
 func registerSmokeUser(ctx context.Context, cleaner *smokeCleaner, api *client.API, username, password, displayName string) (account.LoginResult, error) {
-	result, err := api.Register(ctx, smokeEmail(username), password, displayName, "")
+	email := smokeEmail(username)
+	result, err := cleaner.register(ctx, api, email, password, displayName)
 	if err == nil {
 		cleaner.track(result.User.ID)
 	}
@@ -207,6 +208,23 @@ func (c *smokeCleaner) track(userID int64) {
 	c.userIDs = append(c.userIDs, userID)
 }
 
+func (c *smokeCleaner) register(ctx context.Context, api *client.API, email, password, displayName string) (account.LoginResult, error) {
+	if c == nil || c.adminToken == "" {
+		return api.Register(ctx, email, password, displayName, "")
+	}
+	var result account.LoginResult
+	err := postJSON(ctx, c.apiURL+"/api/smoke/register?token="+url.QueryEscape(c.adminToken), map[string]string{
+		"email":       email,
+		"password":    password,
+		"displayName": displayName,
+	}, &result)
+	if err != nil {
+		return account.LoginResult{}, err
+	}
+	api.SetToken(result.Token)
+	return result, nil
+}
+
 func (c *smokeCleaner) cleanup(ctx context.Context) {
 	if c == nil || len(c.userIDs) == 0 {
 		return
@@ -222,6 +240,31 @@ func (c *smokeCleaner) cleanup(ctx context.Context) {
 		}
 		log.Printf("cleanup smoke user id=%d ok", userID)
 	}
+}
+
+func postJSON(ctx context.Context, endpoint string, body any, out any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
 }
 
 func (c *smokeCleaner) uniqueUserIDsDescending() []int64 {

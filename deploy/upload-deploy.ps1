@@ -210,6 +210,9 @@ if (-not $SkipSmoke) {
       $smokeArgs += @("-admin-token", $AdminToken)
     }
     go run .\cmd\lwylink-smoke @smokeArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "Smoke 测试失败"
+    }
   }
 }
 

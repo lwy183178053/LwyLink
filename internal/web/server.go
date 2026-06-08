@@ -56,6 +56,7 @@ func NewServer(addr, adminToken string, accounts *account.Service, settings *app
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/register", s.handleRegister)
+	mux.HandleFunc("/api/smoke/register", s.handleSmokeRegister)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/email/verification/send", s.handleSendEmailVerification)
 	mux.HandleFunc("/api/password/reset", s.handlePasswordReset)
@@ -131,6 +132,35 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.requireEmailVerification(r.Context(), req.Email, mail.PurposeRegister, req.EmailCode); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := s.accounts.Register(r.Context(), req.Email, req.Password, req.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSmokeRegister(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	if !s.adminAuthorized(r) {
+		writeError(w, http.StatusUnauthorized, "admin token required")
+		return
+	}
+	var req struct {
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		DisplayName string `json:"displayName"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !strings.HasSuffix(account.NormalizeEmail(req.Email), "@smoke.lwylink.test") {
+		writeError(w, http.StatusBadRequest, "smoke registration only accepts smoke.lwylink.test emails")
 		return
 	}
 	result, err := s.accounts.Register(r.Context(), req.Email, req.Password, req.DisplayName)
