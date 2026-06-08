@@ -808,31 +808,6 @@ func (a *App) SetRoomVoiceMic(roomID int64, speaking bool) (AppState, error) {
 	return a.commitStateLocked(), nil
 }
 
-func (a *App) StartVoiceAudio(roomID int64) (AppState, error) {
-	a.mu.Lock()
-	if a.currentRoom == nil {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("当前没有加入房间")
-	}
-	if roomID <= 0 {
-		roomID = a.currentRoom.ID
-	}
-	if roomID != a.currentRoom.ID {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("只能启动当前房间语音")
-	}
-	a.voiceMode = "connecting"
-	a.voiceMessage = "语音连接中"
-	return a.commitStateLocked(), nil
-}
-
-func (a *App) StopVoiceAudio(roomID int64) (AppState, error) {
-	a.mu.Lock()
-	a.voiceMode = "idle"
-	a.voiceMessage = "未加入语音"
-	return a.commitStateLocked(), nil
-}
-
 func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) {
 	a.mu.Lock()
 	if a.user == nil || a.currentRoom == nil {

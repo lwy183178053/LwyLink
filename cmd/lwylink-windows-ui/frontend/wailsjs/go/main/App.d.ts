@@ -48,8 +48,4 @@ export function SetRoomVoiceMic(arg1:number,arg2:boolean):Promise<main.AppState>
 
 export function SetSettings(arg1:main.SettingsInput):Promise<main.AppState>;
 
-export function StartVoiceAudio(arg1:number):Promise<main.AppState>;
-
-export function StopVoiceAudio(arg1:number):Promise<main.AppState>;
-
 export function TransferOwner(arg1:main.MemberActionInput):Promise<main.AppState>;

@@ -269,7 +269,7 @@ class VoiceEncoder {
 class VoiceDecoder {
   private decoder?: AudioDecoder;
   private readonly output: (frame: DecodedVoiceFrame) => void;
-  private pendingByTimestamp = new Map<number, number>();
+  private pendingByTimestamp = new Map<number, number[]>();
 
   private constructor(output: (frame: DecodedVoiceFrame) => void, decoder?: AudioDecoder) {
     this.output = output;
@@ -306,7 +306,7 @@ class VoiceDecoder {
       return;
     }
     const timestamp = timestampMS * 1000;
-    this.pendingByTimestamp.set(timestamp, fromUserID);
+    pushPendingUser(this.pendingByTimestamp, timestamp, fromUserID);
     this.decoder.decode(
       new EncodedAudioChunk({
         type: "key",
@@ -335,9 +335,24 @@ class VoiceDecoder {
   }
 }
 
-function thisFromTimestamp(timestamp: number, pending: Map<number, number>) {
-  const userID = pending.get(timestamp) || 0;
-  pending.delete(timestamp);
+function pushPendingUser(pending: Map<number, number[]>, timestamp: number, userID: number) {
+  const users = pending.get(timestamp);
+  if (users) {
+    users.push(userID);
+    return;
+  }
+  pending.set(timestamp, [userID]);
+}
+
+function thisFromTimestamp(timestamp: number, pending: Map<number, number[]>) {
+  const users = pending.get(timestamp);
+  if (!users || users.length === 0) {
+    return 0;
+  }
+  const userID = users.shift() || 0;
+  if (users.length === 0) {
+    pending.delete(timestamp);
+  }
   return userID;
 }
 

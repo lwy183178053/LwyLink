@@ -30,6 +30,7 @@ type Server struct {
 	addr       string
 	nodeID     int64
 	privateKey string
+	ctx        context.Context
 
 	accounts *account.Service
 	rooms    *room.Service
@@ -78,6 +79,7 @@ func NewServer(addr string, nodeID int64, privateKey string, accounts *account.S
 // ListenAndServe starts the tcpx listener. Clients authenticate at the overlay
 // protocol layer after the X25519/AES-GCM channel is established.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	s.ctx = ctx
 	privateKeyHex, err := tcpx.NormalizePrivateKeyHex(s.privateKey)
 	if err != nil {
 		return err
@@ -166,7 +168,7 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 		old.close()
 	}
 	go s.writeLoop(sess)
-	go s.refreshOnlineLoop(context.Background(), sess)
+	go s.refreshOnlineLoop(s.context(), sess)
 
 	if err := s.writeJSON(conn, FrameDHCP, DHCPResponse{
 		RequestID:    req.RequestID,
@@ -190,6 +192,13 @@ func (s *Server) onMessage(conn *tcpx.SecureConn, raw []byte) {
 	}
 
 	log.Printf("overlay joined room=%d user=%s ip=%s", sess.roomID, sess.username, sess.lease.IP)
+}
+
+func (s *Server) context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
 }
 
 func (s *Server) handleSessionFrame(sess *session, typ FrameType, payload []byte) {

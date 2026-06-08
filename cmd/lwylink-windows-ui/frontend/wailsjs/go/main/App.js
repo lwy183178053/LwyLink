@@ -94,14 +94,6 @@ export function SetSettings(arg1) {
   return window['go']['main']['App']['SetSettings'](arg1);
 }
 
-export function StartVoiceAudio(arg1) {
-  return window['go']['main']['App']['StartVoiceAudio'](arg1);
-}
-
-export function StopVoiceAudio(arg1) {
-  return window['go']['main']['App']['StopVoiceAudio'](arg1);
-}
-
 export function TransferOwner(arg1) {
   return window['go']['main']['App']['TransferOwner'](arg1);
 }
