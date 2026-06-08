@@ -3,7 +3,7 @@ param(
   [string]$User = "",
   [int]$Port = 0,
   [string]$Password = "",
-  [string]$RemoteRoot = "/opt/lwylink",
+  [string]$RemoteRoot = "",
   [string]$DistDir = "",
   [switch]$UploadConfigs,
   [switch]$SkipSmoke,
@@ -14,31 +14,55 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if ($HostName -eq "") { $HostName = $env:LWYLINK_DEPLOY_HOST }
-if ($HostName -eq "") { $HostName = "64.83.34.53" }
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$deployLocalConfigPath = Join-Path $repoRoot "configs\deploy.local.json"
+$deployLocalConfig = $null
+if (Test-Path $deployLocalConfigPath) {
+  $deployLocalConfig = Get-Content $deployLocalConfigPath -Raw | ConvertFrom-Json
+}
 
-if ($User -eq "") { $User = $env:LWYLINK_DEPLOY_SSH_USER }
-if ($User -eq "") { $User = "root" }
+function Get-DeployConfigValue {
+  param(
+    [string]$CliValue,
+    [string]$EnvName,
+    [string]$ConfigName,
+    [string]$DefaultValue = ""
+  )
+  if (-not [string]::IsNullOrWhiteSpace($CliValue)) { return $CliValue }
+  $envValue = [Environment]::GetEnvironmentVariable($EnvName)
+  if (-not [string]::IsNullOrWhiteSpace($envValue)) { return $envValue }
+  if ($deployLocalConfig -and $deployLocalConfig.PSObject.Properties.Name -contains $ConfigName) {
+    $configValue = [string]$deployLocalConfig.$ConfigName
+    if (-not [string]::IsNullOrWhiteSpace($configValue)) { return $configValue }
+  }
+  return $DefaultValue
+}
 
-if ($Port -eq 0 -and $env:LWYLINK_DEPLOY_SSH_PORT) { $Port = [int]$env:LWYLINK_DEPLOY_SSH_PORT }
+if ($HostName -eq "") { $HostName = Get-DeployConfigValue "" "LWYLINK_DEPLOY_HOST" "hostName" "64.83.34.53" }
+
+if ($User -eq "") { $User = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_USER" "user" "root" }
+
+if ($Port -eq 0) {
+  $portValue = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_PORT" "port" ""
+  if ($portValue -ne "") { $Port = [int]$portValue }
+}
 if ($Port -eq 0) { $Port = 22 }
 
-if ($Password -eq "") { $Password = $env:LWYLINK_DEPLOY_SSH_PASSWORD }
+if ($Password -eq "") { $Password = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_PASSWORD" "password" "" }
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ($DistDir -eq "") {
   $DistDir = Join-Path $repoRoot "deploy\dist"
 } elseif (-not [System.IO.Path]::IsPathRooted($DistDir)) {
   $DistDir = Join-Path $repoRoot $DistDir
 }
 
+if ($RemoteRoot -eq "") { $RemoteRoot = Get-DeployConfigValue "" "LWYLINK_REMOTE_ROOT" "remoteRoot" "/opt/lwylink" }
 if ($RemoteRoot -notmatch '^/[A-Za-z0-9_./-]+$') {
   throw "RemoteRoot 只能使用简单的 Linux 绝对路径，例如 /opt/lwylink。当前值：$RemoteRoot"
 }
 
-if ($ApiURL -eq "" -and $env:LWYLINK_API_URL) { $ApiURL = $env:LWYLINK_API_URL }
-if ($ApiURL -eq "") { $ApiURL = "https://www.lwylink.xyz" }
-if ($OverlayAddr -eq "") { $OverlayAddr = "${HostName}:35768" }
+if ($ApiURL -eq "") { $ApiURL = Get-DeployConfigValue "" "LWYLINK_API_URL" "apiURL" "https://www.lwylink.xyz" }
+if ($OverlayAddr -eq "") { $OverlayAddr = Get-DeployConfigValue "" "LWYLINK_OVERLAY_ADDR" "overlayAddr" "${HostName}:35768" }
 
 if ($AdminToken -eq "") { $AdminToken = $env:LWYLINK_ADMIN_TOKEN }
 if ($AdminToken -eq "") {

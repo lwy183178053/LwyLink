@@ -20,8 +20,9 @@
 
 - `configs/control.prod.json`：控制平面配置，包含 HTTP API、管理令牌、数据库、Redis、房间调度和清理参数。
 - `configs/node.prod.json`：房间节点配置，包含 Overlay 监听、节点私钥、数据库、Redis、vDHCP 参数。
+- `configs/deploy.local.json`：本机发布目标和 SSH 凭据，可由 `configs/deploy.example.json` 复制创建。
 
-这些生产配置包含密钥和密码，不要提交、截图或完整贴到聊天里。仓库只保留 `.example.json` 示例配置，真实 `*.prod.json` 只放在本机或服务器。
+这些生产配置包含密钥和密码，不要提交、截图或完整贴到聊天里。仓库只保留 `.example.json` 示例配置，真实 `*.prod.json` 和 `*.local.json` 只放在本机或服务器。
 
 ## 程序分工
 
@@ -42,8 +43,15 @@
 
 ## 日常一键发布
 
+先准备本机部署配置：
+
 ```powershell
-$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
+Copy-Item .\configs\deploy.example.json .\configs\deploy.local.json
+```
+
+在 `configs/deploy.local.json` 中填写 `hostName`、`user`、`port`、`password`、`apiURL` 和 `overlayAddr`。这个文件已被 Git 忽略，适合保存本机测试服发布参数。
+
+```powershell
 .\deploy\release.cmd -Version <version> -Notes "本次更新说明"
 ```
 
@@ -135,7 +143,6 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1
 再上传到默认测试服务器：
 
 ```powershell
-$env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 .\deploy\upload-deploy.ps1
 ```
 
@@ -168,6 +175,8 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 $env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
 $env:LWYLINK_API_URL = "https://www.lwylink.xyz"
 ```
+
+命令行参数优先级最高，其次环境变量，最后读取 `configs/deploy.local.json`。临时切换服务器时直接传 `-HostName` / `-Password`，不需要改本地配置文件。
 
 ## 新增房间节点
 

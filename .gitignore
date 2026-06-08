@@ -9,6 +9,7 @@ configs/server.local.json
 configs/server.prod.json
 configs/*.local.json
 configs/*.prod.json
+configs/deploy.local.json
 deploy/dist/
 deploy/.env
 node_modules/

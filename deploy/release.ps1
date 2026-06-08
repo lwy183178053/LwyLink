@@ -6,7 +6,7 @@ param(
   [string]$User = "",
   [int]$Port = 0,
   [string]$Password = "",
-  [string]$RemoteRoot = "/opt/lwylink",
+  [string]$RemoteRoot = "",
   [string]$AdminToken = "",
   [string]$ApiURL = "",
   [string]$OverlayAddr = "",
@@ -30,6 +30,11 @@ $clientExe = Join-Path $windowsDistDir "LwyLink.exe"
 $artifactManifest = Join-Path $repoRoot "build\artifacts.json"
 $utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 $defaultPublicApiURL = "https://www.lwylink.xyz"
+$deployLocalConfigPath = Join-Path $repoRoot "configs\deploy.local.json"
+$deployLocalConfig = $null
+if (Test-Path $deployLocalConfigPath) {
+  $deployLocalConfig = Get-Content $deployLocalConfigPath -Raw | ConvertFrom-Json
+}
 
 function Invoke-Step {
   param(
@@ -62,6 +67,36 @@ function Set-TextFileVersion {
     return
   }
   [System.IO.File]::WriteAllText($fullPath, $next, $utf8NoBOM)
+}
+
+function Get-DeployConfigValue {
+  param(
+    [string]$CliValue,
+    [string]$EnvName,
+    [string]$ConfigName,
+    [string]$DefaultValue = ""
+  )
+  if (-not [string]::IsNullOrWhiteSpace($CliValue)) { return $CliValue }
+  $envValue = [Environment]::GetEnvironmentVariable($EnvName)
+  if (-not [string]::IsNullOrWhiteSpace($envValue)) { return $envValue }
+  if ($deployLocalConfig -and $deployLocalConfig.PSObject.Properties.Name -contains $ConfigName) {
+    $configValue = [string]$deployLocalConfig.$ConfigName
+    if (-not [string]::IsNullOrWhiteSpace($configValue)) { return $configValue }
+  }
+  return $DefaultValue
+}
+
+function Resolve-DeploySettings {
+  if ($HostName -eq "") { $script:HostName = Get-DeployConfigValue "" "LWYLINK_DEPLOY_HOST" "hostName" "" }
+  if ($User -eq "") { $script:User = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_USER" "user" "" }
+  if ($Port -eq 0) {
+    $portValue = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_PORT" "port" ""
+    if ($portValue -ne "") { $script:Port = [int]$portValue }
+  }
+  if ($Password -eq "") { $script:Password = Get-DeployConfigValue "" "LWYLINK_DEPLOY_SSH_PASSWORD" "password" "" }
+  if ($RemoteRoot -eq "") { $script:RemoteRoot = Get-DeployConfigValue "" "LWYLINK_REMOTE_ROOT" "remoteRoot" "/opt/lwylink" }
+  if ($ApiURL -eq "") { $script:ApiURL = Get-DeployConfigValue "" "LWYLINK_API_URL" "apiURL" "" }
+  if ($OverlayAddr -eq "") { $script:OverlayAddr = Get-DeployConfigValue "" "LWYLINK_OVERLAY_ADDR" "overlayAddr" "" }
 }
 
 function Sync-VersionFiles {
@@ -216,6 +251,7 @@ function Invoke-GitCommit {
 }
 
 Set-Location $repoRoot
+Resolve-DeploySettings
 
 if ($ValidateReleaseApiURL) {
   Resolve-ReleaseApiURL | Write-Output

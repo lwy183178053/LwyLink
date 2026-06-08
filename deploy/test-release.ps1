@@ -66,20 +66,64 @@ $urlChecks = @(
     name = "带协议 HostName"
     args = @("-HostName", "https://www.lwylink.xyz")
     want = "https://www.lwylink.xyz"
+  },
+  @{
+    name = "本地部署配置"
+    before = {
+      $configPath = "configs\deploy.local.json"
+      $backupPath = ""
+      if (Test-Path $configPath) {
+        $backupPath = "configs\deploy.local.json.test-backup"
+        Move-Item -LiteralPath $configPath -Destination $backupPath -Force
+      }
+      [pscustomobject]@{
+        configPath = $configPath
+        backupPath = $backupPath
+      }
+    }
+    setup = {
+      param($state)
+      $json = @{
+        apiURL = "https://local-config.example"
+      } | ConvertTo-Json
+      Set-Content -LiteralPath $state.configPath -Value $json -Encoding UTF8
+    }
+    cleanup = {
+      param($state)
+      Remove-Item -LiteralPath $state.configPath -Force -ErrorAction SilentlyContinue
+      if ($state.backupPath) {
+        Move-Item -LiteralPath $state.backupPath -Destination $state.configPath -Force
+      }
+    }
+    args = @()
+    want = "https://local-config.example"
   }
 )
 
 foreach ($case in $urlChecks) {
-  $actual = PowerShell -NoProfile -ExecutionPolicy Bypass -File ".\deploy\release.ps1" `
-    -Version $Version `
-    -ValidateReleaseApiURL `
-    @($case.args)
-  if ($LASTEXITCODE -ne 0) {
-    throw "release API URL 校验命令失败：$($case.name)"
+  $state = $null
+  if ($case.before) {
+    $state = & $case.before
   }
-  $actual = [string]::Join("", $actual).Trim()
-  if ($actual -ne $case.want) {
-    throw "release API URL 校验失败：$($case.name)，got $actual, want $($case.want)"
+  try {
+    if ($case.setup) {
+      & $case.setup $state
+    }
+    $actual = PowerShell -NoProfile -ExecutionPolicy Bypass -File ".\deploy\release.ps1" `
+      -Version $Version `
+      -ValidateReleaseApiURL `
+      @($case.args)
+    if ($LASTEXITCODE -ne 0) {
+      throw "release API URL 校验命令失败：$($case.name)"
+    }
+    $actual = [string]::Join("", $actual).Trim()
+    if ($actual -ne $case.want) {
+      throw "release API URL 校验失败：$($case.name)，got $actual, want $($case.want)"
+    }
+  } finally {
+    if ($case.cleanup) {
+      & $case.cleanup $state
+    }
   }
 }
 

@@ -1,0 +1,9 @@
+{
+  "hostName": "64.83.34.53",
+  "user": "root",
+  "port": 22,
+  "password": "",
+  "remoteRoot": "/opt/lwylink",
+  "apiURL": "https://www.lwylink.xyz",
+  "overlayAddr": "64.83.34.53:35768"
+}
