@@ -39,6 +39,12 @@ $releaseScript = Get-Content "deploy\release.ps1" -Raw
 if (-not $releaseScript.Contains('$content.Add([System.Net.Http.StringContent]::new("true"), "mandatory")')) {
   throw "release 脚本必须默认发布强制更新"
 }
+if ($releaseScript.Contains('git add -A')) {
+  throw "release 脚本提交不能使用 git add -A，避免误提交未跟踪文件"
+}
+if (-not $releaseScript.Contains('git add -u')) {
+  throw "release 脚本提交必须只纳入已跟踪文件"
+}
 
 $urlChecks = @(
   @{

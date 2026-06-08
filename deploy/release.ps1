@@ -197,7 +197,7 @@ function Publish-ClientRelease {
 }
 
 function Invoke-GitCommit {
-  $status = git status --short
+  $status = git status --porcelain
   if ($LASTEXITCODE -ne 0) {
     throw "git status failed"
   }
@@ -205,7 +205,11 @@ function Invoke-GitCommit {
     Write-Host "没有需要提交的改动。" -ForegroundColor Yellow
     return
   }
-  git add -A
+  $untracked = $status | Where-Object { $_.StartsWith("?? ") }
+  if ($untracked) {
+    throw "存在未跟踪文件，发布提交已停止。请先确认这些文件是否应加入 Git：`n$($untracked -join "`n")"
+  }
+  git add -u
   if ($LASTEXITCODE -ne 0) { throw "git add failed" }
   git commit -m "release: publish $Version"
   if ($LASTEXITCODE -ne 0) { throw "git commit failed" }
