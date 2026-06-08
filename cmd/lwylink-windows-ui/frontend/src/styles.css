@@ -1571,12 +1571,6 @@ code {
   font-size: 12px;
 }
 
-.voice-toggle-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .settings-actions.inline {
   padding: 0;
   justify-content: flex-start;

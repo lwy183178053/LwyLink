@@ -1148,11 +1148,6 @@ export default function App() {
                 <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
               </div>
             </div>
-            <div className="voice-toggle-grid">
-              <Switch label="自动增益" checked={settingsForm.voiceSettings.autoGainControl} onChange={(_, data) => updateVoiceSettings({ autoGainControl: data.checked })} />
-              <Switch label="降噪" checked={settingsForm.voiceSettings.noiseSuppression} onChange={(_, data) => updateVoiceSettings({ noiseSuppression: data.checked })} />
-              <Switch label="回声消除" checked={settingsForm.voiceSettings.echoCancellation} onChange={(_, data) => updateVoiceSettings({ echoCancellation: data.checked })} />
-            </div>
             <div className="settings-actions inline">
               <Button type="button" onClick={() => refreshVoiceDevices()}>
                 刷新设备

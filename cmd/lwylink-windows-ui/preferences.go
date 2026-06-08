@@ -98,6 +98,9 @@ func normalizeVoicePreferences(input VoicePreferences) VoicePreferences {
 	if input.SilenceThreshold < 0 || input.SilenceThreshold > 0.2 {
 		input.SilenceThreshold = defaults.SilenceThreshold
 	}
+	input.AutoGainControl = true
+	input.NoiseSuppression = true
+	input.EchoCancellation = true
 	return input
 }
 
