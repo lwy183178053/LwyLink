@@ -4,16 +4,19 @@ import {
   Copy,
   DoorOpen,
   Gamepad2,
+  Headphones,
   KeyRound,
   LogIn,
   LogOut,
   Megaphone,
   MessageSquare,
+  Mic,
   Minus,
   Network,
   PlugZap,
   Plus,
   Power,
+  Radio,
   RefreshCw,
   Send,
   Settings,
@@ -784,8 +787,8 @@ export default function App() {
 
     return (
       <section className="room-workspace">
-        <div className="surface room-command">
-          <div className="room-command-top">
+        <aside className="surface room-control-panel">
+          <div className="room-title-block">
             <div>
               <span className="eyebrow">当前房间</span>
               <h2>{currentRoom.name}</h2>
@@ -793,19 +796,28 @@ export default function App() {
             <span className={`status-pill ${currentRoom.status === "open" ? "good" : "bad"}`}>{currentRoom.status}</span>
           </div>
 
-          <div className="room-metrics">
+          <div className="connection-card">
+            <div className="connection-card-head">
+              <span className={`status-light ${connectionTone}`} />
+              <div>
+                <strong>{statusText(state.connection.status)}</strong>
+                <span>{state.connection.message || "稳定连接"}</span>
+              </div>
+            </div>
+            <div className="connection-ip">
+              <Network size={15} />
+              <span>{state.connection.ip || currentRoom.networkCIDR}</span>
+            </div>
+          </div>
+
+          <div className="room-side-metrics">
             <Metric label="成员" value={`${currentRoom.memberCount} / ${currentRoom.maxMembers}`} />
             <Metric label="在线" value={`${onlineCount} / ${members.length}`} />
             <Metric label="节点" value={currentRoom.nodeName || "未分配"} />
             <Metric label="中继剩余" value={state.user ? formatBytes(state.user.relayTrafficRemainingBytes) : "-"} />
           </div>
 
-          <div className="room-network-line">
-            <Network size={15} />
-            <span>{currentRoom.networkCIDR}</span>
-          </div>
-
-          <div className="room-key">
+          <div className="room-key compact">
             <span>房间密钥</span>
             <code>{currentRoom.roomPublicKey}</code>
             <Button icon={<Copy size={16} />} onClick={() => copyText(currentRoom.roomPublicKey, "房间密钥")}>
@@ -813,7 +825,7 @@ export default function App() {
             </Button>
           </div>
 
-          <div className="command-actions">
+          <div className="command-actions room-control-actions">
             {connectionRunning ? (
               <Button icon={<Power size={16} />} disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
                 断开虚拟网络
@@ -833,13 +845,28 @@ export default function App() {
               </Button>
             )}
           </div>
-        </div>
+        </aside>
 
-        <div className="surface member-panel">
+        <section className="surface room-players-panel">
           <div className="surface-head">
-            <h2>成员</h2>
-            <span>{members.length} 人</span>
+            <div>
+              <span className="eyebrow">Players</span>
+              <h2>玩家与语音</h2>
+            </div>
+            <span>{onlineCount} 在线</span>
           </div>
+
+          <div className="player-summary-strip">
+            <div>
+              <Radio size={16} />
+              <span>{directPeerNames.length > 0 ? `${directPeerNames.length} 条 P2P 直连` : "TCP relay 就绪"}</span>
+            </div>
+            <div>
+              <Network size={16} />
+              <span>{currentRoom.networkCIDR}</span>
+            </div>
+          </div>
+
           <div className="member-table">
             {members.map((member) => (
               <MemberRow
@@ -860,11 +887,35 @@ export default function App() {
               />
             ))}
           </div>
-        </div>
 
-        <div className="surface chat-panel">
+          <div className="voice-dock">
+            <div className="voice-dock-title">
+              <Headphones size={16} />
+              <span>房间语音</span>
+            </div>
+            <div className="voice-actions">
+              <button type="button" disabled title="麦克风">
+                <Mic size={16} />
+                <span>麦克风</span>
+              </button>
+              <button type="button" disabled title="耳机">
+                <Headphones size={16} />
+                <span>耳机</span>
+              </button>
+              <button type="button" disabled title="按键说话">
+                <Radio size={16} />
+                <span>按键说话</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside className="surface chat-panel">
           <div className="surface-head">
-            <h2>聊天</h2>
+            <div>
+              <span className="eyebrow">Chat</span>
+              <h2>聊天</h2>
+            </div>
             <MessageSquare size={18} />
           </div>
           <div className="chat-list" ref={chatListRef}>
@@ -899,7 +950,7 @@ export default function App() {
               {chatSending ? "发送中" : "发送"}
             </Button>
           </div>
-        </div>
+        </aside>
       </section>
     );
   }

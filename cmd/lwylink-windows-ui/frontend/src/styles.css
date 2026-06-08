@@ -992,11 +992,7 @@ code {
 
 .room-workspace {
   display: grid;
-  grid-template-columns: minmax(430px, 0.95fr) minmax(440px, 1.05fr);
-  grid-template-rows: minmax(304px, auto) minmax(0, 1fr);
-  grid-template-areas:
-    "command chat"
-    "members chat";
+  grid-template-columns: minmax(230px, 0.68fr) minmax(360px, 1.18fr) minmax(280px, 0.86fr);
   gap: 16px;
   align-items: stretch;
   height: calc(100vh - 162px);
@@ -1004,38 +1000,35 @@ code {
   overflow: visible;
 }
 
-.room-command {
-  grid-area: command;
+.room-control-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 13px;
+  padding: 16px;
 }
 
-.member-panel {
-  grid-area: members;
+.room-players-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-height: 0;
 }
 
 .chat-panel {
-  grid-area: chat;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
 }
 
-.room-command-top {
+.room-title-block {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 9px;
+  margin-bottom: 14px;
 }
 
-.room-command h2 {
+.room-title-block h2 {
   font-size: 22px;
   line-height: 1.18;
   overflow-wrap: anywhere;
@@ -1045,31 +1038,52 @@ code {
   overflow: hidden;
 }
 
-.room-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 8px;
+.connection-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #d8e0dc;
+  border-radius: 8px;
+  background: #f8faf8;
+  padding: 13px;
 }
 
-.room-network-line {
+.connection-card-head,
+.connection-ip,
+.player-summary-strip div,
+.voice-dock-title {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  margin-bottom: 9px;
-  padding: 5px 9px;
-  border: 1px solid #e1e9e5;
-  border-radius: 8px;
-  color: #596763;
-  background: #f8faf8;
-  font-size: 12px;
+  gap: 8px;
+  min-width: 0;
 }
 
-.room-network-line span {
+.connection-card-head > div {
   min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.connection-card-head strong {
+  font-size: 15px;
+}
+
+.connection-card-head span,
+.connection-ip span,
+.player-summary-strip span {
+  min-width: 0;
+  color: #596763;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.room-side-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .room-key {
@@ -1079,6 +1093,20 @@ code {
   align-items: center;
   min-height: 0;
   margin-bottom: 8px;
+}
+
+.room-key.compact {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  margin-bottom: 12px;
+}
+
+.room-key.compact > span {
+  grid-column: 1 / -1;
+}
+
+.room-key.compact code {
+  max-height: 88px;
 }
 
 .room-key > span {
@@ -1101,9 +1129,68 @@ code {
   scrollbar-width: thin;
 }
 
-.room-command .command-actions {
+.room-control-actions {
+  display: grid;
+  grid-template-columns: 1fr;
   margin-top: auto;
   padding-top: 4px;
+}
+
+.player-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+.player-summary-strip div {
+  min-height: 38px;
+  border: 1px solid #e1e9e5;
+  border-radius: 8px;
+  background: #f8faf8;
+  padding: 8px 10px;
+}
+
+.voice-dock {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid #e1e9e5;
+  background: #fbfcfb;
+  padding: 12px 14px;
+}
+
+.voice-dock-title {
+  color: #273631;
+  font-weight: 850;
+}
+
+.voice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.voice-actions button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d8e0dc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #596763;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.voice-actions button:disabled {
+  opacity: 0.56;
 }
 
 .member-table {
@@ -1438,8 +1525,12 @@ code {
     grid-template-areas: none;
   }
 
-  .room-command,
-  .member-panel,
+  .room-workspace {
+    height: auto;
+  }
+
+  .room-control-panel,
+  .room-players-panel,
   .chat-panel,
   .settings-panel,
   .announcement-panel,
@@ -1448,6 +1539,18 @@ code {
   }
 
   .chat-panel {
+    min-height: 460px;
+  }
+
+  .room-players-panel {
     min-height: 520px;
+  }
+
+  .voice-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-actions {
+    justify-content: flex-start;
   }
 }
