@@ -196,6 +196,26 @@ func TestSmokeRegisterRequiresAdminAndSmokeEmail(t *testing.T) {
 	}
 }
 
+func TestLoginDisabledAccountReturnsForbidden(t *testing.T) {
+	repo := &smokeAccountRepo{users: make(map[string]account.User)}
+	accounts := account.NewService(repo, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
+	result, err := accounts.Register(context.Background(), "player@example.com", "secret1", "Player")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u := repo.users[result.User.Email]
+	u.Disabled = true
+	repo.users[result.User.Email] = u
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"player@example.com","password":"secret1"}`))
+	rec := httptest.NewRecorder()
+	srv.handleLogin(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s, want 403", rec.Code, rec.Body.String())
+	}
+}
+
 type smokeAccountRepo struct {
 	nextID int64
 	users  map[string]account.User

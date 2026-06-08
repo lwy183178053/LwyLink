@@ -242,7 +242,7 @@ func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.accounts.ChangePassword(r.Context(), user.ID, req.OldPassword, req.NewPassword); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, statusForAccountError(err, http.StatusBadRequest), err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -265,6 +265,16 @@ func statusForMailError(err error) int {
 	return http.StatusBadRequest
 }
 
+func statusForAccountError(err error, fallback int) int {
+	if errors.Is(err, account.ErrDisabled) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, account.ErrUnauthorized) {
+		return http.StatusUnauthorized
+	}
+	return fallback
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -279,7 +289,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.accounts.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(w, statusForAccountError(err, http.StatusUnauthorized), err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
