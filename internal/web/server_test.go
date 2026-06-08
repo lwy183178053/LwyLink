@@ -121,6 +121,16 @@ func TestAdminReleaseUploadRejectsOversizedBodyBeforeMultipartParse(t *testing.T
 	}
 }
 
+func TestReadJSONRejectsTrailingJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(`{"name":"room"} {"name":"other"}`))
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(req, &body); err == nil {
+		t.Fatalf("readJSON accepted trailing JSON")
+	}
+}
+
 func TestSitePagesRender(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
 	for _, path := range []string{"/", "/login", "/register", "/dashboard", "/download"} {
