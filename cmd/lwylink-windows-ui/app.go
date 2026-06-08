@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.20"
+var AppVersion = "0.1.21"
 
 type App struct {
 	ctx context.Context
@@ -131,20 +131,109 @@ type MemberActionInput struct {
 }
 
 type AppState struct {
-	APIBaseURL    string              `json:"apiBaseURL"`
-	InterfaceName string              `json:"interfaceName"`
-	P2PEnabled    bool                `json:"p2pEnabled"`
-	User          *account.PublicUser `json:"user,omitempty"`
-	Rooms         []room.Room         `json:"rooms"`
-	CurrentRoom   *room.Room          `json:"currentRoom,omitempty"`
-	Members       []room.MemberView   `json:"members"`
-	ChatMessages  []room.ChatMessage  `json:"chatMessages"`
-	Voice         room.VoiceState     `json:"voice"`
-	VoiceMode     string              `json:"voiceMode"`
-	VoiceMessage  string              `json:"voiceMessage"`
-	Connection    ConnectionState     `json:"connection"`
-	Update        UpdateState         `json:"update"`
-	Announcement  string              `json:"announcement"`
+	APIBaseURL    string            `json:"apiBaseURL"`
+	InterfaceName string            `json:"interfaceName"`
+	P2PEnabled    bool              `json:"p2pEnabled"`
+	User          *ViewUser         `json:"user,omitempty"`
+	Rooms         []ViewRoom        `json:"rooms"`
+	CurrentRoom   *ViewRoom         `json:"currentRoom,omitempty"`
+	Members       []ViewMember      `json:"members"`
+	ChatMessages  []ViewChatMessage `json:"chatMessages"`
+	Voice         ViewVoiceState    `json:"voice"`
+	VoiceMode     string            `json:"voiceMode"`
+	VoiceMessage  string            `json:"voiceMessage"`
+	Connection    ConnectionState   `json:"connection"`
+	Update        UpdateState       `json:"update"`
+	Announcement  string            `json:"announcement"`
+}
+
+type ViewUser struct {
+	ID                         int64  `json:"id"`
+	Username                   string `json:"username"`
+	Email                      string `json:"email"`
+	DisplayName                string `json:"displayName"`
+	Role                       string `json:"role"`
+	Membership                 string `json:"membership"`
+	Disabled                   bool   `json:"disabled"`
+	RelayTrafficUsedBytes      int64  `json:"relayTrafficUsedBytes"`
+	RelayTrafficExtraBytes     int64  `json:"relayTrafficExtraBytes"`
+	RelayTrafficQuotaBytes     int64  `json:"relayTrafficQuotaBytes"`
+	RelayTrafficRemainingBytes int64  `json:"relayTrafficRemainingBytes"`
+	RelayTrafficPeriod         string `json:"relayTrafficPeriod"`
+	CreatedAt                  string `json:"createdAt"`
+}
+
+type ViewRoom struct {
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	OwnerUserID      int64  `json:"ownerUserID"`
+	NodeID           int64  `json:"nodeID"`
+	RoomPublicKey    string `json:"roomPublicKey"`
+	NetworkCIDR      string `json:"networkCIDR"`
+	MaxMembers       int    `json:"maxMembers"`
+	VoiceMaxMembers  int    `json:"voiceMaxMembers"`
+	VoiceMaxSpeakers int    `json:"voiceMaxSpeakers"`
+	MemberCount      int    `json:"memberCount"`
+	Status           string `json:"status"`
+	NodeName         string `json:"nodeName,omitempty"`
+	NodeOverlayAddr  string `json:"nodeOverlayAddr,omitempty"`
+	NodeUDPAddr      string `json:"nodeUDPAddr,omitempty"`
+	NodePublicKey    string `json:"nodePublicKey,omitempty"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
+type ViewMember struct {
+	RoomID      int64  `json:"roomID"`
+	UserID      int64  `json:"userID"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Role        string `json:"role"`
+	Online      bool   `json:"online"`
+	VirtualIP   string `json:"virtualIP,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+type ViewChatMessage struct {
+	ID          string `json:"id"`
+	RoomID      int64  `json:"roomID"`
+	UserID      int64  `json:"userID"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Message     string `json:"message"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+type ViewVoiceParticipant struct {
+	RoomID      int64  `json:"roomID"`
+	UserID      int64  `json:"userID"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Speaking    bool   `json:"speaking"`
+	Muted       bool   `json:"muted"`
+	JoinedAt    string `json:"joinedAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type ViewVoiceState struct {
+	RoomID           int64                  `json:"roomID"`
+	MaxMembers       int                    `json:"maxMembers"`
+	MaxSpeakers      int                    `json:"maxSpeakers"`
+	ParticipantCount int                    `json:"participantCount"`
+	SpeakerCount     int                    `json:"speakerCount"`
+	Participants     []ViewVoiceParticipant `json:"participants"`
+	UpdatedAt        string                 `json:"updatedAt"`
+}
+
+type ViewRoomEvent struct {
+	Type         string           `json:"type"`
+	RoomID       int64            `json:"roomID"`
+	ActorUserID  int64            `json:"actorUserID,omitempty"`
+	TargetUserID int64            `json:"targetUserID,omitempty"`
+	UserIDs      []int64          `json:"userIDs,omitempty"`
+	Chat         *ViewChatMessage `json:"chat,omitempty"`
+	Voice        *ViewVoiceState  `json:"voice,omitempty"`
+	CreatedAt    string           `json:"createdAt"`
 }
 
 type ConnectionState struct {
@@ -1273,20 +1362,26 @@ func (a *App) appendChatMessageLocked(message room.ChatMessage) {
 }
 
 func (a *App) stateLocked() AppState {
-	rooms := make([]room.Room, len(a.rooms))
-	copy(rooms, a.rooms)
-	members := make([]room.MemberView, len(a.members))
-	copy(members, a.members)
-	chatMessages := make([]room.ChatMessage, len(a.chatMessages))
-	copy(chatMessages, a.chatMessages)
-	var currentRoom *room.Room
+	rooms := make([]ViewRoom, 0, len(a.rooms))
+	for _, item := range a.rooms {
+		rooms = append(rooms, viewRoom(item))
+	}
+	members := make([]ViewMember, 0, len(a.members))
+	for _, item := range a.members {
+		members = append(members, viewMember(item))
+	}
+	chatMessages := make([]ViewChatMessage, 0, len(a.chatMessages))
+	for _, item := range a.chatMessages {
+		chatMessages = append(chatMessages, viewChatMessage(item))
+	}
+	var currentRoom *ViewRoom
 	if a.currentRoom != nil {
-		cp := *a.currentRoom
+		cp := viewRoom(*a.currentRoom)
 		currentRoom = &cp
 	}
-	var user *account.PublicUser
+	var user *ViewUser
 	if a.user != nil {
-		cp := *a.user
+		cp := viewUser(*a.user)
 		user = &cp
 	}
 	return AppState{
@@ -1298,7 +1393,7 @@ func (a *App) stateLocked() AppState {
 		CurrentRoom:   currentRoom,
 		Members:       members,
 		ChatMessages:  chatMessages,
-		Voice:         a.voiceState,
+		Voice:         viewVoiceState(a.voiceState),
 		VoiceMode:     a.voiceMode,
 		VoiceMessage:  a.voiceMessage,
 		Connection:    a.connection,
@@ -1322,8 +1417,128 @@ func (a *App) emitState(state AppState) {
 
 func (a *App) emitRoomEvent(event room.RoomEvent) {
 	if ctx := a.currentContext(); ctx != nil {
-		wailsRuntime.EventsEmit(ctx, "room-event", event)
+		wailsRuntime.EventsEmit(ctx, "room-event", viewRoomEvent(event))
 	}
+}
+
+func viewUser(user account.PublicUser) ViewUser {
+	return ViewUser{
+		ID:                         user.ID,
+		Username:                   user.Username,
+		Email:                      user.Email,
+		DisplayName:                user.DisplayName,
+		Role:                       user.Role,
+		Membership:                 user.Membership,
+		Disabled:                   user.Disabled,
+		RelayTrafficUsedBytes:      user.RelayTrafficUsedBytes,
+		RelayTrafficExtraBytes:     user.RelayTrafficExtraBytes,
+		RelayTrafficQuotaBytes:     user.RelayTrafficQuotaBytes,
+		RelayTrafficRemainingBytes: user.RelayTrafficRemainingBytes,
+		RelayTrafficPeriod:         user.RelayTrafficPeriod,
+		CreatedAt:                  formatViewTime(user.CreatedAt),
+	}
+}
+
+func viewRoom(item room.Room) ViewRoom {
+	return ViewRoom{
+		ID:               item.ID,
+		Name:             item.Name,
+		OwnerUserID:      item.OwnerUserID,
+		NodeID:           item.NodeID,
+		RoomPublicKey:    item.RoomPublicKey,
+		NetworkCIDR:      item.NetworkCIDR,
+		MaxMembers:       item.MaxMembers,
+		VoiceMaxMembers:  item.VoiceMaxMembers,
+		VoiceMaxSpeakers: item.VoiceMaxSpeakers,
+		MemberCount:      item.MemberCount,
+		Status:           item.Status,
+		NodeName:         item.NodeName,
+		NodeOverlayAddr:  item.NodeOverlayAddr,
+		NodeUDPAddr:      item.NodeUDPAddr,
+		NodePublicKey:    item.NodePublicKey,
+		CreatedAt:        formatViewTime(item.CreatedAt),
+		UpdatedAt:        formatViewTime(item.UpdatedAt),
+	}
+}
+
+func viewMember(item room.MemberView) ViewMember {
+	return ViewMember{
+		RoomID:      item.RoomID,
+		UserID:      item.UserID,
+		Username:    item.Username,
+		DisplayName: item.DisplayName,
+		Role:        item.Role,
+		Online:      item.Online,
+		VirtualIP:   item.VirtualIP,
+		CreatedAt:   formatViewTime(item.CreatedAt),
+	}
+}
+
+func viewChatMessage(item room.ChatMessage) ViewChatMessage {
+	return ViewChatMessage{
+		ID:          item.ID,
+		RoomID:      item.RoomID,
+		UserID:      item.UserID,
+		Username:    item.Username,
+		DisplayName: item.DisplayName,
+		Message:     item.Message,
+		CreatedAt:   formatViewTime(item.CreatedAt),
+	}
+}
+
+func viewVoiceState(state room.VoiceState) ViewVoiceState {
+	participants := make([]ViewVoiceParticipant, 0, len(state.Participants))
+	for _, item := range state.Participants {
+		participants = append(participants, ViewVoiceParticipant{
+			RoomID:      item.RoomID,
+			UserID:      item.UserID,
+			Username:    item.Username,
+			DisplayName: item.DisplayName,
+			Speaking:    item.Speaking,
+			Muted:       item.Muted,
+			JoinedAt:    formatViewTime(item.JoinedAt),
+			UpdatedAt:   formatViewTime(item.UpdatedAt),
+		})
+	}
+	return ViewVoiceState{
+		RoomID:           state.RoomID,
+		MaxMembers:       state.MaxMembers,
+		MaxSpeakers:      state.MaxSpeakers,
+		ParticipantCount: state.ParticipantCount,
+		SpeakerCount:     state.SpeakerCount,
+		Participants:     participants,
+		UpdatedAt:        formatViewTime(state.UpdatedAt),
+	}
+}
+
+func viewRoomEvent(event room.RoomEvent) ViewRoomEvent {
+	var chat *ViewChatMessage
+	if event.Chat != nil {
+		cp := viewChatMessage(*event.Chat)
+		chat = &cp
+	}
+	var voice *ViewVoiceState
+	if event.Voice != nil {
+		cp := viewVoiceState(*event.Voice)
+		voice = &cp
+	}
+	return ViewRoomEvent{
+		Type:         event.Type,
+		RoomID:       event.RoomID,
+		ActorUserID:  event.ActorUserID,
+		TargetUserID: event.TargetUserID,
+		UserIDs:      append([]int64(nil), event.UserIDs...),
+		Chat:         chat,
+		Voice:        voice,
+		CreatedAt:    formatViewTime(event.CreatedAt),
+	}
+}
+
+func formatViewTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func findRoom(rooms []room.Room, roomID int64) (room.Room, bool) {

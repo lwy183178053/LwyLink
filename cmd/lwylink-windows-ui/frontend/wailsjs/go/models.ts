@@ -1,63 +1,3 @@
-export namespace account {
-
-	export class PublicUser {
-	    id: number;
-	    username: string;
-	    email: string;
-	    displayName: string;
-	    role: string;
-	    membership: string;
-	    disabled: boolean;
-	    relayTrafficUsedBytes: number;
-	    relayTrafficExtraBytes: number;
-	    relayTrafficQuotaBytes: number;
-	    relayTrafficRemainingBytes: number;
-	    relayTrafficPeriod: string;
-	    // Go type: time
-	    createdAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new PublicUser(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.username = source["username"];
-	        this.email = source["email"];
-	        this.displayName = source["displayName"];
-	        this.role = source["role"];
-	        this.membership = source["membership"];
-	        this.disabled = source["disabled"];
-	        this.relayTrafficUsedBytes = source["relayTrafficUsedBytes"];
-	        this.relayTrafficExtraBytes = source["relayTrafficExtraBytes"];
-	        this.relayTrafficQuotaBytes = source["relayTrafficQuotaBytes"];
-	        this.relayTrafficRemainingBytes = source["relayTrafficRemainingBytes"];
-	        this.relayTrafficPeriod = source["relayTrafficPeriod"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-
-}
-
 export namespace main {
 
 	export class UpdateState {
@@ -112,16 +52,214 @@ export namespace main {
 	        this.directPeerIPs = source["directPeerIPs"];
 	    }
 	}
+	export class ViewVoiceParticipant {
+	    roomID: number;
+	    userID: number;
+	    username: string;
+	    displayName: string;
+	    speaking: boolean;
+	    muted: boolean;
+	    joinedAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewVoiceParticipant(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.roomID = source["roomID"];
+	        this.userID = source["userID"];
+	        this.username = source["username"];
+	        this.displayName = source["displayName"];
+	        this.speaking = source["speaking"];
+	        this.muted = source["muted"];
+	        this.joinedAt = source["joinedAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class ViewVoiceState {
+	    roomID: number;
+	    maxMembers: number;
+	    maxSpeakers: number;
+	    participantCount: number;
+	    speakerCount: number;
+	    participants: ViewVoiceParticipant[];
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewVoiceState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.roomID = source["roomID"];
+	        this.maxMembers = source["maxMembers"];
+	        this.maxSpeakers = source["maxSpeakers"];
+	        this.participantCount = source["participantCount"];
+	        this.speakerCount = source["speakerCount"];
+	        this.participants = this.convertValues(source["participants"], ViewVoiceParticipant);
+	        this.updatedAt = source["updatedAt"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ViewChatMessage {
+	    id: string;
+	    roomID: number;
+	    userID: number;
+	    username: string;
+	    displayName: string;
+	    message: string;
+	    createdAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewChatMessage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.roomID = source["roomID"];
+	        this.userID = source["userID"];
+	        this.username = source["username"];
+	        this.displayName = source["displayName"];
+	        this.message = source["message"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class ViewMember {
+	    roomID: number;
+	    userID: number;
+	    username: string;
+	    displayName: string;
+	    role: string;
+	    online: boolean;
+	    virtualIP?: string;
+	    createdAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewMember(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.roomID = source["roomID"];
+	        this.userID = source["userID"];
+	        this.username = source["username"];
+	        this.displayName = source["displayName"];
+	        this.role = source["role"];
+	        this.online = source["online"];
+	        this.virtualIP = source["virtualIP"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class ViewRoom {
+	    id: number;
+	    name: string;
+	    ownerUserID: number;
+	    nodeID: number;
+	    roomPublicKey: string;
+	    networkCIDR: string;
+	    maxMembers: number;
+	    voiceMaxMembers: number;
+	    voiceMaxSpeakers: number;
+	    memberCount: number;
+	    status: string;
+	    nodeName?: string;
+	    nodeOverlayAddr?: string;
+	    nodeUDPAddr?: string;
+	    nodePublicKey?: string;
+	    createdAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewRoom(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.ownerUserID = source["ownerUserID"];
+	        this.nodeID = source["nodeID"];
+	        this.roomPublicKey = source["roomPublicKey"];
+	        this.networkCIDR = source["networkCIDR"];
+	        this.maxMembers = source["maxMembers"];
+	        this.voiceMaxMembers = source["voiceMaxMembers"];
+	        this.voiceMaxSpeakers = source["voiceMaxSpeakers"];
+	        this.memberCount = source["memberCount"];
+	        this.status = source["status"];
+	        this.nodeName = source["nodeName"];
+	        this.nodeOverlayAddr = source["nodeOverlayAddr"];
+	        this.nodeUDPAddr = source["nodeUDPAddr"];
+	        this.nodePublicKey = source["nodePublicKey"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class ViewUser {
+	    id: number;
+	    username: string;
+	    email: string;
+	    displayName: string;
+	    role: string;
+	    membership: string;
+	    disabled: boolean;
+	    relayTrafficUsedBytes: number;
+	    relayTrafficExtraBytes: number;
+	    relayTrafficQuotaBytes: number;
+	    relayTrafficRemainingBytes: number;
+	    relayTrafficPeriod: string;
+	    createdAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ViewUser(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.username = source["username"];
+	        this.email = source["email"];
+	        this.displayName = source["displayName"];
+	        this.role = source["role"];
+	        this.membership = source["membership"];
+	        this.disabled = source["disabled"];
+	        this.relayTrafficUsedBytes = source["relayTrafficUsedBytes"];
+	        this.relayTrafficExtraBytes = source["relayTrafficExtraBytes"];
+	        this.relayTrafficQuotaBytes = source["relayTrafficQuotaBytes"];
+	        this.relayTrafficRemainingBytes = source["relayTrafficRemainingBytes"];
+	        this.relayTrafficPeriod = source["relayTrafficPeriod"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 	export class AppState {
 	    apiBaseURL: string;
 	    interfaceName: string;
 	    p2pEnabled: boolean;
-	    user?: account.PublicUser;
-	    rooms: room.Room[];
-	    currentRoom?: room.Room;
-	    members: room.MemberView[];
-	    chatMessages: room.ChatMessage[];
-	    voice: room.VoiceState;
+	    user?: ViewUser;
+	    rooms: ViewRoom[];
+	    currentRoom?: ViewRoom;
+	    members: ViewMember[];
+	    chatMessages: ViewChatMessage[];
+	    voice: ViewVoiceState;
 	    voiceMode: string;
 	    voiceMessage: string;
 	    connection: ConnectionState;
@@ -137,12 +275,12 @@ export namespace main {
 	        this.apiBaseURL = source["apiBaseURL"];
 	        this.interfaceName = source["interfaceName"];
 	        this.p2pEnabled = source["p2pEnabled"];
-	        this.user = this.convertValues(source["user"], account.PublicUser);
-	        this.rooms = this.convertValues(source["rooms"], room.Room);
-	        this.currentRoom = this.convertValues(source["currentRoom"], room.Room);
-	        this.members = this.convertValues(source["members"], room.MemberView);
-	        this.chatMessages = this.convertValues(source["chatMessages"], room.ChatMessage);
-	        this.voice = this.convertValues(source["voice"], room.VoiceState);
+	        this.user = this.convertValues(source["user"], ViewUser);
+	        this.rooms = this.convertValues(source["rooms"], ViewRoom);
+	        this.currentRoom = this.convertValues(source["currentRoom"], ViewRoom);
+	        this.members = this.convertValues(source["members"], ViewMember);
+	        this.chatMessages = this.convertValues(source["chatMessages"], ViewChatMessage);
+	        this.voice = this.convertValues(source["voice"], ViewVoiceState);
 	        this.voiceMode = source["voiceMode"];
 	        this.voiceMessage = source["voiceMessage"];
 	        this.connection = this.convertValues(source["connection"], ConnectionState);
@@ -314,6 +452,12 @@ export namespace main {
 	    }
 	}
 
+
+
+
+
+
+
 	export class VoiceAudioFrameInput {
 	    roomID: number;
 	    seq: number;
@@ -333,252 +477,6 @@ export namespace main {
 	        this.sampleRate = source["sampleRate"];
 	        this.payload = source["payload"];
 	    }
-	}
-
-}
-
-export namespace room {
-
-	export class ChatMessage {
-	    id: string;
-	    roomID: number;
-	    userID: number;
-	    username: string;
-	    displayName: string;
-	    message: string;
-	    // Go type: time
-	    createdAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new ChatMessage(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.roomID = source["roomID"];
-	        this.userID = source["userID"];
-	        this.username = source["username"];
-	        this.displayName = source["displayName"];
-	        this.message = source["message"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class MemberView {
-	    roomID: number;
-	    userID: number;
-	    username: string;
-	    displayName: string;
-	    role: string;
-	    online: boolean;
-	    virtualIP?: string;
-	    // Go type: time
-	    createdAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new MemberView(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.roomID = source["roomID"];
-	        this.userID = source["userID"];
-	        this.username = source["username"];
-	        this.displayName = source["displayName"];
-	        this.role = source["role"];
-	        this.online = source["online"];
-	        this.virtualIP = source["virtualIP"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Room {
-	    id: number;
-	    name: string;
-	    ownerUserID: number;
-	    nodeID: number;
-	    roomPublicKey: string;
-	    networkCIDR: string;
-	    maxMembers: number;
-	    voiceMaxMembers: number;
-	    voiceMaxSpeakers: number;
-	    memberCount: number;
-	    status: string;
-	    nodeName?: string;
-	    nodeOverlayAddr?: string;
-	    nodeUDPAddr?: string;
-	    nodePublicKey?: string;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new Room(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.ownerUserID = source["ownerUserID"];
-	        this.nodeID = source["nodeID"];
-	        this.roomPublicKey = source["roomPublicKey"];
-	        this.networkCIDR = source["networkCIDR"];
-	        this.maxMembers = source["maxMembers"];
-	        this.voiceMaxMembers = source["voiceMaxMembers"];
-	        this.voiceMaxSpeakers = source["voiceMaxSpeakers"];
-	        this.memberCount = source["memberCount"];
-	        this.status = source["status"];
-	        this.nodeName = source["nodeName"];
-	        this.nodeOverlayAddr = source["nodeOverlayAddr"];
-	        this.nodeUDPAddr = source["nodeUDPAddr"];
-	        this.nodePublicKey = source["nodePublicKey"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class VoiceParticipant {
-	    roomID: number;
-	    userID: number;
-	    username: string;
-	    displayName: string;
-	    speaking: boolean;
-	    muted: boolean;
-	    // Go type: time
-	    joinedAt: any;
-	    // Go type: time
-	    updatedAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new VoiceParticipant(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.roomID = source["roomID"];
-	        this.userID = source["userID"];
-	        this.username = source["username"];
-	        this.displayName = source["displayName"];
-	        this.speaking = source["speaking"];
-	        this.muted = source["muted"];
-	        this.joinedAt = this.convertValues(source["joinedAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class VoiceState {
-	    roomID: number;
-	    maxMembers: number;
-	    maxSpeakers: number;
-	    participantCount: number;
-	    speakerCount: number;
-	    participants: VoiceParticipant[];
-	    // Go type: time
-	    updatedAt: any;
-
-	    static createFrom(source: any = {}) {
-	        return new VoiceState(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.roomID = source["roomID"];
-	        this.maxMembers = source["maxMembers"];
-	        this.maxSpeakers = source["maxSpeakers"];
-	        this.participantCount = source["participantCount"];
-	        this.speakerCount = source["speakerCount"];
-	        this.participants = this.convertValues(source["participants"], VoiceParticipant);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }
