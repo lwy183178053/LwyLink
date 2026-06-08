@@ -132,7 +132,11 @@ function wirePasswordChange() {
         }),
       });
       form.reset();
-      show("密码已修改");
+      localStorage.removeItem(tokenKey);
+      show("密码已修改，请重新登录");
+      window.setTimeout(() => {
+        location.href = "/login";
+      }, 900);
     } catch (err) {
       show(err.message);
     }

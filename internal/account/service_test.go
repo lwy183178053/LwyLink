@@ -146,12 +146,19 @@ func TestChangePasswordRequiresOldPassword(t *testing.T) {
 			},
 		},
 	}
-	svc := NewService(repo, "secret", &fakeSessionStore{sessions: make(map[int64]string)})
+	sessions := &fakeSessionStore{sessions: map[int64]string{7: "session"}}
+	svc := NewService(repo, "secret", sessions)
 	if err := svc.ChangePassword(context.Background(), 7, "wrong", "newpass"); err != ErrUnauthorized {
 		t.Fatalf("wrong old password err=%v, want unauthorized", err)
 	}
+	if _, ok := sessions.sessions[7]; !ok {
+		t.Fatalf("failed password change cleared current session")
+	}
 	if err := svc.ChangePassword(context.Background(), 7, "oldpass", "newpass"); err != nil {
 		t.Fatalf("change password: %v", err)
+	}
+	if _, ok := sessions.sessions[7]; ok {
+		t.Fatalf("change password did not clear current session")
 	}
 	if _, err := svc.Login(context.Background(), "player@example.com", "newpass"); err != nil {
 		t.Fatalf("login with changed password: %v", err)

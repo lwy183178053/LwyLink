@@ -418,6 +418,13 @@ func (a *App) ChangePassword(input ChangePasswordInput) (AppState, error) {
 		return AppState{}, err
 	}
 	a.mu.Lock()
+	a.cancelConnectionLocked()
+	a.cancelRoomEventsLocked()
+	_ = clearSavedLogin()
+	a.api.ClearToken()
+	a.user = nil
+	a.clearRoomStateLocked()
+	a.connection = newConnectionState(statusDisconnected, "密码已修改，请重新登录")
 	return a.commitStateLocked(), nil
 }
 

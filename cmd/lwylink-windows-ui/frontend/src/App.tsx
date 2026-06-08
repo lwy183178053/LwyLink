@@ -361,6 +361,9 @@ export default function App() {
     const ok = await run("修改密码", () => ChangePassword({ oldPassword: loginForm.oldPassword, newPassword: loginForm.newPassword }));
     if (ok) {
       setLoginForm((current) => ({ ...current, oldPassword: "", newPassword: "" }));
+      setPage("account");
+      setAuthMode("login");
+      showNotice("密码已修改，请重新登录", "info");
     }
   }
 

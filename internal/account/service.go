@@ -163,7 +163,13 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, oldPassword,
 	if err != nil {
 		return err
 	}
-	return s.repo.UpdatePassword(ctx, u.ID, string(hash))
+	if err := s.repo.UpdatePassword(ctx, u.ID, string(hash)); err != nil {
+		return err
+	}
+	if s.sessions != nil {
+		_ = s.sessions.DeleteCurrentSession(ctx, u.ID)
+	}
+	return nil
 }
 
 func (s *Service) AuthenticateToken(ctx context.Context, token string) (User, error) {
