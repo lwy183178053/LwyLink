@@ -43,7 +43,7 @@
 
 ```powershell
 $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
-.\deploy\release.cmd -Version 0.1.12 -Notes "本次更新说明"
+.\deploy\release.cmd -Version <version> -Notes "本次更新说明"
 ```
 
 发布脚本会依次执行：
@@ -60,12 +60,12 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 常用参数：
 
 ```powershell
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipSmoke
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipDeploy
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipClientRelease
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -SkipBuild
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -UploadConfigs
-.\deploy\release.cmd -Version 0.1.12 -Notes "说明" -Commit
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipSmoke
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipDeploy
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipClientRelease
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipBuild
+.\deploy\release.cmd -Version <version> -Notes "说明" -UploadConfigs
+.\deploy\release.cmd -Version <version> -Notes "说明" -Commit
 ```
 
 `release.cmd` 会用 `PowerShell -ExecutionPolicy Bypass` 调用 `release.ps1`，适合本机执行策略较严格时使用。
@@ -98,7 +98,7 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\test-release.ps1
 ```powershell
 .\deploy\build-all.ps1 -SkipTests
 .\deploy\build-all.ps1 -SkipWindowsUI
-.\deploy\build-all.ps1 -AppVersion 0.1.12
+.\deploy\build-all.ps1 -AppVersion <version>
 .\deploy\build-all.ps1 -NoInstallWails
 ```
 

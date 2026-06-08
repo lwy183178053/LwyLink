@@ -72,7 +72,7 @@ ss -ltnup | grep -E ':(443|8080|35768) '
 
 ```powershell
 $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
-.\deploy\release.cmd -Version 0.1.12 -Notes "本次更新说明"
+.\deploy\release.cmd -Version <version> -Notes "本次更新说明"
 ```
 
 脚本会执行：
@@ -137,7 +137,7 @@ journalctl -u lwylink-node -n 50 --no-pager
 ```powershell
 go test -p 1 ./...
 go vet -p 1 ./...
-.\deploy\release.cmd -Version 0.1.12 -Notes "本次更新说明"
+.\deploy\release.cmd -Version <version> -Notes "本次更新说明"
 ```
 
 Windows 客户端、Wails 或 Wintun 路由改动：

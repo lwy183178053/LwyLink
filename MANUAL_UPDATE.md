@@ -3,7 +3,7 @@
 这份文档用于不走一键脚本时，手动完成验证、构建、上传、发布客户端、扩容和回滚。日常优先使用：
 
 ```powershell
-.\deploy\release.cmd -Version 0.1.12 -Notes "本次更新说明"
+.\deploy\release.cmd -Version <version> -Notes "本次更新说明"
 ```
 
 只需要构建和部署时：
@@ -42,7 +42,7 @@ wails version
 检查版本残留示例：
 
 ```powershell
-rg -n "0\.1\.11|0\.1\.12" cmd\lwylink-windows-ui internal\web -S
+rg -n "0\.1\.17|0\.1\.18|0\.1\.19" cmd\lwylink-windows-ui internal\web -S
 ```
 
 ## 2. 本地验证
@@ -191,7 +191,7 @@ journalctl -u lwylink-node -n 50 --no-pager
 
 1. 打开 `https://www.lwylink.xyz/admin?token=<ADMIN_TOKEN>`。
 2. 进入“更新发布”。
-3. 版本号填写当前版本，例如 `0.1.12`。
+3. 版本号填写当前版本，例如 `<version>`。
 4. 平台填写 `windows-amd64`。
 5. 上传 `cmd/lwylink-windows-ui/build/bin/LwyLink.exe` 或 `build/windows-amd64/LwyLink.exe`。
 6. 强制更新会固定为“是”。当前阶段经常是不兼容更新，不要发布成可选更新。
