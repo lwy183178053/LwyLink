@@ -80,7 +80,7 @@ import {
   type SettingsForm,
   userLabel,
 } from "./client-ui";
-import { Avatar, Metric, NavButton, RoomChatPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
+import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { VoiceSession, type IncomingVoiceFrame } from "./voice";
 import type { AppState, RoomEvent } from "./types";
@@ -103,6 +103,7 @@ export default function App() {
   const [chatSending, setChatSending] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceMicActive, setVoiceMicActive] = useState(false);
+  const [voiceConnectPrompt, setVoiceConnectPrompt] = useState(false);
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
     password: "",
@@ -248,11 +249,9 @@ export default function App() {
     }
 
     const signature = `${normalized.connection.status}|${normalized.connection.message}|${normalized.connection.ip}`;
-    if (connectionSignature.current && signature !== connectionSignature.current) {
-      showNotice(
-        `网络状态: ${statusText(normalized.connection.status)}${normalized.connection.message ? ` - ${normalized.connection.message}` : ""}`,
-        normalized.connection.status === "error" ? "error" : "info",
-      );
+    const message = visibleConnectionMessage(normalized.connection.message);
+    if (connectionSignature.current && signature !== connectionSignature.current && message) {
+      showNotice(`网络状态: ${statusText(normalized.connection.status)} - ${message}`, normalized.connection.status === "error" ? "error" : "info");
     }
     connectionSignature.current = signature;
   }
@@ -362,12 +361,30 @@ export default function App() {
     }
   }
 
+  async function connectCurrentRoom() {
+    if (!currentRoom) {
+      return false;
+    }
+    return run("连接虚拟网络", () => ConnectRoom(currentRoom.id));
+  }
+
   async function handleJoinVoice() {
     if (!currentRoom || !state.user) {
       return;
     }
     if (voiceActive) {
       await handleLeaveVoice();
+      return;
+    }
+    if (!connectionRunning) {
+      setVoiceConnectPrompt(true);
+      return;
+    }
+    await startVoiceSession();
+  }
+
+  async function startVoiceSession() {
+    if (!currentRoom || !state.user) {
       return;
     }
     const session = new VoiceSession(currentRoom, state.user.id, {
@@ -386,6 +403,14 @@ export default function App() {
       await session.close();
       voiceSessionRef.current = null;
       showNotice(errorText(err), "error");
+    }
+  }
+
+  async function handleConnectAndJoinVoice() {
+    setVoiceConnectPrompt(false);
+    const ok = await connectCurrentRoom();
+    if (ok) {
+      await startVoiceSession();
     }
   }
 
@@ -564,7 +589,7 @@ export default function App() {
             <span className={`status-light ${connectionTone}`} />
             <strong>{statusText(state.connection.status)}</strong>
           </div>
-          <span>{state.connection.ip || state.connection.message || "未连接"}</span>
+          <span>{state.connection.ip || visibleConnectionMessage(state.connection.message) || "未连接"}</span>
           <div className="rail-actions">
             {currentRoom && connectionRunning ? (
               <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
@@ -628,6 +653,31 @@ export default function App() {
           {page === "room" && renderRoomPage()}
           {page === "settings" && renderSettingsPage()}
           {showUpdatePrompt && renderUpdatePrompt()}
+          {voiceConnectPrompt && (
+            <div className="modal-scrim" role="presentation">
+              <div className="voice-connect-modal" role="dialog" aria-modal="true" aria-labelledby="voice-connect-title">
+                <button className="modal-close" type="button" aria-label="关闭" onClick={() => setVoiceConnectPrompt(false)}>
+                  <X size={16} />
+                </button>
+                <div className="modal-symbol">
+                  <PlugZap size={22} />
+                </div>
+                <div>
+                  <span className="eyebrow">语音需要先组网</span>
+                  <h2 id="voice-connect-title">启动虚拟网络后加入语音</h2>
+                  <p>房间语音和游戏流量共用同一条 P2P/Relay 通道。当前还没有连接虚拟网络，可以直接从这里启动连接。</p>
+                </div>
+                <div className="modal-actions">
+                  <Button type="button" onClick={() => setVoiceConnectPrompt(false)}>
+                    先不加入
+                  </Button>
+                  <Button appearance="primary" type="button" icon={<PlugZap size={16} />} disabled={isBusy || !currentRoom} onClick={handleConnectAndJoinVoice}>
+                    启动并加入
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           {notice && (
             <div className={`app-toast ${notice.tone}`} key={notice.id}>
               {notice.text}
@@ -912,16 +962,32 @@ export default function App() {
           room={currentRoom}
           connection={state.connection}
           connectionRunning={connectionRunning}
-          onlineCount={onlineCount}
-          memberCount={members.length}
-          currentUser={state.user}
           isOwner={isOwner}
           disabled={isBusy}
           onCopyKey={() => copyText(currentRoom.roomPublicKey, "房间密钥")}
-          onConnect={() => run("连接虚拟网络", () => ConnectRoom(currentRoom.id))}
-          onDisconnect={() => run("断开虚拟网络", Disconnect)}
+          onConnect={connectCurrentRoom}
           onDeleteRoom={() => run("删除房间", () => DeleteRoom(currentRoom.id))}
           onLeaveRoom={() => run("退出房间", LeaveCurrentRoom)}
+        />
+        <RoomCommsPanel
+          room={currentRoom}
+          voiceState={state.voice}
+          voiceActive={voiceActive}
+          voiceMicActive={voiceMicActive}
+          voiceMode={state.voiceMode}
+          voiceMessage={state.voiceMessage}
+          disabled={isBusy}
+          onJoinVoice={handleJoinVoice}
+          onToggleVoiceMic={handleToggleVoiceMic}
+          onLeaveVoice={handleLeaveVoice}
+          chatMessages={chatMessages}
+          pendingChats={pendingChats}
+          currentUserID={state.user?.id}
+          chatListRef={chatListRef}
+          chatText={chatText}
+          chatSending={chatSending}
+          onChatTextChange={setChatText}
+          onSendChat={handleSendChat}
         />
         <RoomPlayersPanel
           room={currentRoom}
@@ -931,28 +997,10 @@ export default function App() {
           connectionRunning={connectionRunning}
           directPeerNames={directPeerNames}
           directPeerIPSet={directPeerIPSet}
-          voiceState={state.voice}
-          voiceActive={voiceActive}
-          voiceMicActive={voiceMicActive}
-          voiceMode={state.voiceMode}
-          voiceMessage={state.voiceMessage}
           isOwner={isOwner}
           disabled={isBusy}
-          onJoinVoice={handleJoinVoice}
-          onToggleVoiceMic={handleToggleVoiceMic}
-          onLeaveVoice={handleLeaveVoice}
           onKick={(userID) => run("移出成员", () => KickMember({ userID }))}
           onTransfer={(userID) => run("转让房主", () => TransferOwner({ userID }))}
-        />
-        <RoomChatPanel
-          chatMessages={chatMessages}
-          pendingChats={pendingChats}
-          currentUserID={state.user?.id}
-          chatListRef={chatListRef}
-          chatText={chatText}
-          chatSending={chatSending}
-          onChatTextChange={setChatText}
-          onSendChat={handleSendChat}
         />
       </section>
     );
@@ -1096,4 +1144,12 @@ function normalizeAppState(next: AppState): AppState {
     voiceMessage: next.voiceMessage || emptyState.voiceMessage,
     announcement: next.announcement || emptyState.announcement,
   };
+}
+
+function visibleConnectionMessage(message: string) {
+  const text = message.trim();
+  if (text.includes("房间事件流")) {
+    return "";
+  }
+  return text;
 }

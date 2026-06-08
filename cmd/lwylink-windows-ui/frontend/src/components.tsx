@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from "react";
-import { Button, Spinner, Textarea } from "@fluentui/react-components";
+import { Button, Input, Spinner } from "@fluentui/react-components";
 import {
   CircleCheck,
   CircleX,
@@ -12,13 +12,12 @@ import {
   MicOff,
   Network,
   PlugZap,
-  Power,
   Radio,
   Send,
   Trash2,
   UserMinus,
 } from "lucide-react";
-import { formatBytes, formatTime, initials, statusText, statusTone, userLabel } from "./client-ui";
+import { formatTime, initials, statusText, statusTone, userLabel } from "./client-ui";
 import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, VoiceState } from "./types";
 
 export function NavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: ReactNode; label: string; detail: string; onClick: () => void }) {
@@ -123,28 +122,20 @@ export function RoomControlPanel({
   room,
   connection,
   connectionRunning,
-  onlineCount,
-  memberCount,
-  currentUser,
   isOwner,
   disabled,
   onCopyKey,
   onConnect,
-  onDisconnect,
   onDeleteRoom,
   onLeaveRoom,
 }: {
   room: Room;
   connection: ConnectionState;
   connectionRunning: boolean;
-  onlineCount: number;
-  memberCount: number;
-  currentUser?: PublicUser;
   isOwner: boolean;
   disabled: boolean;
   onCopyKey: () => void;
   onConnect: () => void;
-  onDisconnect: () => void;
   onDeleteRoom: () => void;
   onLeaveRoom: () => void;
 }) {
@@ -163,7 +154,7 @@ export function RoomControlPanel({
           <span className={`status-light ${statusTone(connection.status)}`} />
           <div>
             <strong>{statusText(connection.status)}</strong>
-            <span>{connection.message || "稳定连接"}</span>
+            <span>{connectionRunning ? connection.ip || "虚拟网络运行中" : "语音和联机需要先启动组网"}</span>
           </div>
         </div>
         <div className="connection-ip">
@@ -174,9 +165,7 @@ export function RoomControlPanel({
 
       <div className="room-side-metrics">
         <Metric label="成员" value={`${room.memberCount} / ${room.maxMembers}`} />
-        <Metric label="在线" value={`${onlineCount} / ${memberCount}`} />
         <Metric label="节点" value={room.nodeName || "未分配"} />
-        <Metric label="中继剩余" value={currentUser ? formatBytes(currentUser.relayTrafficRemainingBytes) : "-"} />
       </div>
 
       <div className="room-key compact">
@@ -188,23 +177,19 @@ export function RoomControlPanel({
       </div>
 
       <div className="command-actions room-control-actions">
-        {connectionRunning ? (
-          <Button icon={<Power size={16} />} disabled={disabled} onClick={onDisconnect}>
-            断开虚拟网络
-          </Button>
-        ) : (
-          <Button appearance="primary" icon={<PlugZap size={16} />} disabled={disabled} onClick={onConnect}>
-            启动虚拟网络
-          </Button>
+        {!connectionRunning && (
+          <button className="room-icon-action primary" type="button" disabled={disabled} title="启动虚拟网络" onClick={onConnect} aria-label="启动虚拟网络">
+            <PlugZap size={17} />
+          </button>
         )}
         {isOwner ? (
-          <Button icon={<Trash2 size={16} />} disabled={disabled} onClick={onDeleteRoom}>
-            删除房间
-          </Button>
+          <button className="room-icon-action danger" type="button" disabled={disabled} title="删除房间" onClick={onDeleteRoom} aria-label="删除房间">
+            <Trash2 size={17} />
+          </button>
         ) : (
-          <Button icon={<DoorOpen size={16} />} disabled={disabled} onClick={onLeaveRoom}>
-            退出房间
-          </Button>
+          <button className="room-icon-action" type="button" disabled={disabled} title="退出房间" onClick={onLeaveRoom} aria-label="退出房间">
+            <DoorOpen size={17} />
+          </button>
         )}
       </div>
     </aside>
@@ -219,16 +204,8 @@ export function RoomPlayersPanel({
   connectionRunning,
   directPeerNames,
   directPeerIPSet,
-  voiceState,
-  voiceActive,
-  voiceMicActive,
-  voiceMode,
-  voiceMessage,
   isOwner,
   disabled,
-  onJoinVoice,
-  onToggleVoiceMic,
-  onLeaveVoice,
   onKick,
   onTransfer,
 }: {
@@ -239,16 +216,8 @@ export function RoomPlayersPanel({
   connectionRunning: boolean;
   directPeerNames: string[];
   directPeerIPSet: Set<string>;
-  voiceState: VoiceState;
-  voiceActive: boolean;
-  voiceMicActive: boolean;
-  voiceMode: string;
-  voiceMessage: string;
   isOwner: boolean;
   disabled: boolean;
-  onJoinVoice: () => void;
-  onToggleVoiceMic: () => void;
-  onLeaveVoice: () => void;
   onKick: (userID: number) => void;
   onTransfer: (userID: number) => void;
 }) {
@@ -257,20 +226,9 @@ export function RoomPlayersPanel({
       <div className="surface-head">
         <div>
           <span className="eyebrow">Players</span>
-          <h2>玩家与语音</h2>
+          <h2>玩家列表</h2>
         </div>
         <span>{onlineCount} 在线</span>
-      </div>
-
-      <div className="player-summary-strip">
-        <div>
-          <Radio size={16} />
-          <span>{directPeerNames.length > 0 ? `${directPeerNames.length} 条 P2P 直连` : "TCP relay 就绪"}</span>
-        </div>
-        <div>
-          <Network size={16} />
-          <span>{room.networkCIDR}</span>
-        </div>
       </div>
 
       <div className="member-table">
@@ -287,20 +245,6 @@ export function RoomPlayersPanel({
           />
         ))}
       </div>
-
-      <VoiceDock
-        room={room}
-        members={members}
-        voiceState={voiceState}
-        voiceActive={voiceActive}
-        voiceMicActive={voiceMicActive}
-        voiceMode={voiceMode}
-        voiceMessage={voiceMessage}
-        disabled={disabled}
-        onJoinVoice={onJoinVoice}
-        onToggleVoiceMic={onToggleVoiceMic}
-        onLeaveVoice={onLeaveVoice}
-      />
     </section>
   );
 }
@@ -320,7 +264,6 @@ function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, c
 
 function VoiceDock({
   room,
-  members,
   voiceState,
   voiceActive,
   voiceMicActive,
@@ -332,7 +275,6 @@ function VoiceDock({
   onLeaveVoice,
 }: {
   room: Room;
-  members: RoomMember[];
   voiceState: VoiceState;
   voiceActive: boolean;
   voiceMicActive: boolean;
@@ -346,15 +288,13 @@ function VoiceDock({
   const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
   const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
   const participants = voiceState.participants || [];
-  const participantNames = participants.map((item) => userLabel(item.displayName, item.username)).join("、");
-  const activeSpeakers = participants.filter((item) => item.speaking).map((item) => userLabel(item.displayName, item.username));
   const transportText = voiceMessage || (voiceActive ? "语音连接中" : "未加入语音");
   const transportClass = voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "";
   return (
     <div className="voice-dock">
       <div className="voice-dock-title">
-        <Headphones size={16} />
-        <span>房间语音</span>
+        <Headphones size={15} />
+        <span>语音</span>
         <small>
           {voiceState.participantCount || 0}/{voiceMaxMembers} 人语音 · {voiceState.speakerCount || 0}/{voiceMaxSpeakers} 个麦位
         </small>
@@ -363,31 +303,32 @@ function VoiceDock({
         <Radio size={14} />
         <span>{transportText}</span>
       </div>
-      <div className="voice-roster">
-        {participantNames || "暂无成员加入语音"}
-      </div>
-      <div className="voice-roster muted">
-        {activeSpeakers.length > 0 ? `正在开麦：${activeSpeakers.join("、")}` : "当前无人开麦"}
-      </div>
       <div className="voice-actions">
-        <button type="button" disabled={disabled} title="加入/退出语音" onClick={voiceActive ? onLeaveVoice : onJoinVoice}>
+        <button className={voiceActive ? "voice-icon-button active" : "voice-icon-button"} type="button" disabled={disabled} title={voiceActive ? "退出语音" : "加入语音"} onClick={voiceActive ? onLeaveVoice : onJoinVoice}>
           <Headphones size={16} />
-          <span>{voiceActive ? "退出语音" : "加入语音"}</span>
         </button>
-        <button type="button" disabled={disabled || !voiceActive} title="麦克风" onClick={onToggleVoiceMic}>
+        <button className={voiceMicActive ? "voice-icon-button mic-on" : "voice-icon-button"} type="button" disabled={disabled || !voiceActive} title={voiceMicActive ? "关闭麦克风" : "打开麦克风"} onClick={onToggleVoiceMic}>
           {voiceMicActive ? <Mic size={16} /> : <MicOff size={16} />}
-          <span>{voiceMicActive ? "关闭麦克风" : "打开麦克风"}</span>
         </button>
-        <button type="button" disabled title="按键说话">
+        <button className="voice-icon-button" type="button" disabled title="P2P/Relay 语音状态">
           <Radio size={16} />
-          <span>P2P 语音</span>
         </button>
       </div>
     </div>
   );
 }
 
-export function RoomChatPanel({
+export function RoomCommsPanel({
+  room,
+  voiceState,
+  voiceActive,
+  voiceMicActive,
+  voiceMode,
+  voiceMessage,
+  disabled,
+  onJoinVoice,
+  onToggleVoiceMic,
+  onLeaveVoice,
   chatMessages,
   pendingChats,
   currentUserID,
@@ -397,6 +338,16 @@ export function RoomChatPanel({
   onChatTextChange,
   onSendChat,
 }: {
+  room: Room;
+  voiceState: VoiceState;
+  voiceActive: boolean;
+  voiceMicActive: boolean;
+  voiceMode: string;
+  voiceMessage: string;
+  disabled: boolean;
+  onJoinVoice: () => void;
+  onToggleVoiceMic: () => void;
+  onLeaveVoice: () => void;
   chatMessages: ChatMessage[];
   pendingChats: Array<{ id: string; message: string }>;
   currentUserID?: number;
@@ -407,14 +358,26 @@ export function RoomChatPanel({
   onSendChat: () => void;
 }) {
   return (
-    <aside className="surface chat-panel">
+    <aside className="surface chat-panel comms-panel">
       <div className="surface-head">
         <div>
-          <span className="eyebrow">Chat</span>
-          <h2>聊天</h2>
+          <span className="eyebrow">Comms</span>
+          <h2>交流</h2>
         </div>
         <MessageSquare size={18} />
       </div>
+      <VoiceDock
+        room={room}
+        voiceState={voiceState}
+        voiceActive={voiceActive}
+        voiceMicActive={voiceMicActive}
+        voiceMode={voiceMode}
+        voiceMessage={voiceMessage}
+        disabled={disabled}
+        onJoinVoice={onJoinVoice}
+        onToggleVoiceMic={onToggleVoiceMic}
+        onLeaveVoice={onLeaveVoice}
+      />
       <div className="chat-list" ref={chatListRef}>
         {chatMessages.map((message) => (
           <ChatBubble key={message.id} message={message} mine={message.userID === currentUserID} />
@@ -430,7 +393,18 @@ export function RoomChatPanel({
         {chatMessages.length === 0 && pendingChats.length === 0 && <div className="empty-chat">暂无消息</div>}
       </div>
       <div className="chat-form">
-        <Textarea className="pretty-textarea chat-input" rows={2} maxLength={500} value={chatText} onChange={(_, data) => onChatTextChange(data.value)} />
+        <Input
+          className="pretty-input chat-input"
+          maxLength={500}
+          value={chatText}
+          onChange={(_, data) => onChatTextChange(data.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onSendChat();
+            }
+          }}
+        />
         <Button appearance="primary" icon={chatSending ? <Spinner size="tiny" /> : <Send size={16} />} type="button" disabled={chatSending || chatText.trim() === ""} onClick={onSendChat}>
           {chatSending ? "发送中" : "发送"}
         </Button>
