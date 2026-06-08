@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.26"
+var AppVersion = "0.2.1"
 
 type App struct {
 	ctx context.Context

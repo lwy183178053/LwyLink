@@ -85,13 +85,13 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 		RelayTrafficUsedBytes: 2048,
 		DownloadsLastHour:     3,
 		Releases:              1,
-		LatestWindowsRelease:  &clientrelease.Release{Version: "0.1.26", Mandatory: true},
+		LatestWindowsRelease:  &clientrelease.Release{Version: "0.2.1", Mandatory: true},
 		RecentErrors:          []string{"node: last check failed"},
 	}
 	rec = httptest.NewRecorder()
 	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
 	html = rec.Body.String()
-	for _, want := range []string{"实时状态", "Overlay 连接", "0.1.26", "node: last check failed"} {
+	for _, want := range []string{"实时状态", "Overlay 连接", "0.2.1", "node: last check failed"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered metrics html missing %q", want)
 		}

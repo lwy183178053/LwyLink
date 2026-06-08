@@ -1502,30 +1502,30 @@ code {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
-  grid-template-areas:
-    "settings voice"
-    "settings update"
-    "settings announcement";
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
   min-height: 0;
   overflow: hidden;
 }
 
+.settings-column {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
 .settings-panel {
-  grid-area: settings;
   align-self: start;
   min-height: 0;
 }
 
 .announcement-panel {
-  grid-area: announcement;
   align-self: start;
 }
 
 .voice-settings-panel {
-  grid-area: voice;
   align-self: start;
 }
 
@@ -1535,45 +1535,20 @@ code {
   padding: 12px;
 }
 
-.voice-device-grid {
+.voice-slider-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.voice-slider-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 74px minmax(0, 1fr) 48px;
   gap: 8px;
-}
-
-.voice-slider-card {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  padding: 8px 10px 4px;
-  border: 1px solid #dce6e2;
-  border-radius: 8px;
-  background: #f8fbf9;
-}
-
-.voice-slider-card div {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  min-height: 34px;
   color: #596763;
   font-size: 12px;
 }
 
-.voice-slider-card strong {
+.voice-slider-row strong {
   color: #182128;
   font-size: 12px;
-}
-
-.settings-actions.inline {
-  padding: 0;
-  justify-content: flex-start;
+  text-align: right;
 }
 
 .announcement-body {
@@ -1589,7 +1564,6 @@ code {
 }
 
 .update-panel {
-  grid-area: update;
   align-self: start;
 }
 

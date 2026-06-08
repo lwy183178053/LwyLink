@@ -84,7 +84,7 @@ import {
 } from "./client-ui";
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
-import { VoiceSession, listVoiceDevices, runVoiceLocalTest, type IncomingVoiceFrame } from "./voice";
+import { VoiceSession, listVoiceDevices, type IncomingVoiceFrame } from "./voice";
 import type { AppState, RoomEvent, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
@@ -111,7 +111,6 @@ export default function App() {
   const [voiceMicActive, setVoiceMicActive] = useState(false);
   const [voiceConnectPrompt, setVoiceConnectPrompt] = useState(false);
   const [voiceDevices, setVoiceDevices] = useState<{ inputs: VoiceDevice[]; outputs: VoiceDevice[] }>({ inputs: [], outputs: [] });
-  const [voiceTesting, setVoiceTesting] = useState(false);
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
     password: "",
@@ -498,19 +497,6 @@ export default function App() {
       }
     } catch (err) {
       showNotice(errorText(err), "error");
-    }
-  }
-
-  async function handleVoiceTest() {
-    setVoiceTesting(true);
-    try {
-      await runVoiceLocalTest(settingsForm.voiceSettings);
-      showNotice("语音测试已播放", "success");
-      await refreshVoiceDevices(false);
-    } catch (err) {
-      showNotice(errorText(err), "error");
-    } finally {
-      setVoiceTesting(false);
     }
   }
 
@@ -1074,45 +1060,45 @@ export default function App() {
   function renderSettingsPage() {
     return (
       <section className="settings-grid">
-        <form className="surface settings-panel" onSubmit={handleSaveSettings}>
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">客户端</span>
-              <h2>连接偏好</h2>
+        <div className="settings-column">
+          <form className="surface settings-panel" onSubmit={handleSaveSettings}>
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">客户端</span>
+                <h2>连接偏好</h2>
+              </div>
+              <SlidersHorizontal size={18} />
             </div>
-            <SlidersHorizontal size={18} />
-          </div>
-          <div className="form-stack">
-            <Field label="接口地址">
-              <Input
-                className="pretty-input"
-                value={settingsForm.apiBaseURL}
-                onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
+            <div className="form-stack">
+              <Field label="接口地址">
+                <Input
+                  className="pretty-input"
+                  value={settingsForm.apiBaseURL}
+                  onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
+                />
+              </Field>
+              <Switch
+                label="启用 P2P 直连"
+                checked={settingsForm.p2pEnabled}
+                onChange={(_, data) => setSettingsForm((current) => ({ ...current, p2pEnabled: data.checked }))}
               />
-            </Field>
-            <Switch
-              label="启用 P2P 直连"
-              checked={settingsForm.p2pEnabled}
-              onChange={(_, data) => setSettingsForm((current) => ({ ...current, p2pEnabled: data.checked }))}
-            />
-            <div className="command-actions">
-              <Button appearance="primary" type="submit" disabled={isBusy}>
-                保存
-              </Button>
+              <div className="command-actions">
+                <Button appearance="primary" type="submit" disabled={isBusy}>
+                  保存
+                </Button>
+              </div>
             </div>
-          </div>
-        </form>
+          </form>
 
-        <form className="surface voice-settings-panel" onSubmit={handleSaveSettings}>
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">Voice</span>
-              <h2>语音设置</h2>
+          <form className="surface voice-settings-panel" onSubmit={handleSaveSettings}>
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">Voice</span>
+                <h2>语音设置</h2>
+              </div>
+              <Volume2 size={18} />
             </div>
-            <Volume2 size={18} />
-          </div>
-          <div className="voice-settings-form">
-            <div className="voice-device-grid">
+            <div className="voice-settings-form">
               <Field label="输入设备">
                 <Select className="pretty-input" value={settingsForm.voiceSettings.inputDeviceID} onChange={(event) => updateVoiceSettings({ inputDeviceID: event.target.value })}>
                   <option value="">默认麦克风</option>
@@ -1133,80 +1119,72 @@ export default function App() {
                   ))}
                 </Select>
               </Field>
-            </div>
-            <div className="voice-slider-grid">
-              <div className="voice-slider-card">
-                <div><span>麦克风</span><strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong></div>
+              <div className="voice-slider-row">
+                <span>麦克风音量</span>
                 <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.micVolume} onChange={(_, data) => updateVoiceSettings({ micVolume: data.value })} />
+                <strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong>
               </div>
-              <div className="voice-slider-card">
-                <div><span>播放</span><strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong></div>
+              <div className="voice-slider-row">
+                <span>播放音量</span>
                 <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
+                <strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong>
               </div>
-              <div className="voice-slider-card">
-                <div><span>静音门限</span><strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong></div>
+              <div className="voice-slider-row">
+                <span>静音门限</span>
                 <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
+                <strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong>
               </div>
             </div>
-            <div className="settings-actions inline">
-              <Button type="button" onClick={() => refreshVoiceDevices()}>
-                刷新设备
-              </Button>
-              <Button type="button" icon={voiceTesting ? <Spinner size="tiny" /> : <Volume2 size={16} />} disabled={voiceTesting} onClick={handleVoiceTest}>
-                语音测试
-              </Button>
-              <Button appearance="primary" type="submit" disabled={isBusy}>
-                保存语音
-              </Button>
-            </div>
-          </div>
-        </form>
-
-        <div className="surface announcement-panel">
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">公告</span>
-              <h2>官方信息</h2>
-            </div>
-            <Megaphone size={18} />
-          </div>
-          <div className="announcement-body">
-            <p>{state.announcement || "官方 QQ 群：715516422"}</p>
-          </div>
-          <div className="settings-actions">
-            <Button icon={<Copy size={16} />} onClick={() => copyText(state.announcement || "官方 QQ 群：715516422", "公告")}>
-              复制
-            </Button>
-          </div>
+          </form>
         </div>
 
-        <div className="surface update-panel">
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">更新</span>
-              <h2>客户端版本</h2>
+        <div className="settings-column">
+          <div className="surface update-panel">
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">更新</span>
+                <h2>客户端版本</h2>
+              </div>
+              <span className={`status-pill ${updateTone}`}>{updateStatusText(state.update.status)}</span>
             </div>
-            <span className={`status-pill ${updateTone}`}>{updateStatusText(state.update.status)}</span>
+            <div className="data-grid">
+              <Metric label="当前版本" value={state.update.currentVersion || "-"} />
+              <Metric label="最新版本" value={state.update.latestVersion || "-"} />
+              <Metric label="平台" value={state.update.platform || "windows-amd64"} />
+              <Metric label="大小" value={state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : "-"} />
+              <Metric label="状态" value={state.update.message || updateStatusText(state.update.status)} wide />
+            </div>
+            <div className="settings-actions">
+              <Button icon={<RefreshCw size={16} />} disabled={isBusy || state.update.status === "downloading"} onClick={handleCheckUpdates}>
+                检查更新
+              </Button>
+              <Button
+                appearance="primary"
+                icon={<Power size={16} />}
+                disabled={isBusy || state.update.status !== "ready"}
+                onClick={() => run("启动更新", InstallPreparedUpdate)}
+              >
+                重启更新
+              </Button>
+            </div>
           </div>
-          <div className="data-grid">
-            <Metric label="当前版本" value={state.update.currentVersion || "-"} />
-            <Metric label="最新版本" value={state.update.latestVersion || "-"} />
-            <Metric label="平台" value={state.update.platform || "windows-amd64"} />
-            <Metric label="大小" value={state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : "-"} />
-            <Metric label="状态" value={state.update.message || updateStatusText(state.update.status)} wide />
-          </div>
-          <div className="settings-actions">
-            <Button icon={<RefreshCw size={16} />} disabled={isBusy || state.update.status === "downloading"} onClick={handleCheckUpdates}>
-              检查更新
-            </Button>
-            <Button
-              appearance="primary"
-              icon={<Power size={16} />}
-              disabled={isBusy || state.update.status !== "ready"}
-              onClick={() => run("启动更新", InstallPreparedUpdate)}
-            >
-              重启更新
-            </Button>
+
+          <div className="surface announcement-panel">
+            <div className="surface-head">
+              <div>
+                <span className="eyebrow">公告</span>
+                <h2>官方信息</h2>
+              </div>
+              <Megaphone size={18} />
+            </div>
+            <div className="announcement-body">
+              <p>{state.announcement || "官方 QQ 群：715516422"}</p>
+            </div>
+            <div className="settings-actions">
+              <Button icon={<Copy size={16} />} onClick={() => copyText(state.announcement || "官方 QQ 群：715516422", "公告")}>
+                复制
+              </Button>
+            </div>
           </div>
         </div>
       </section>
