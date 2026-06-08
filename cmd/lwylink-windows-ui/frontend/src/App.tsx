@@ -368,6 +368,11 @@ export default function App() {
     return run("连接虚拟网络", () => ConnectRoom(currentRoom.id));
   }
 
+  async function disconnectCurrentRoom() {
+    await stopLocalVoice(true);
+    return run("断开虚拟网络", Disconnect);
+  }
+
   async function handleJoinVoice() {
     if (!currentRoom || !state.user) {
       return;
@@ -592,7 +597,7 @@ export default function App() {
           <span>{state.connection.ip || visibleConnectionMessage(state.connection.message) || "未连接"}</span>
           <div className="rail-actions">
             {currentRoom && connectionRunning ? (
-              <button type="button" disabled={isBusy} onClick={() => run("断开虚拟网络", Disconnect)}>
+              <button type="button" disabled={isBusy} onClick={disconnectCurrentRoom}>
                 <Power size={15} />
                 断开
               </button>

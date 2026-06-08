@@ -154,7 +154,6 @@ export function RoomControlPanel({
           <span className={`status-light ${statusTone(connection.status)}`} />
           <div>
             <strong>{statusText(connection.status)}</strong>
-            <span>{connectionRunning ? connection.ip || "虚拟网络运行中" : "语音和联机需要先启动组网"}</span>
           </div>
         </div>
         <div className="connection-ip">
