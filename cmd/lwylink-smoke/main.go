@@ -64,7 +64,7 @@ func run() (code int) {
 	log.Printf("registered owner user=%s", owner.User.Username)
 
 	dupAPI := client.NewAPI(*apiURL)
-	if _, dupErr := dupAPI.Register(ctx, owner.User.Username, "smoke-password", "Duplicate Owner", ""); dupErr == nil {
+	if _, dupErr := registerSmokeUser(ctx, cleaner, dupAPI, owner.User.Username, "smoke-password", "Duplicate Owner"); dupErr == nil {
 		failf("expected duplicate username registration to fail")
 	} else {
 		log.Printf("duplicate username rejected as expected: %v", dupErr)

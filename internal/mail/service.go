@@ -79,9 +79,6 @@ func (s *Service) SendVerification(ctx context.Context, input SendInput) error {
 	if err != nil {
 		return err
 	}
-	if err := s.validatePurposeTarget(ctx, email, purpose); err != nil {
-		return err
-	}
 	now := time.Now()
 	latest, err := s.repo.Latest(ctx, email, purpose)
 	if err != nil && !errors.Is(err, ErrVerificationNotFound) {
@@ -91,6 +88,10 @@ func (s *Service) SendVerification(ctx context.Context, input SendInput) error {
 		return ErrVerificationRateLimit
 	}
 	if err := s.enforceRateLimits(ctx, email, purpose, input.IP, now); err != nil {
+		return err
+	}
+	shouldSend, err := s.validatePurposeTarget(ctx, email, purpose)
+	if err != nil {
 		return err
 	}
 	code, err := randomCode()
@@ -109,6 +110,9 @@ func (s *Service) SendVerification(ctx context.Context, input SendInput) error {
 		ExpiresAt: now.Add(codeTTL),
 	}); err != nil {
 		return err
+	}
+	if !shouldSend {
+		return nil
 	}
 	return s.sender.Send(ctx, email, subjectForPurpose(purpose), bodyForPurpose(purpose, code))
 }
@@ -142,25 +146,25 @@ func (s *Service) Verify(ctx context.Context, email, purpose, code string) error
 	return s.repo.MarkUsed(ctx, latest.ID)
 }
 
-func (s *Service) validatePurposeTarget(ctx context.Context, email, purpose string) error {
+func (s *Service) validatePurposeTarget(ctx context.Context, email, purpose string) (bool, error) {
 	if s.accounts == nil {
-		return nil
+		return true, nil
 	}
 	exists, err := s.accounts.EmailExists(ctx, email)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	switch purpose {
 	case PurposeRegister:
 		if exists {
-			return account.ErrUsernameUsed
+			return false, account.ErrUsernameUsed
 		}
 	case PurposePasswordReset:
 		if !exists {
-			return account.ErrNotFound
+			return false, nil
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func (s *Service) enforceRateLimits(ctx context.Context, email, purpose, ip string, now time.Time) error {

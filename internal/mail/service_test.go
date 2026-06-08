@@ -58,16 +58,23 @@ func TestServiceRejectsBadExpiredAndRateLimitedCodes(t *testing.T) {
 
 func TestServiceValidatesPurposeTargets(t *testing.T) {
 	repo := newFakeVerificationRepo()
-	svc := NewService(repo, &fakeSender{}, fakeAccountLookup{existing: map[string]bool{"used@example.com": true}}, true)
+	sender := &fakeSender{}
+	svc := NewService(repo, sender, fakeAccountLookup{existing: map[string]bool{"used@example.com": true}}, true)
 
 	if err := svc.SendVerification(context.Background(), SendInput{Email: "used@example.com", Purpose: PurposeRegister}); err == nil {
 		t.Fatalf("register code for existing email succeeded")
 	}
-	if err := svc.SendVerification(context.Background(), SendInput{Email: "missing@example.com", Purpose: PurposePasswordReset}); err == nil {
-		t.Fatalf("password reset code for missing email succeeded")
+	if err := svc.SendVerification(context.Background(), SendInput{Email: "missing@example.com", Purpose: PurposePasswordReset}); err != nil {
+		t.Fatalf("password reset code for missing email should be accepted without sending: %v", err)
+	}
+	if len(sender.messages) != 0 || len(repo.items) != 1 {
+		t.Fatalf("missing password reset target sent messages=%d verifications=%d", len(sender.messages), len(repo.items))
 	}
 	if err := svc.SendVerification(context.Background(), SendInput{Email: "used@example.com", Purpose: PurposePasswordReset}); err != nil {
 		t.Fatalf("password reset code for existing email failed: %v", err)
+	}
+	if len(sender.messages) != 1 || len(repo.items) != 2 {
+		t.Fatalf("existing password reset target sent messages=%d verifications=%d", len(sender.messages), len(repo.items))
 	}
 }
 
