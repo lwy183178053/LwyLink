@@ -10,18 +10,18 @@ import (
 	"strings"
 )
 
-const savedLoginVersion = 1
+const savedLoginVersion = 2
 
 type savedLogin struct {
 	APIBaseURL string
-	Username   string
+	Email      string
 	Password   string
 }
 
 type savedLoginFile struct {
 	Version           int    `json:"version"`
 	APIBaseURL        string `json:"apiBaseURL"`
-	Username          string `json:"username"`
+	Email             string `json:"email"`
 	ProtectedPassword string `json:"protectedPassword"`
 }
 
@@ -49,7 +49,7 @@ func loadSavedLogin() (savedLogin, bool, error) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return savedLogin{}, false, err
 	}
-	if file.Version != savedLoginVersion || strings.TrimSpace(file.Username) == "" || file.ProtectedPassword == "" {
+	if file.Version != savedLoginVersion || strings.TrimSpace(file.Email) == "" || file.ProtectedPassword == "" {
 		return savedLogin{}, false, fmt.Errorf("saved login file is invalid")
 	}
 	protected, err := base64.StdEncoding.DecodeString(file.ProtectedPassword)
@@ -62,15 +62,15 @@ func loadSavedLogin() (savedLogin, bool, error) {
 	}
 	return savedLogin{
 		APIBaseURL: normalizeSavedAPIBaseURL(file.APIBaseURL),
-		Username:   strings.TrimSpace(file.Username),
+		Email:      strings.TrimSpace(file.Email),
 		Password:   string(plain),
 	}, true, nil
 }
 
 func saveSavedLogin(login savedLogin) error {
 	login.APIBaseURL = normalizeSavedAPIBaseURL(login.APIBaseURL)
-	login.Username = strings.TrimSpace(login.Username)
-	if login.Username == "" || login.Password == "" {
+	login.Email = strings.TrimSpace(login.Email)
+	if login.Email == "" || login.Password == "" {
 		return clearSavedLogin()
 	}
 	protected, err := protectCredential([]byte(login.Password))
@@ -87,7 +87,7 @@ func saveSavedLogin(login savedLogin) error {
 	data, err := json.MarshalIndent(savedLoginFile{
 		Version:           savedLoginVersion,
 		APIBaseURL:        login.APIBaseURL,
-		Username:          login.Username,
+		Email:             login.Email,
 		ProtectedPassword: base64.StdEncoding.EncodeToString(protected),
 	}, "", "  ")
 	if err != nil {

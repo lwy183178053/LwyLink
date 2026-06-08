@@ -372,7 +372,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	a.api = api
 	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
 	state := a.commitStateLocked()
-	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Email, Password: input.Password})
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Email: input.Email, Password: input.Password})
 	return state, nil
 }
 
@@ -452,7 +452,7 @@ func (a *App) Login(input LoginInput) (AppState, error) {
 	a.api = api
 	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
 	state := a.commitStateLocked()
-	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Email, Password: input.Password})
+	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Email: input.Email, Password: input.Password})
 	return state, nil
 }
 
@@ -473,7 +473,7 @@ func (a *App) autoLogin(saved savedLogin) {
 	defer cancel()
 
 	api := client.NewAPI(saved.APIBaseURL)
-	res, err := api.Login(ctx, saved.Username, saved.Password)
+	res, err := api.Login(ctx, saved.Email, saved.Password)
 	var roomState fetchedRoomState
 	var roomErr error
 	if err == nil {
