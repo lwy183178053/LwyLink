@@ -248,6 +248,12 @@ h2 {
   background: var(--accent-strong);
 }
 
+.button:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+  box-shadow: none;
+}
+
 .trust-row {
   display: flex;
   flex-wrap: wrap;

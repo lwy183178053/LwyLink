@@ -2,6 +2,7 @@ const tokenKey = "lwylink.site.token";
 const page = document.currentScript?.dataset.page || "home";
 const toast = document.querySelector("[data-toast]");
 let currentUser = null;
+let downloadInFlight = false;
 
 function token() {
   return localStorage.getItem(tokenKey) || "";
@@ -166,6 +167,18 @@ async function fetchCurrentUser() {
   }
 }
 
+async function refreshAuthState() {
+  const user = await fetchCurrentUser();
+  renderAuthNav(user);
+  if (page === "dashboard") {
+    if (user) {
+      renderDashboardUser(user);
+    } else {
+      location.href = "/login";
+    }
+  }
+}
+
 function renderAuthNav(user) {
   const login = document.querySelector("[data-auth-login]");
   const userLink = document.querySelector("[data-auth-user]");
@@ -194,6 +207,10 @@ async function renderDashboard() {
     location.href = "/login";
     return;
   }
+  renderDashboardUser(user);
+}
+
+function renderDashboardUser(user) {
   const name = displayName(user);
   setText("[data-profile-avatar]", initial(name));
   setText("[data-profile-name]", name);
@@ -229,11 +246,18 @@ async function renderDownload() {
     setText("[data-release-notes]", err.message);
   }
   button.addEventListener("click", async () => {
+    if (downloadInFlight) {
+      return;
+    }
     if (!token()) {
       location.href = "/login";
       return;
     }
+    const original = button.textContent;
     try {
+      downloadInFlight = true;
+      button.disabled = true;
+      button.textContent = "正在生成链接...";
       const ticket = await api("/api/client/releases/ticket", {
         method: "POST",
         body: JSON.stringify({ platform: "windows-amd64" }),
@@ -241,6 +265,10 @@ async function renderDownload() {
       location.href = ticket.downloadURL;
     } catch (err) {
       show(err.message);
+    } finally {
+      downloadInFlight = false;
+      button.disabled = false;
+      button.textContent = original;
     }
   });
 }
@@ -312,6 +340,13 @@ function shortSHA(value) {
 document.querySelector("[data-logout-button]")?.addEventListener("click", () => {
   localStorage.removeItem(tokenKey);
   location.href = "/";
+});
+
+window.addEventListener("storage", (event) => {
+  if (event.key === tokenKey) {
+    currentUser = null;
+    refreshAuthState();
+  }
 });
 
 wireAuthForms();
