@@ -342,6 +342,9 @@ func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
 	if opts.IfName == "" {
 		opts.IfName = "LwyLink"
 	}
+	if opts.P2PEnabled == nil {
+		opts.P2PEnabled = func() bool { return true }
+	}
 	if opts.OverlayAddr == "" {
 		opts.OverlayAddr = opts.Room.NodeOverlayAddr
 	}

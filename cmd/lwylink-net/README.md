@@ -23,13 +23,13 @@ API 模式会用登录 token 调用控制端，自动读取当前用户和已加
 ```powershell
 $env:LWYLINK_TOKEN = "<login-token>"
 .\build\lwylink-net.exe connect `
-  --api "http://127.0.0.1:8080" `
+  --api "https://www.lwylink.xyz" `
   --room-id 123 `
-  --if "LwyLink" `
-  --p2p=true
+  --if "LwyLink"
 ```
 
 `--room-id` 可以省略，省略时使用当前用户加入的第一个房间。
+P2P 默认开启；如果需要强制走 TCP 中继，可以传 `--p2p=false` 或设置 `LWYLINK_P2P=false`。
 
 ## 直连模式
 
@@ -45,8 +45,7 @@ $env:LWYLINK_TOKEN = "<login-token>"
   --overlay-addr "example.com:35768" `
   --udp-overlay-addr "example.com:35768" `
   --server-public-key "<node-public-key>" `
-  --if "LwyLink" `
-  --p2p=true
+  --if "LwyLink"
 ```
 
 ## 状态输出
@@ -77,10 +76,10 @@ $env:LWYLINK_TOKEN = "<login-token>"
 | 变量 | 说明 |
 | --- | --- |
 | `LWYLINK_TOKEN` | 登录 token |
-| `LWYLINK_API` | 控制端 API 地址 |
+| `LWYLINK_API` | 控制端 API 地址，默认 `https://www.lwylink.xyz` |
 | `LWYLINK_ROOM_ID` | 房间 ID |
 | `LWYLINK_IF` | Wintun 网卡名 |
-| `LWYLINK_P2P` | 是否启用 P2P |
+| `LWYLINK_P2P` | 是否启用 P2P，默认 `true` |
 | `LWYLINK_USER_ID` | 直连模式用户 ID |
 | `LWYLINK_ROOM_PUBLIC_KEY` | 直连模式房间密钥 |
 | `LWYLINK_NETWORK_CIDR` | 直连模式房间网段 |

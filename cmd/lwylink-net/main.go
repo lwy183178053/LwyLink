@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultAPIBaseURL = "http://127.0.0.1:8080"
+	defaultAPIBaseURL = "https://www.lwylink.xyz"
 	defaultIfName     = "LwyLink"
 )
 
@@ -325,7 +325,7 @@ Usage:
 
 Connect with API lookup:
   set LWYLINK_TOKEN=<login-token>
-  lwylink-net.exe connect --api http://127.0.0.1:8080 --room-id 123 --if LwyLink --p2p
+  lwylink-net.exe connect --api https://www.lwylink.xyz --room-id 123 --if LwyLink
 
 Direct connect without HTTP room lookup:
   set LWYLINK_TOKEN=<login-token>
@@ -334,5 +334,6 @@ Direct connect without HTTP room lookup:
 Cleanup routes/firewall:
   lwylink-net.exe cleanup --if LwyLink --cidr 172.16.1.0/24
 
+P2P is enabled by default. Pass --p2p=false or set LWYLINK_P2P=false to force TCP relay.
 Status is written to stdout as one JSON object per line.`)
 }
