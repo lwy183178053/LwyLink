@@ -46,7 +46,6 @@ type UploadInput struct {
 	Version     string
 	Platform    string
 	Notes       string
-	Mandatory   bool
 	InstallArgs string
 }
 

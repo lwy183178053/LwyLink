@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 
-DEFAULT_API = "http://127.0.0.1:8080"
+DEFAULT_API = "https://www.lwylink.xyz"
 
 
 class LwyLinkError(RuntimeError):

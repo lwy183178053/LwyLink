@@ -13,9 +13,8 @@ func TestServiceUploadAlwaysCreatesMandatoryRelease(t *testing.T) {
 	header := &multipart.FileHeader{Filename: "LwyLink.exe"}
 
 	_, err := svc.Upload(context.Background(), UploadInput{
-		Version:   "0.1.19",
-		Platform:  DefaultPlatform,
-		Mandatory: false,
+		Version:  "0.1.19",
+		Platform: DefaultPlatform,
 	}, multipartFile{bytes.NewReader([]byte("release-binary"))}, header)
 	if err != nil {
 		t.Fatalf("upload: %v", err)

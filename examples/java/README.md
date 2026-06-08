@@ -39,11 +39,12 @@ java -cp .\examples\java LwyLinkNetExample --self-test
 
 ## API 模式启动
 
+示例默认连接 `https://www.lwylink.xyz`。本地开发时再显式传 `--api http://127.0.0.1:8080`，或设置 `LWYLINK_API`。
+
 ```powershell
 $env:LWYLINK_TOKEN = "<login-token>"
 java -cp .\examples\java LwyLinkNetExample connect `
   --exe .\build\lwylink-net.exe `
-  --api http://127.0.0.1:8080 `
   --room-id 123 `
   --if-name LwyLink
 ```

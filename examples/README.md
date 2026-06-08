@@ -27,3 +27,5 @@
 4. 使用组网示例调用 `lwylink-net.exe connect` 启动虚拟网络。
 
 虚拟组网推荐使用 API 模式，只需要把登录 token 传给 `lwylink-net.exe`，它会自动向控制端拉取当前房间和节点信息。
+
+示例默认连接 `https://www.lwylink.xyz`。本地开发时可以通过 `--api http://127.0.0.1:8080` 或环境变量 `LWYLINK_API=http://127.0.0.1:8080` 覆盖。

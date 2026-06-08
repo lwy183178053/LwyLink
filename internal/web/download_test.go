@@ -134,6 +134,7 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 	release := clientrelease.Release{
 		Version:        "0.1.17",
 		Platform:       "windows-amd64",
+		Mandatory:      false,
 		FileName:       "LwyLink.exe",
 		StoredFileName: "windows-amd64-0.1.17.exe",
 		SHA256:         "abc",
@@ -144,6 +145,9 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 	public := srv.publicClientRelease(req, release)
 	if public.DownloadURL != "http://example.com/downloads/client/windows-amd64-0.1.17.exe" {
 		t.Fatalf("public download URL=%q", public.DownloadURL)
+	}
+	if !public.Mandatory {
+		t.Fatalf("public release was optional; current releases must be mandatory")
 	}
 }
 

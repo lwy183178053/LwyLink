@@ -71,13 +71,15 @@ public final class LwyLinkRoomExample {
                 Usage:
                   javac examples/java/LwyLink.java examples/java/LwyLinkRoomExample.java
                   java -cp examples/java LwyLinkRoomExample --self-test
-                  java -cp examples/java LwyLinkRoomExample --api <url> send-code --email <email> --purpose register
-                  java -cp examples/java LwyLinkRoomExample --api <url> register --email <email> --password <p> --email-code <code>
-                  java -cp examples/java LwyLinkRoomExample --api <url> reset-password --email <email> --email-code <code> --new-password <p>
-                  java -cp examples/java LwyLinkRoomExample --api <url> login --email <email> --password <p>
-                  java -cp examples/java LwyLinkRoomExample --api <url> --token <token> create-room --name <name>
-                  java -cp examples/java LwyLinkRoomExample --api <url> --token <token> change-password --old-password <p> --new-password <p>
-                  java -cp examples/java LwyLinkRoomExample --api <url> --token <token> events
+                  java -cp examples/java LwyLinkRoomExample send-code --email <email> --purpose register
+                  java -cp examples/java LwyLinkRoomExample register --email <email> --password <p> --email-code <code>
+                  java -cp examples/java LwyLinkRoomExample reset-password --email <email> --email-code <code> --new-password <p>
+                  java -cp examples/java LwyLinkRoomExample login --email <email> --password <p>
+                  java -cp examples/java LwyLinkRoomExample --token <token> create-room --name <name>
+                  java -cp examples/java LwyLinkRoomExample --token <token> change-password --old-password <p> --new-password <p>
+                  java -cp examples/java LwyLinkRoomExample --token <token> events
+
+                Default API is https://www.lwylink.xyz. Pass --api <url> when targeting a local server.
                 """);
     }
 

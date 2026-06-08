@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class LwyLink {
-    public static final String DEFAULT_API = "http://127.0.0.1:8080";
+    public static final String DEFAULT_API = "https://www.lwylink.xyz";
 
     private LwyLink() {
     }

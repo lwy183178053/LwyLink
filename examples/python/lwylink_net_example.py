@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from lwylink import ConnectOptions, NetEngine, env_bool, install_sigint_stop, parse_event
+from lwylink import DEFAULT_API, ConnectOptions, NetEngine, env_bool, install_sigint_stop, parse_event
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     connect = subparsers.add_parser("connect", help="Start the virtual network engine")
-    connect.add_argument("--api", default=os.getenv("LWYLINK_API", "http://127.0.0.1:8080"))
+    connect.add_argument("--api", default=os.getenv("LWYLINK_API", DEFAULT_API))
     connect.add_argument("--token", default=os.getenv("LWYLINK_TOKEN", ""))
     connect.add_argument("--room-id", type=int, default=int(os.getenv("LWYLINK_ROOM_ID", "0") or "0"))
     connect.add_argument("--if-name", default=os.getenv("LWYLINK_IF", "LwyLink"))

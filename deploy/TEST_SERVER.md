@@ -164,7 +164,7 @@ journalctl -u lwylink-node -n 50 --no-pager
 
 `cmd/lwylink-smoke` 覆盖这些核心行为：
 
-- 注册、重复用户名拒绝。
+- 注册、重复邮箱拒绝。
 - 单账号单点登录，旧 token 失效。
 - 创建房间、加入房间。
 - 一人只能处在一个房间。

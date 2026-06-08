@@ -930,7 +930,6 @@ func (s *Server) handleAdminReleaseUploadLimited(w http.ResponseWriter, r *http.
 		Version:     r.FormValue("version"),
 		Platform:    r.FormValue("platform"),
 		Notes:       r.FormValue("notes"),
-		Mandatory:   r.FormValue("mandatory") == "true" || r.FormValue("mandatory") == "on",
 		InstallArgs: r.FormValue("installArgs"),
 	}, file, header)
 	if err != nil {
@@ -1297,7 +1296,7 @@ func (s *Server) publicClientRelease(r *http.Request, release clientrelease.Rele
 		Version:     release.Version,
 		Platform:    release.Platform,
 		Notes:       release.Notes,
-		Mandatory:   release.Mandatory,
+		Mandatory:   true,
 		InstallArgs: release.InstallArgs,
 		DownloadURL: s.clientReleaseDownloadURL(r, release),
 		FileName:    release.FileName,
