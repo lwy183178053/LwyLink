@@ -143,7 +143,13 @@ func (s *Service) Verify(ctx context.Context, email, purpose, code string) error
 	if err := bcrypt.CompareHashAndPassword([]byte(latest.CodeHash), []byte(code)); err != nil {
 		return ErrVerificationCode
 	}
-	return s.repo.MarkUsed(ctx, latest.ID)
+	if err := s.repo.MarkUsed(ctx, latest.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, ErrVerificationNotFound) {
+			return ErrVerificationUsed
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) validatePurposeTarget(ctx context.Context, email, purpose string) (bool, error) {

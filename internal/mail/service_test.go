@@ -56,6 +56,21 @@ func TestServiceRejectsBadExpiredAndRateLimitedCodes(t *testing.T) {
 	}
 }
 
+func TestServiceTreatsConcurrentCodeConsumptionAsUsed(t *testing.T) {
+	repo := newFakeVerificationRepo()
+	sender := &fakeSender{}
+	svc := NewService(repo, sender, fakeAccountLookup{}, true)
+
+	if err := svc.SendVerification(context.Background(), SendInput{Email: "player@example.com", Purpose: PurposeRegister}); err != nil {
+		t.Fatalf("send verification: %v", err)
+	}
+	code := extractCode(t, sender.messages[0].body)
+	repo.markUsedErr = ErrVerificationNotFound
+	if err := svc.Verify(context.Background(), "player@example.com", PurposeRegister, code); !errors.Is(err, ErrVerificationUsed) {
+		t.Fatalf("concurrent use err=%v, want %v", err, ErrVerificationUsed)
+	}
+}
+
 func TestServiceValidatesPurposeTargets(t *testing.T) {
 	repo := newFakeVerificationRepo()
 	sender := &fakeSender{}
@@ -106,8 +121,9 @@ func (l fakeAccountLookup) EmailExists(_ context.Context, email string) (bool, e
 }
 
 type fakeVerificationRepo struct {
-	nextID int64
-	items  []Verification
+	nextID      int64
+	items       []Verification
+	markUsedErr error
 }
 
 func newFakeVerificationRepo() *fakeVerificationRepo {
@@ -135,6 +151,9 @@ func (r *fakeVerificationRepo) Latest(_ context.Context, email, purpose string) 
 }
 
 func (r *fakeVerificationRepo) MarkUsed(_ context.Context, id int64) error {
+	if r.markUsedErr != nil {
+		return r.markUsedErr
+	}
 	for i := range r.items {
 		if r.items[i].ID == id && !r.items[i].UsedAt.Valid {
 			r.items[i].UsedAt.Valid = true
