@@ -1111,41 +1111,42 @@ export default function App() {
             </div>
             <Volume2 size={18} />
           </div>
-          <div className="form-stack voice-settings-form">
-            <Field label="输入设备">
-              <Select className="pretty-input" value={settingsForm.voiceSettings.inputDeviceID} onChange={(event) => updateVoiceSettings({ inputDeviceID: event.target.value })}>
-                <option value="">默认麦克风</option>
-                {voiceDevices.inputs.map((device) => (
-                  <option key={device.deviceID} value={device.deviceID}>
-                    {device.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="输出设备">
-              <Select className="pretty-input" value={settingsForm.voiceSettings.outputDeviceID} onChange={(event) => updateVoiceSettings({ outputDeviceID: event.target.value })}>
-                <option value="">默认扬声器</option>
-                {voiceDevices.outputs.map((device) => (
-                  <option key={device.deviceID} value={device.deviceID}>
-                    {device.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="voice-slider-row">
-              <span>麦克风音量</span>
-              <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.micVolume} onChange={(_, data) => updateVoiceSettings({ micVolume: data.value })} />
-              <strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong>
+          <div className="voice-settings-form">
+            <div className="voice-device-grid">
+              <Field label="输入设备">
+                <Select className="pretty-input" value={settingsForm.voiceSettings.inputDeviceID} onChange={(event) => updateVoiceSettings({ inputDeviceID: event.target.value })}>
+                  <option value="">默认麦克风</option>
+                  {voiceDevices.inputs.map((device) => (
+                    <option key={device.deviceID} value={device.deviceID}>
+                      {device.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="输出设备">
+                <Select className="pretty-input" value={settingsForm.voiceSettings.outputDeviceID} onChange={(event) => updateVoiceSettings({ outputDeviceID: event.target.value })}>
+                  <option value="">默认扬声器</option>
+                  {voiceDevices.outputs.map((device) => (
+                    <option key={device.deviceID} value={device.deviceID}>
+                      {device.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </div>
-            <div className="voice-slider-row">
-              <span>播放音量</span>
-              <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
-              <strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong>
-            </div>
-            <div className="voice-slider-row">
-              <span>静音门限</span>
-              <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
-              <strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong>
+            <div className="voice-slider-grid">
+              <div className="voice-slider-card">
+                <div><span>麦克风</span><strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong></div>
+                <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.micVolume} onChange={(_, data) => updateVoiceSettings({ micVolume: data.value })} />
+              </div>
+              <div className="voice-slider-card">
+                <div><span>播放</span><strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong></div>
+                <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
+              </div>
+              <div className="voice-slider-card">
+                <div><span>静音门限</span><strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong></div>
+                <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
+              </div>
             </div>
             <div className="voice-toggle-grid">
               <Switch label="自动增益" checked={settingsForm.voiceSettings.autoGainControl} onChange={(_, data) => updateVoiceSettings({ autoGainControl: data.checked })} />
