@@ -1,12 +1,16 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestDownloadTicketRoundTripAndExpiry(t *testing.T) {
@@ -45,6 +49,29 @@ func TestDownloadLimiterRejectsAfterLimit(t *testing.T) {
 	}
 	if !limiter.Allow("ip:2", 2) {
 		t.Fatalf("different key rejected")
+	}
+}
+
+func TestClientReleaseTicketRejectsBadJSON(t *testing.T) {
+	releases := clientrelease.NewService(&ticketReleaseRepo{release: clientrelease.Release{
+		Version:        "0.1.18",
+		Platform:       "windows-amd64",
+		FileName:       "LwyLink.exe",
+		StoredFileName: "client.exe",
+	}}, t.TempDir())
+	accounts := account.NewService(&ticketAccountRepo{user: ticketUser(t)}, "secret", &ticketSessionStore{sessionID: "session"})
+	token, err := accounts.Login(context.Background(), "player@example.com", "secret1")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/client/releases/ticket", strings.NewReader(`{"platform":`))
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+	rec := httptest.NewRecorder()
+	srv.handleClientReleaseTicket(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 }
 
@@ -138,4 +165,105 @@ func TestClientReleaseDownloadURLHonorsForwardedHeaders(t *testing.T) {
 	if got, want := srv.clientReleaseDownloadURL(req, release), "https://lwylink.xyz/downloads/client/client.exe"; got != want {
 		t.Fatalf("forwarded download URL=%q, want %q", got, want)
 	}
+}
+
+type ticketReleaseRepo struct {
+	release clientrelease.Release
+}
+
+func (r *ticketReleaseRepo) Create(context.Context, clientrelease.Release) (clientrelease.Release, error) {
+	return clientrelease.Release{}, nil
+}
+
+func (r *ticketReleaseRepo) List(context.Context, clientrelease.Filter) ([]clientrelease.Release, error) {
+	return []clientrelease.Release{r.release}, nil
+}
+
+func (r *ticketReleaseRepo) Count(context.Context) (int, error) { return 1, nil }
+
+func (r *ticketReleaseRepo) FindByStoredFileName(_ context.Context, storedFileName string) (clientrelease.Release, error) {
+	if storedFileName == r.release.StoredFileName {
+		return r.release, nil
+	}
+	return clientrelease.Release{}, clientrelease.ErrNotFound
+}
+
+func (r *ticketReleaseRepo) Delete(context.Context, int64) (clientrelease.Release, error) {
+	return clientrelease.Release{}, nil
+}
+
+func (r *ticketReleaseRepo) LogDownload(context.Context, clientrelease.DownloadLog) error {
+	return nil
+}
+
+type ticketAccountRepo struct {
+	user account.User
+}
+
+func ticketUser(t *testing.T) account.User {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret1"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return account.User{
+		ID:           7,
+		Username:     "player@example.com",
+		PasswordHash: string(hash),
+		DisplayName:  "Player",
+		Role:         "player",
+	}
+}
+
+func (r *ticketAccountRepo) Create(context.Context, string, string, string) (account.User, error) {
+	return account.User{}, nil
+}
+
+func (r *ticketAccountRepo) FindByUsername(_ context.Context, username string) (account.User, error) {
+	if username == r.user.Username {
+		return r.user, nil
+	}
+	return account.User{}, account.ErrNotFound
+}
+
+func (r *ticketAccountRepo) FindByID(_ context.Context, id int64) (account.User, error) {
+	if id == r.user.ID {
+		return r.user, nil
+	}
+	return account.User{}, account.ErrNotFound
+}
+
+func (r *ticketAccountRepo) UpdatePassword(context.Context, int64, string) error { return nil }
+func (r *ticketAccountRepo) List(context.Context, account.UserFilter) ([]account.User, error) {
+	return nil, nil
+}
+func (r *ticketAccountRepo) Stats(context.Context) (account.Stats, error) {
+	return account.Stats{}, nil
+}
+func (r *ticketAccountRepo) SetDisabled(context.Context, int64, bool) error { return nil }
+func (r *ticketAccountRepo) SetMembership(context.Context, int64, string) error {
+	return nil
+}
+func (r *ticketAccountRepo) AddRelayTraffic(context.Context, int64, int64) error { return nil }
+func (r *ticketAccountRepo) ConsumeRelayTraffic(context.Context, int64, int64) error {
+	return nil
+}
+func (r *ticketAccountRepo) Delete(context.Context, int64) error { return nil }
+
+type ticketSessionStore struct {
+	sessionID string
+}
+
+func (s *ticketSessionStore) SetCurrentSession(_ context.Context, _ int64, sessionID string, _ time.Duration) error {
+	s.sessionID = sessionID
+	return nil
+}
+
+func (s *ticketSessionStore) CurrentSession(context.Context, int64) (string, bool, error) {
+	return s.sessionID, s.sessionID != "", nil
+}
+
+func (s *ticketSessionStore) DeleteCurrentSession(context.Context, int64) error {
+	s.sessionID = ""
+	return nil
 }

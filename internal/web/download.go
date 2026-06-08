@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -47,17 +48,18 @@ func (s *Server) handleClientReleaseTicket(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusUnauthorized, "login required")
 		return
 	}
-	ip := clientIP(r)
-	if !s.allowDownloadRate("ticket:ip:"+ip, downloadTicketIPLimit) || !s.allowDownloadRate(fmt.Sprintf("ticket:user:%d", user.ID), downloadTicketUserLimit) {
-		writeError(w, http.StatusTooManyRequests, "download requests are too frequent")
-		return
-	}
 	var req struct {
 		Platform       string `json:"platform"`
 		StoredFileName string `json:"storedFileName"`
 	}
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := readOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ip := clientIP(r)
+	if !s.allowDownloadRate("ticket:ip:"+ip, downloadTicketIPLimit) || !s.allowDownloadRate(fmt.Sprintf("ticket:user:%d", user.ID), downloadTicketUserLimit) {
+		writeError(w, http.StatusTooManyRequests, "download requests are too frequent")
+		return
 	}
 	release, err := s.releaseForTicket(r, req.Platform, req.StoredFileName)
 	if err != nil {
@@ -86,6 +88,22 @@ func (s *Server) releaseForTicket(r *http.Request, platform, storedName string) 
 		return s.releases.FindByStoredFileName(r.Context(), storedName)
 	}
 	return s.releases.Latest(r.Context(), clientrelease.NormalizePlatform(platform))
+}
+
+func readOptionalJSON(r *http.Request, v any) error {
+	if r.Body == nil {
+		return nil
+	}
+	defer r.Body.Close()
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Server) authorizeClientDownload(r *http.Request, release clientrelease.Release) (downloadAuth, error) {
