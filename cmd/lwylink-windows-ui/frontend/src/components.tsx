@@ -196,7 +196,6 @@ export function RoomControlPanel({
 }
 
 export function RoomPlayersPanel({
-  room,
   members,
   currentUserID,
   onlineCount,
@@ -208,7 +207,6 @@ export function RoomPlayersPanel({
   onKick,
   onTransfer,
 }: {
-  room: Room;
   members: RoomMember[];
   currentUserID?: number;
   onlineCount: number;
@@ -308,9 +306,6 @@ function VoiceDock({
         </button>
         <button className={voiceMicActive ? "voice-icon-button mic-on" : "voice-icon-button"} type="button" disabled={disabled || !voiceActive} title={voiceMicActive ? "关闭麦克风" : "打开麦克风"} onClick={onToggleVoiceMic}>
           {voiceMicActive ? <Mic size={16} /> : <MicOff size={16} />}
-        </button>
-        <button className="voice-icon-button" type="button" disabled title="P2P/Relay 语音状态">
-          <Radio size={16} />
         </button>
       </div>
     </div>

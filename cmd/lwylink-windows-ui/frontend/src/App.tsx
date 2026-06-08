@@ -210,10 +210,10 @@ export default function App() {
   useEffect(() => {
     void voiceSessionRef.current?.applyState(state.voice);
     const selfInVoice = !!state.user && state.voice.participants.some((item) => item.userID === state.user?.id);
-    if (!selfInVoice && voiceActive) {
+    if ((!selfInVoice || !connectionRunning) && voiceActive) {
       void stopLocalVoice(false);
     }
-  }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id]);
+  }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id, connectionRunning, voiceActive]);
 
   useEffect(() => {
     return () => {
@@ -248,8 +248,8 @@ export default function App() {
       });
     }
 
-    const signature = `${normalized.connection.status}|${normalized.connection.message}|${normalized.connection.ip}`;
     const message = visibleConnectionMessage(normalized.connection.message);
+    const signature = `${normalized.connection.status}|${message}|${normalized.connection.ip}`;
     if (connectionSignature.current && signature !== connectionSignature.current && message) {
       showNotice(`网络状态: ${statusText(normalized.connection.status)} - ${message}`, normalized.connection.status === "error" ? "error" : "info");
     }
@@ -995,7 +995,6 @@ export default function App() {
           onSendChat={handleSendChat}
         />
         <RoomPlayersPanel
-          room={currentRoom}
           members={members}
           currentUserID={state.user?.id}
           onlineCount={onlineCount}
