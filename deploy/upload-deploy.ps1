@@ -146,6 +146,8 @@ if ($UploadConfigs) {
   Assert-File (Join-Path $repoRoot "configs\control.prod.json")
   Assert-File (Join-Path $repoRoot "configs\node.prod.json")
 }
+$mailLocalConfig = Join-Path $repoRoot "configs\mail.local.json"
+$uploadMailConfig = $UploadConfigs -and (Test-Path $mailLocalConfig)
 
 Set-Location $repoRoot
 $client = New-DeployClient
@@ -167,6 +169,9 @@ mkdir -p $RemoteRoot/deploy/dist $RemoteRoot/configs
     if ($UploadConfigs) {
       Send-File $client (Join-Path $repoRoot "configs\control.prod.json") "$RemoteRoot/configs"
       Send-File $client (Join-Path $repoRoot "configs\node.prod.json") "$RemoteRoot/configs"
+      if ($uploadMailConfig) {
+        Send-File $client $mailLocalConfig "$RemoteRoot/configs"
+      }
     }
   }
 

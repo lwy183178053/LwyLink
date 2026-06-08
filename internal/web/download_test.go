@@ -10,7 +10,7 @@ import (
 )
 
 func TestDownloadTicketRoundTripAndExpiry(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
 	ticket := srv.signDownloadTicket("client.exe", 42, time.Now().Add(time.Minute))
 	userID, err := srv.verifyDownloadTicket(ticket, "client.exe")
 	if err != nil {
@@ -47,7 +47,7 @@ func TestDownloadLimiterRejectsAfterLimit(t *testing.T) {
 
 func TestAuthorizeClientDownload(t *testing.T) {
 	release := clientrelease.Release{StoredFileName: "client.exe"}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/downloads/client/client.exe", nil)
 	if _, err := srv.authorizeClientDownload(req, release); err == nil {
@@ -82,7 +82,7 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 		StoredFileName: "windows-amd64-0.1.17.exe",
 		SHA256:         "abc",
 	}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest?platform=windows-amd64", nil)
 
 	public := srv.publicClientRelease(req, release)
@@ -93,7 +93,7 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 
 func TestClientReleaseDownloadURLHonorsForwardedHeaders(t *testing.T) {
 	release := clientrelease.Release{StoredFileName: "client.exe"}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest", nil)
 	req.Host = "127.0.0.1:8080"

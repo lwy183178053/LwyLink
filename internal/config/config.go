@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -27,6 +28,18 @@ type ControlConfig struct {
 	RoomEmptyGraceSeconds          int    `json:"roomEmptyGraceSeconds"`
 	RoomNetworkBase                string `json:"roomNetworkBase"`
 	RoomSubnetPrefix               int    `json:"roomSubnetPrefix"`
+	MailConfigPath                 string `json:"mailConfigPath"`
+}
+
+type MailConfig struct {
+	Enabled      bool   `json:"enabled"`
+	SMTPHost     string `json:"smtpHost"`
+	SMTPPort     int    `json:"smtpPort"`
+	SMTPSSL      bool   `json:"smtpSSL"`
+	SMTPUser     string `json:"smtpUser"`
+	SMTPPassword string `json:"smtpPassword"`
+	FromAddress  string `json:"fromAddress"`
+	FromName     string `json:"fromName"`
 }
 
 type NodeConfig struct {
@@ -105,6 +118,20 @@ func LoadNodeConfig(path string) (NodeConfig, error) {
 			return cfg, fmt.Errorf("write generated node key: %w", err)
 		}
 	}
+	return cfg, nil
+}
+
+func LoadMailConfig(path string) (MailConfig, error) {
+	var cfg MailConfig
+	if strings.TrimSpace(path) != "" {
+		if err := loadJSONConfig(path, &cfg); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return cfg, err
+			}
+		}
+	}
+	applyMailDefaults(&cfg)
+	applyMailEnvOverrides(&cfg)
 	return cfg, nil
 }
 
@@ -193,6 +220,21 @@ func applyControlDefaults(cfg *ControlConfig) {
 	if cfg.RoomSubnetPrefix == 0 {
 		cfg.RoomSubnetPrefix = 24
 	}
+	if cfg.MailConfigPath == "" {
+		cfg.MailConfigPath = "configs/mail.local.json"
+	}
+}
+
+func applyMailDefaults(cfg *MailConfig) {
+	if cfg.SMTPHost == "" {
+		cfg.SMTPHost = "smtpdm.aliyun.com"
+	}
+	if cfg.SMTPPort == 0 {
+		cfg.SMTPPort = 465
+	}
+	if cfg.FromName == "" {
+		cfg.FromName = "LwyLink"
+	}
 }
 
 func applyNodeDefaults(cfg *NodeConfig) {
@@ -230,9 +272,39 @@ func applyControlEnvOverrides(cfg *ControlConfig) {
 	if v := os.Getenv(envName("CLIENT_RELEASE_DIR")); v != "" {
 		cfg.ClientReleaseDir = v
 	}
+	if v := os.Getenv(envName("MAIL_CONFIG")); v != "" {
+		cfg.MailConfigPath = v
+	}
 	applyEnvInt(envName("NODE_HEALTH_INTERVAL_SECONDS"), &cfg.NodeHealthCheckIntervalSeconds)
 	applyEnvInt(envName("ROOM_CLEANUP_INTERVAL_SECONDS"), &cfg.RoomCleanupIntervalSeconds)
 	applyEnvInt(envName("ROOM_EMPTY_GRACE_SECONDS"), &cfg.RoomEmptyGraceSeconds)
+}
+
+func applyMailEnvOverrides(cfg *MailConfig) {
+	if v := os.Getenv(envName("MAIL_ENABLED")); v != "" {
+		cfg.Enabled = parseBool(v, cfg.Enabled)
+	}
+	if v := os.Getenv(envName("MAIL_SMTP_HOST")); v != "" {
+		cfg.SMTPHost = v
+	}
+	if v := os.Getenv(envName("MAIL_SMTP_PORT")); v != "" {
+		applyIntValue(v, &cfg.SMTPPort)
+	}
+	if v := os.Getenv(envName("MAIL_SMTP_SSL")); v != "" {
+		cfg.SMTPSSL = parseBool(v, cfg.SMTPSSL)
+	}
+	if v := os.Getenv(envName("MAIL_SMTP_USER")); v != "" {
+		cfg.SMTPUser = v
+	}
+	if v := os.Getenv(envName("MAIL_SMTP_PASSWORD")); v != "" {
+		cfg.SMTPPassword = v
+	}
+	if v := os.Getenv(envName("MAIL_FROM_ADDRESS")); v != "" {
+		cfg.FromAddress = v
+	}
+	if v := os.Getenv(envName("MAIL_FROM_NAME")); v != "" {
+		cfg.FromName = v
+	}
 }
 
 func applyNodeEnvOverrides(cfg *NodeConfig) {
@@ -283,6 +355,17 @@ func applyEnvInt(name string, target *int) {
 func applyIntValue(value string, target *int) {
 	if parsed, err := strconv.Atoi(value); err == nil {
 		*target = parsed
+	}
+}
+
+func parseBool(value string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
 	}
 }
 

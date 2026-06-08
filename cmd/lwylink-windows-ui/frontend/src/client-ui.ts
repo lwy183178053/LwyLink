@@ -13,6 +13,11 @@ export type LoginForm = {
   email: string;
   password: string;
   displayName: string;
+  emailCode: string;
+  resetCode: string;
+  resetPassword: string;
+  oldPassword: string;
+  newPassword: string;
 };
 
 export type RoomForm = {

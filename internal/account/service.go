@@ -39,6 +39,7 @@ type accountRepository interface {
 	Create(ctx context.Context, username, passwordHash, displayName string) (User, error)
 	FindByUsername(ctx context.Context, username string) (User, error)
 	FindByID(ctx context.Context, id int64) (User, error)
+	UpdatePassword(ctx context.Context, userID int64, passwordHash string) error
 	List(ctx context.Context, filter UserFilter) ([]User, error)
 	Stats(ctx context.Context) (Stats, error)
 	SetDisabled(ctx context.Context, userID int64, disabled bool) error
@@ -110,6 +111,59 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 		return LoginResult{}, err
 	}
 	return LoginResult{User: u.Public(), Token: token}, nil
+}
+
+func (s *Service) EmailExists(ctx context.Context, email string) (bool, error) {
+	_, err := s.repo.FindByUsername(ctx, NormalizeEmail(email))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (s *Service) ResetPassword(ctx context.Context, email, password string) error {
+	u, err := s.repo.FindByUsername(ctx, NormalizeEmail(email))
+	if err != nil {
+		return ErrUnauthorized
+	}
+	if err := validatePassword(password); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.UpdatePassword(ctx, u.ID, string(hash)); err != nil {
+		return err
+	}
+	if s.sessions != nil {
+		_ = s.sessions.DeleteCurrentSession(ctx, u.ID)
+	}
+	return nil
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error {
+	u, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u.Disabled {
+		return ErrDisabled
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(oldPassword)); err != nil {
+		return ErrUnauthorized
+	}
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePassword(ctx, u.ID, string(hash))
 }
 
 func (s *Service) AuthenticateToken(ctx context.Context, token string) (User, error) {
@@ -227,6 +281,10 @@ func validateUsernamePassword(username, password string) error {
 	if !IsValidEmail(username) {
 		return fmt.Errorf("请输入有效邮箱地址")
 	}
+	return validatePassword(password)
+}
+
+func validatePassword(password string) error {
 	if len(password) < PasswordMinLength || len(password) > PasswordMaxLength {
 		return fmt.Errorf("密码长度必须是 %d-%d 位", PasswordMinLength, PasswordMaxLength)
 	}

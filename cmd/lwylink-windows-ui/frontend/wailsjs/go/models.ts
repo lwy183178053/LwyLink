@@ -162,6 +162,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ChangePasswordInput {
+	    oldPassword: string;
+	    newPassword: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChangePasswordInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oldPassword = source["oldPassword"];
+	        this.newPassword = source["newPassword"];
+	    }
+	}
 	
 	export class CreateRoomInput {
 	    name: string;
@@ -175,6 +189,20 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.maxMembers = source["maxMembers"];
+	    }
+	}
+	export class EmailVerificationInput {
+	    email: string;
+	    purpose: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EmailVerificationInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
+	        this.purpose = source["purpose"];
 	    }
 	}
 	export class JoinRoomInput {
@@ -219,6 +247,7 @@ export namespace main {
 	    email: string;
 	    password: string;
 	    displayName: string;
+	    emailCode: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RegisterInput(source);
@@ -229,6 +258,23 @@ export namespace main {
 	        this.email = source["email"];
 	        this.password = source["password"];
 	        this.displayName = source["displayName"];
+	        this.emailCode = source["emailCode"];
+	    }
+	}
+	export class ResetPasswordInput {
+	    email: string;
+	    emailCode: string;
+	    newPassword: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetPasswordInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.email = source["email"];
+	        this.emailCode = source["emailCode"];
+	        this.newPassword = source["newPassword"];
 	    }
 	}
 	export class SendChatInput {

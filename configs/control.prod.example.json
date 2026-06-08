@@ -10,5 +10,6 @@
   "roomCleanupIntervalSeconds": 10,
   "roomEmptyGraceSeconds": 20,
   "roomNetworkBase": "172.16.0.0/16",
-  "roomSubnetPrefix": 24
+  "roomSubnetPrefix": 24,
+  "mailConfigPath": "configs/mail.local.json"
 }

@@ -178,6 +178,16 @@ go vet -p 1 ./...
 - 控制中心和房间节点必须使用相同的 `tokenSecret`。
 - 生产环境建议把 HTTP API 放在 HTTPS 反向代理后面。
 
+### 邮件验证码
+
+控制中心会读取 `control*.json` 里的 `mailConfigPath`，默认指向 `configs/mail.local.json`。可以复制 `configs/mail.example.json` 后填写阿里云 DirectMail SMTP 信息：
+
+```powershell
+Copy-Item .\configs\mail.example.json .\configs\mail.local.json
+```
+
+启用邮件后，注册和找回密码都会要求 6 位邮箱验证码；未启用邮件时，本地开发和 smoke 注册仍可直接通过。真实的 `mail.local.json` 含 SMTP 密码，已被 `.gitignore` 忽略。
+
 ## 关键概念
 
 - 房间公钥是加入房间和连接房间的授权凭证，不是节点传输密钥。

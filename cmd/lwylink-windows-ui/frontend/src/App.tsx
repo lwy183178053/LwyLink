@@ -39,8 +39,11 @@ import {
   Login,
   Logout,
   Register,
+  ResetPassword,
   SendRoomChat,
+  SendEmailVerification,
   SetSettings,
+  ChangePassword,
   TransferOwner,
 } from "../wailsjs/go/main/App";
 import { EventsOn, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
@@ -97,7 +100,16 @@ export default function App() {
   const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
   const [chatSending, setChatSending] = useState(false);
   const [dismissedUpdate, setDismissedUpdate] = useState("");
-  const [loginForm, setLoginForm] = useState<LoginForm>({ email: "", password: "", displayName: "" });
+  const [loginForm, setLoginForm] = useState<LoginForm>({
+    email: "",
+    password: "",
+    displayName: "",
+    emailCode: "",
+    resetCode: "",
+    resetPassword: "",
+    oldPassword: "",
+    newPassword: "",
+  });
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
@@ -157,7 +169,7 @@ export default function App() {
   const canSubmitAuth =
     authMode === "login"
       ? loginForm.email.trim() !== "" && loginForm.password !== ""
-      : authRules.emailLength && authRules.emailFormat && authRules.passwordLength;
+      : authRules.emailLength && authRules.emailFormat && authRules.passwordLength && loginForm.emailCode.trim().length === 6;
   const selectedMaxMembers = Number.parseInt(roomForm.maxMembers, 10) || defaultRoomMemberLimit;
   const roomSizeAllowed = canCreateRoomSize(selectedMaxMembers, state.user);
   const trafficPercent = trafficUsedPercent(state.user);
@@ -248,6 +260,7 @@ export default function App() {
               email: loginForm.email,
               password: loginForm.password,
               displayName: loginForm.displayName,
+              emailCode: loginForm.emailCode,
             }),
           );
     if (ok) {
@@ -314,6 +327,40 @@ export default function App() {
     } catch (err) {
       const text = errorText(err);
       showNotice(text, "error");
+    }
+  }
+
+  async function handleSendEmailCode(purpose: "register" | "password_reset") {
+    if (loginForm.email.trim() === "") {
+      showNotice("请先填写邮箱", "error");
+      return;
+    }
+    await run("发送验证码", () => SendEmailVerification({ email: loginForm.email, purpose }));
+  }
+
+  async function handleResetPassword() {
+    if (!loginForm.email || !loginForm.resetCode || !loginForm.resetPassword) {
+      showNotice("请填写邮箱、验证码和新密码", "error");
+      return;
+    }
+    const ok = await run("重置密码", () =>
+      ResetPassword({ email: loginForm.email, emailCode: loginForm.resetCode, newPassword: loginForm.resetPassword }),
+    );
+    if (ok) {
+      setLoginForm((current) => ({ ...current, password: current.resetPassword, resetCode: "", resetPassword: "" }));
+      setAuthMode("login");
+    }
+  }
+
+  async function handleChangePassword(event: FormEvent) {
+    event.preventDefault();
+    if (!loginForm.oldPassword || !loginForm.newPassword) {
+      showNotice("请填写当前密码和新密码", "error");
+      return;
+    }
+    const ok = await run("修改密码", () => ChangePassword({ oldPassword: loginForm.oldPassword, newPassword: loginForm.newPassword }));
+    if (ok) {
+      setLoginForm((current) => ({ ...current, oldPassword: "", newPassword: "" }));
     }
   }
 
@@ -521,6 +568,22 @@ export default function App() {
                   />
                 </Field>
               )}
+              {authMode === "register" && (
+                <div className="inline-action-field">
+                  <Field label="邮箱验证码">
+                    <Input
+                      className="pretty-input"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={loginForm.emailCode}
+                      onChange={(_, data) => setLoginForm((current) => ({ ...current, emailCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
+                    />
+                  </Field>
+                  <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("register")}>
+                    发送
+                  </Button>
+                </div>
+              )}
               <Field label="密码">
                 <Input
                   className="pretty-input"
@@ -534,11 +597,50 @@ export default function App() {
                   <Rule ok={authRules.emailLength} text={`${emailMinLength}-${emailMaxLength} 位邮箱`} />
                   <Rule ok={authRules.emailFormat} text="请输入有效邮箱格式" />
                   <Rule ok={authRules.passwordLength} text={`${passwordMinLength}-${passwordMaxLength} 位密码`} />
+                  <Rule ok={loginForm.emailCode.trim().length === 6} text="6 位邮箱验证码" />
                 </div>
               )}
               <Button appearance="primary" icon={<LogIn size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
                 {authMode === "login" ? "进入客户端" : "创建账号"}
               </Button>
+              {authMode === "login" && (
+                <div className="password-reset-box">
+                  <div className="mini-head">
+                    <KeyRound size={15} />
+                    <strong>忘记密码</strong>
+                  </div>
+                  <div className="inline-action-field">
+                    <Field label="验证码">
+                      <Input
+                        className="pretty-input"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={loginForm.resetCode}
+                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
+                      />
+                    </Field>
+                    <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("password_reset")}>
+                      发送
+                    </Button>
+                  </div>
+                  <Field label="新密码">
+                    <Input
+                      className="pretty-input"
+                      type="password"
+                      value={loginForm.resetPassword}
+                      onChange={(_, data) => setLoginForm((current) => ({ ...current, resetPassword: data.value }))}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    icon={<RefreshCw size={16} />}
+                    disabled={isBusy || !loginForm.email || loginForm.resetCode.trim().length !== 6 || loginForm.resetPassword.length < passwordMinLength}
+                    onClick={handleResetPassword}
+                  >
+                    重置密码
+                  </Button>
+                </div>
+              )}
             </div>
           </form>
         </section>
@@ -578,6 +680,37 @@ export default function App() {
             <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
           </div>
         </div>
+
+        <form className="surface password-panel" onSubmit={handleChangePassword}>
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">安全</span>
+              <h2>修改密码</h2>
+            </div>
+            <KeyRound size={18} />
+          </div>
+          <div className="form-stack">
+            <Field label="当前密码">
+              <Input
+                className="pretty-input"
+                type="password"
+                value={loginForm.oldPassword}
+                onChange={(_, data) => setLoginForm((current) => ({ ...current, oldPassword: data.value }))}
+              />
+            </Field>
+            <Field label="新密码">
+              <Input
+                className="pretty-input"
+                type="password"
+                value={loginForm.newPassword}
+                onChange={(_, data) => setLoginForm((current) => ({ ...current, newPassword: data.value }))}
+              />
+            </Field>
+            <Button appearance="primary" icon={<KeyRound size={16} />} type="submit" disabled={isBusy || loginForm.newPassword.length < passwordMinLength}>
+              保存新密码
+            </Button>
+          </div>
+        </form>
       </section>
     );
   }

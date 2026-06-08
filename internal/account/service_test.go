@@ -97,6 +97,67 @@ func TestLoginWithEmailAndPassword(t *testing.T) {
 	}
 }
 
+func TestResetPasswordReplacesPasswordAndClearsSession(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("oldpass"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeAccountRepo{
+		users: map[string]User{
+			"player@example.com": {
+				ID:           7,
+				Username:     "player@example.com",
+				PasswordHash: string(hash),
+				DisplayName:  "Player",
+				Role:         "player",
+			},
+		},
+	}
+	sessions := &fakeSessionStore{sessions: map[int64]string{7: "session"}}
+	svc := NewService(repo, "secret", sessions)
+
+	if err := svc.ResetPassword(context.Background(), " PLAYER@example.com ", "newpass"); err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+	if _, ok := sessions.sessions[7]; ok {
+		t.Fatalf("reset password did not clear current session")
+	}
+	if _, err := svc.Login(context.Background(), "player@example.com", "oldpass"); err != ErrUnauthorized {
+		t.Fatalf("old password err=%v, want unauthorized", err)
+	}
+	if _, err := svc.Login(context.Background(), "player@example.com", "newpass"); err != nil {
+		t.Fatalf("login with new password: %v", err)
+	}
+}
+
+func TestChangePasswordRequiresOldPassword(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("oldpass"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeAccountRepo{
+		users: map[string]User{
+			"player@example.com": {
+				ID:           7,
+				Username:     "player@example.com",
+				PasswordHash: string(hash),
+				DisplayName:  "Player",
+				Role:         "player",
+			},
+		},
+	}
+	svc := NewService(repo, "secret", &fakeSessionStore{sessions: make(map[int64]string)})
+	if err := svc.ChangePassword(context.Background(), 7, "wrong", "newpass"); err != ErrUnauthorized {
+		t.Fatalf("wrong old password err=%v, want unauthorized", err)
+	}
+	if err := svc.ChangePassword(context.Background(), 7, "oldpass", "newpass"); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+	if _, err := svc.Login(context.Background(), "player@example.com", "newpass"); err != nil {
+		t.Fatalf("login with changed password: %v", err)
+	}
+}
+
 type fakeAccountRepo struct {
 	nextID int64
 	users  map[string]User
@@ -133,6 +194,17 @@ func (r *fakeAccountRepo) FindByID(_ context.Context, id int64) (User, error) {
 		}
 	}
 	return User{}, ErrNotFound
+}
+
+func (r *fakeAccountRepo) UpdatePassword(_ context.Context, userID int64, passwordHash string) error {
+	for email, u := range r.users {
+		if u.ID == userID {
+			u.PasswordHash = passwordHash
+			r.users[email] = u
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (r *fakeAccountRepo) List(context.Context, UserFilter) ([]User, error) { return nil, nil }

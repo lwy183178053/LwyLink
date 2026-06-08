@@ -462,6 +462,32 @@ input:focus {
   outline: 3px solid rgba(15, 118, 110, .14);
 }
 
+.inline-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.inline-field .button {
+  min-width: 120px;
+}
+
+.password-reset {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+}
+
+.password-panel {
+  padding: 20px;
+}
+
+.password-panel h2,
+.password-reset h2 {
+  margin: 0 0 14px;
+}
+
 .download-card {
   min-width: 0;
   border: 1px solid #dce4ee;
@@ -983,8 +1009,11 @@ input:focus {
     gap: 4px;
   }
 
-.button {
-    width: 100%;
+  .inline-field {
+    grid-template-columns: 1fr;
   }
 
+  .button {
+    width: 100%;
+  }
 }

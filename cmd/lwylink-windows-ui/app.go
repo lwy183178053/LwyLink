@@ -29,7 +29,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.17"
+var AppVersion = "0.1.18"
 
 type App struct {
 	ctx context.Context
@@ -74,11 +74,28 @@ type RegisterInput struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
+	EmailCode   string `json:"emailCode"`
 }
 
 type LoginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type EmailVerificationInput struct {
+	Email   string `json:"email"`
+	Purpose string `json:"purpose"`
+}
+
+type ResetPasswordInput struct {
+	Email       string `json:"email"`
+	EmailCode   string `json:"emailCode"`
+	NewPassword string `json:"newPassword"`
+}
+
+type ChangePasswordInput struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
 }
 
 type CreateRoomInput struct {
@@ -341,7 +358,7 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	api := a.api.Clone()
 	a.mu.Unlock()
 
-	res, err := api.Register(ctx, input.Email, input.Password, input.DisplayName)
+	res, err := api.Register(ctx, input.Email, input.Password, input.DisplayName, input.EmailCode)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -357,6 +374,51 @@ func (a *App) Register(input RegisterInput) (AppState, error) {
 	state := a.commitStateLocked()
 	_ = saveSavedLogin(savedLogin{APIBaseURL: apiBaseURL, Username: input.Email, Password: input.Password})
 	return state, nil
+}
+
+func (a *App) SendEmailVerification(input EmailVerificationInput) (AppState, error) {
+	input.Email = strings.TrimSpace(input.Email)
+	input.Purpose = strings.TrimSpace(input.Purpose)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	api := a.api.Clone()
+	a.mu.Unlock()
+	if err := api.SendEmailVerification(ctx, input.Email, input.Purpose); err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) ResetPassword(input ResetPasswordInput) (AppState, error) {
+	input.Email = strings.TrimSpace(input.Email)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	api := a.api.Clone()
+	a.mu.Unlock()
+	if err := api.ResetPassword(ctx, input.Email, input.EmailCode, input.NewPassword); err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) ChangePassword(input ChangePasswordInput) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	api := a.api.Clone()
+	a.mu.Unlock()
+	if err := api.ChangePassword(ctx, input.OldPassword, input.NewPassword); err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	return a.commitStateLocked(), nil
 }
 
 func (a *App) Login(input LoginInput) (AppState, error) {

@@ -48,13 +48,40 @@ public final class LwyLink {
         }
 
         public String register(String email, String password, String displayName) throws Exception {
+            return register(email, password, displayName, "");
+        }
+
+        public String register(String email, String password, String displayName, String emailCode) throws Exception {
             String result = post("/api/register", jsonObject(Map.of(
                     "email", email,
                     "password", password,
-                    "displayName", displayName
+                    "displayName", displayName,
+                    "emailCode", emailCode
             )));
             token = jsonField(result, "token");
             return result;
+        }
+
+        public String sendEmailVerification(String email, String purpose) throws Exception {
+            return post("/api/email/verification/send", jsonObject(Map.of(
+                    "email", email,
+                    "purpose", purpose
+            )));
+        }
+
+        public String resetPassword(String email, String emailCode, String newPassword) throws Exception {
+            return post("/api/password/reset", jsonObject(Map.of(
+                    "email", email,
+                    "emailCode", emailCode,
+                    "newPassword", newPassword
+            )));
+        }
+
+        public String changePassword(String oldPassword, String newPassword) throws Exception {
+            return post("/api/password/change", jsonObject(Map.of(
+                    "oldPassword", oldPassword,
+                    "newPassword", newPassword
+            )));
         }
 
         public String login(String email, String password) throws Exception {

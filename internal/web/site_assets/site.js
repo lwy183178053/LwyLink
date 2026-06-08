@@ -58,6 +58,7 @@ function wireAuthForms() {
           email: form.get("email"),
           password: form.get("password"),
           displayName: form.get("displayName"),
+          emailCode: form.get("emailCode"),
         }),
       });
       localStorage.setItem(tokenKey, result.token);
@@ -66,6 +67,91 @@ function wireAuthForms() {
       show(err.message);
     }
   });
+
+  const reset = document.querySelector("[data-reset-form]");
+  reset?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(reset);
+    try {
+      await api("/api/password/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          email: form.get("email"),
+          emailCode: form.get("emailCode"),
+          newPassword: form.get("newPassword"),
+        }),
+      });
+      reset.reset();
+      show("密码已重置，请使用新密码登录");
+    } catch (err) {
+      show(err.message);
+    }
+  });
+}
+
+function wireEmailCodeButtons() {
+  document.querySelectorAll("[data-send-code]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const purpose = button.dataset.purpose || "register";
+      const source = button.dataset.emailSource || "register";
+      const form = document.querySelector(`[data-${source}-form]`);
+      const input = form?.querySelector('input[name="email"]');
+      const email = input?.value || "";
+      if (!email.trim()) {
+        show("请先填写邮箱");
+        return;
+      }
+      try {
+        button.disabled = true;
+        await api("/api/email/verification/send", {
+          method: "POST",
+          body: JSON.stringify({ email, purpose }),
+        });
+        show("验证码已发送，请查收邮箱");
+        startCodeCountdown(button);
+      } catch (err) {
+        button.disabled = false;
+        show(err.message);
+      }
+    });
+  });
+}
+
+function wirePasswordChange() {
+  const form = document.querySelector("[data-change-password-form]");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      await api("/api/password/change", {
+        method: "POST",
+        body: JSON.stringify({
+          oldPassword: data.get("oldPassword"),
+          newPassword: data.get("newPassword"),
+        }),
+      });
+      form.reset();
+      show("密码已修改");
+    } catch (err) {
+      show(err.message);
+    }
+  });
+}
+
+function startCodeCountdown(button) {
+  let remain = 60;
+  const original = button.textContent;
+  button.textContent = `${remain}s`;
+  const timer = window.setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) {
+      window.clearInterval(timer);
+      button.disabled = false;
+      button.textContent = original;
+      return;
+    }
+    button.textContent = `${remain}s`;
+  }, 1000);
 }
 
 async function fetchCurrentUser() {
@@ -229,6 +315,8 @@ document.querySelector("[data-logout-button]")?.addEventListener("click", () => 
 });
 
 wireAuthForms();
+wireEmailCodeButtons();
+wirePasswordChange();
 
 (async function init() {
   renderAuthNav(await fetchCurrentUser());

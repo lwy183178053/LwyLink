@@ -19,7 +19,21 @@ public final class LwyLinkRoomExample {
             case "register" -> System.out.println(client.register(
                     cli.required("email"),
                     cli.required("password"),
-                    cli.value("display-name", "")
+                    cli.value("display-name", ""),
+                    cli.value("email-code", "")
+            ));
+            case "send-code" -> System.out.println(client.sendEmailVerification(
+                    cli.required("email"),
+                    cli.value("purpose", "register")
+            ));
+            case "reset-password" -> System.out.println(client.resetPassword(
+                    cli.required("email"),
+                    cli.required("email-code"),
+                    cli.required("new-password")
+            ));
+            case "change-password" -> System.out.println(client.changePassword(
+                    cli.required("old-password"),
+                    cli.required("new-password")
             ));
             case "login" -> System.out.println(client.login(cli.required("email"), cli.required("password")));
             case "me" -> System.out.println(client.me());
@@ -57,9 +71,12 @@ public final class LwyLinkRoomExample {
                 Usage:
                   javac examples/java/LwyLink.java examples/java/LwyLinkRoomExample.java
                   java -cp examples/java LwyLinkRoomExample --self-test
-                  java -cp examples/java LwyLinkRoomExample --api <url> register --email <email> --password <p>
+                  java -cp examples/java LwyLinkRoomExample --api <url> send-code --email <email> --purpose register
+                  java -cp examples/java LwyLinkRoomExample --api <url> register --email <email> --password <p> --email-code <code>
+                  java -cp examples/java LwyLinkRoomExample --api <url> reset-password --email <email> --email-code <code> --new-password <p>
                   java -cp examples/java LwyLinkRoomExample --api <url> login --email <email> --password <p>
                   java -cp examples/java LwyLinkRoomExample --api <url> --token <token> create-room --name <name>
+                  java -cp examples/java LwyLinkRoomExample --api <url> --token <token> change-password --old-password <p> --new-password <p>
                   java -cp examples/java LwyLinkRoomExample --api <url> --token <token> events
                 """);
     }

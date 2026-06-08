@@ -58,7 +58,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
 	html := rec.Body.String()
 	for _, want := range []string{"最近账号", "最近房间", "compact-table", "Player"} {
 		if !strings.Contains(html, want) {
@@ -69,7 +69,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data.Active = "users"
 	data.Title = "玩家账号"
 	rec = httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
 	html = rec.Body.String()
 	for _, want := range []string{"traffic-dialog", "data-open-traffic", `placeholder="例如 1024"`} {
 		if !strings.Contains(html, want) {
@@ -80,7 +80,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data.Active = "releases"
 	data.Title = "更新发布"
 	rec = httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
 	if !strings.Contains(rec.Body.String(), `placeholder="例如 /S，可留空"`) {
 		t.Fatalf("rendered releases html missing install args placeholder")
 	}
@@ -104,7 +104,7 @@ func TestAdminReleaseUploadRejectsOversizedBodyBeforeMultipartParse(t *testing.T
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	rec := httptest.NewRecorder()
 	releases := clientrelease.NewService(nil, "")
-	NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, releases).handleAdminReleaseUploadLimited(rec, req, 32)
+	NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, releases, nil).handleAdminReleaseUploadLimited(rec, req, 32)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want %d", rec.Code, http.StatusBadRequest)
@@ -115,7 +115,7 @@ func TestAdminReleaseUploadRejectsOversizedBodyBeforeMultipartParse(t *testing.T
 }
 
 func TestSitePagesRender(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
 	for _, path := range []string{"/", "/login", "/register", "/dashboard", "/download"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()

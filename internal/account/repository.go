@@ -52,6 +52,18 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (User, error) {
 	))
 }
 
+func (r *Repository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return err
+}
+
 func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error) {
 	where, args := userWhere(filter)
 	limit := normalizeLimit(filter.Limit, 500, 1000)

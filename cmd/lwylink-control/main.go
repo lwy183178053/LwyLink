@@ -14,6 +14,7 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
 	"github.com/LwyV-Labs/LwyLink/internal/config"
 	"github.com/LwyV-Labs/LwyLink/internal/db"
+	"github.com/LwyV-Labs/LwyLink/internal/mail"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 	"github.com/LwyV-Labs/LwyLink/internal/state"
@@ -54,6 +55,22 @@ func main() {
 	}
 
 	accountSvc := account.NewService(account.NewRepository(sqlDB), cfg.TokenSecret, runtimeState)
+	mailCfg, err := config.LoadMailConfig(cfg.MailConfigPath)
+	if err != nil {
+		log.Fatalf("load mail config: %v", err)
+	}
+	var mailSvc *mail.Service
+	if mailCfg.Enabled {
+		sender, err := mail.NewSMTPSenderFromConfig(mailCfg)
+		if err != nil {
+			log.Fatalf("init mail sender: %v", err)
+		}
+		mailSvc = mail.NewService(mail.NewRepository(sqlDB), sender, accountSvc, true)
+		log.Printf("mail verification enabled from=%s host=%s:%d", mailCfg.FromAddress, mailCfg.SMTPHost, mailCfg.SMTPPort)
+	} else {
+		mailSvc = mail.NewService(mail.NewRepository(sqlDB), nil, accountSvc, false)
+		log.Println("mail verification disabled")
+	}
 	settingsSvc := appsettings.NewService(appsettings.NewRepository(sqlDB))
 	nodeSvc := node.NewService(node.NewRepository(sqlDB))
 	roomSvc := room.NewService(room.NewRepository(sqlDB), runtimeState, nodeSvc, cfg.RoomNetworkBase, cfg.RoomSubnetPrefix)
@@ -64,7 +81,7 @@ func main() {
 	nodeSvc.StartHealthMonitor(ctx, time.Duration(cfg.NodeHealthCheckIntervalSeconds)*time.Second)
 	roomSvc.StartEmptyRoomCleaner(ctx, time.Duration(cfg.RoomCleanupIntervalSeconds)*time.Second, time.Duration(cfg.RoomEmptyGraceSeconds)*time.Second)
 
-	httpServer := web.NewServer(cfg.HTTPAddr, cfg.AdminToken, accountSvc, settingsSvc, roomSvc, nodeSvc, releaseSvc)
+	httpServer := web.NewServer(cfg.HTTPAddr, cfg.AdminToken, accountSvc, settingsSvc, roomSvc, nodeSvc, releaseSvc, mailSvc)
 	if err := httpServer.ListenAndServe(ctx); err != nil {
 		log.Fatalf("control plane failed: %v", err)
 	}

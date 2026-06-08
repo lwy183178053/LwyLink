@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "smtpHost": "smtpdm.aliyun.com",
+  "smtpPort": 465,
+  "smtpSSL": true,
+  "smtpUser": "CHANGE_ME",
+  "smtpPassword": "CHANGE_ME",
+  "fromAddress": "lwylink@mail.lwylink.xyz",
+  "fromName": "LwyLink"
+}

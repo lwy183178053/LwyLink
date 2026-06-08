@@ -50,7 +50,8 @@ func runGuestMenu(ctx context.Context, reader *bufio.Reader, api *API) (*account
 			username := prompt(reader, "邮箱: ")
 			password := prompt(reader, "密码: ")
 			displayName := prompt(reader, "昵称(可空): ")
-			res, err := api.Register(ctx, username, password, displayName)
+			emailCode := prompt(reader, "邮箱验证码: ")
+			res, err := api.Register(ctx, username, password, displayName, emailCode)
 			if err != nil {
 				fmt.Println("注册失败:", err)
 				continue

@@ -16,6 +16,7 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/appsettings"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/mail"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
@@ -30,12 +31,13 @@ type Server struct {
 	rooms           *room.Service
 	nodes           *node.Service
 	releases        *clientrelease.Service
+	mail            *mail.Service
 	downloadLimiter *downloadLimiter
 	httpServer      *http.Server
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
-func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service) *Server {
+func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service, mailSvc *mail.Service) *Server {
 	return &Server{
 		addr:            addr,
 		adminToken:      adminToken,
@@ -44,6 +46,7 @@ func NewServer(addr, adminToken string, accounts *account.Service, settings *app
 		rooms:           rooms,
 		nodes:           nodes,
 		releases:        releases,
+		mail:            mailSvc,
 		downloadLimiter: newDownloadLimiter(downloadRateLimitWindow),
 	}
 }
@@ -54,6 +57,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/register", s.handleRegister)
 	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/email/verification/send", s.handleSendEmailVerification)
+	mux.HandleFunc("/api/password/reset", s.handlePasswordReset)
+	mux.HandleFunc("/api/password/change", s.handlePasswordChange)
 	mux.HandleFunc("/api/me", s.handleMe)
 	mux.HandleFunc("/api/announcement", s.handleAnnouncement)
 	mux.HandleFunc("/api/rooms", s.handleRooms)
@@ -117,8 +123,13 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
 		DisplayName string `json:"displayName"`
+		EmailCode   string `json:"emailCode"`
 	}
 	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.requireEmailVerification(r.Context(), req.Email, mail.PurposeRegister, req.EmailCode); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -128,6 +139,99 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSendEmailVerification(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Email   string `json:"email"`
+		Purpose string `json:"purpose"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.mail == nil {
+		writeError(w, http.StatusServiceUnavailable, "mail service is disabled")
+		return
+	}
+	err := s.mail.SendVerification(r.Context(), mail.SendInput{
+		Email:   req.Email,
+		Purpose: req.Purpose,
+		IP:      clientIP(r),
+	})
+	if err != nil {
+		writeError(w, statusForMailError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Email       string `json:"email"`
+		EmailCode   string `json:"emailCode"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.requireEmailVerification(r.Context(), req.Email, mail.PurposePasswordReset, req.EmailCode); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.accounts.ResetPassword(r.Context(), req.Email, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.accounts.ChangePassword(r.Context(), user.ID, req.OldPassword, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) requireEmailVerification(ctx context.Context, email, purpose, code string) error {
+	if s.mail == nil || !s.mail.Enabled() {
+		return nil
+	}
+	return s.mail.Verify(ctx, email, purpose, code)
+}
+
+func statusForMailError(err error) int {
+	if errors.Is(err, mail.ErrVerificationRateLimit) {
+		return http.StatusTooManyRequests
+	}
+	if errors.Is(err, mail.ErrMailDisabled) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusBadRequest
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

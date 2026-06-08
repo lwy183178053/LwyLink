@@ -19,7 +19,13 @@ def main() -> int:
     client = RoomClient(args.api, args.token)
 
     if args.command == "register":
-        print_json(client.register(args.email, args.password, args.display_name))
+        print_json(client.register(args.email, args.password, args.display_name, args.email_code))
+    elif args.command == "send-code":
+        print_json(client.send_email_verification(args.email, args.purpose))
+    elif args.command == "reset-password":
+        print_json(client.reset_password(args.email, args.email_code, args.new_password))
+    elif args.command == "change-password":
+        print_json(client.change_password(args.old_password, args.new_password))
     elif args.command == "login":
         print_json(client.login(args.email, args.password))
     elif args.command == "me":
@@ -58,6 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--email", required=True)
     register.add_argument("--password", required=True)
     register.add_argument("--display-name", default="")
+    register.add_argument("--email-code", default="")
+
+    send_code = sub.add_parser("send-code")
+    send_code.add_argument("--email", required=True)
+    send_code.add_argument("--purpose", choices=["register", "password_reset"], default="register")
+
+    reset = sub.add_parser("reset-password")
+    reset.add_argument("--email", required=True)
+    reset.add_argument("--email-code", required=True)
+    reset.add_argument("--new-password", required=True)
+
+    change = sub.add_parser("change-password")
+    change.add_argument("--old-password", required=True)
+    change.add_argument("--new-password", required=True)
 
     login = sub.add_parser("login")
     login.add_argument("--email", required=True)

@@ -620,6 +620,17 @@ code {
   padding: 14px;
 }
 
+.inline-action-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  gap: 8px;
+  align-items: end;
+}
+
+.inline-action-field button {
+  min-height: 32px;
+}
+
 .pretty-input,
 .pretty-textarea {
   border-radius: 8px;
@@ -743,6 +754,23 @@ code {
   gap: 7px;
 }
 
+.password-reset-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe8e3;
+  border-radius: 8px;
+  background: #f8faf8;
+}
+
+.mini-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #33413d;
+  font-size: 13px;
+}
+
 .rule {
   display: flex;
   align-items: center;
@@ -764,7 +792,7 @@ code {
 
 .account-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.46fr);
   gap: 16px;
   align-items: start;
 }
@@ -777,6 +805,10 @@ code {
   align-items: center;
   padding: 18px;
   background: #ffffff;
+}
+
+.password-panel {
+  align-self: start;
 }
 
 .account-main {

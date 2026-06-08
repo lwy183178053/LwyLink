@@ -113,11 +113,30 @@
       </div>
       <form data-register-form>
         <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+        <div class="inline-field">
+          <label>验证码<input name="emailCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required></label>
+          <button class="button" type="button" data-send-code data-purpose="register" data-email-source="register">发送验证码</button>
+        </div>
         <label>显示名<input name="displayName" maxlength="64" placeholder="可留空"></label>
         <label>密码<input name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
         <button class="button primary" type="submit">注册并登录</button>
       </form>
       <p class="form-note">已有账号？<a href="/login">去登录</a></p>
+    </section>
+
+    <section class="panel auth-panel" data-view="login">
+      <div class="password-reset">
+        <h2>忘记密码</h2>
+        <form data-reset-form>
+          <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+          <div class="inline-field">
+            <label>验证码<input name="emailCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required></label>
+            <button class="button" type="button" data-send-code data-purpose="password_reset" data-email-source="reset">发送验证码</button>
+          </div>
+          <label>新密码<input name="newPassword" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
+          <button class="button" type="submit">重置密码</button>
+        </form>
+      </div>
     </section>
 
     <section class="download-page" data-view="download">
@@ -222,6 +241,15 @@
           <span>下一步</span>
           <strong>进入客户端创建房间</strong>
           <p>登录同一个邮箱账号后即可创建房间、复制房间密钥并邀请好友加入。</p>
+        </section>
+
+        <section class="account-panel password-panel">
+          <form data-change-password-form>
+            <h2>修改密码</h2>
+            <label>当前密码<input name="oldPassword" type="password" autocomplete="current-password" required></label>
+            <label>新密码<input name="newPassword" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
+            <button class="button" type="submit">保存新密码</button>
+          </form>
         </section>
       </div>
     </section>

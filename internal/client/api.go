@@ -47,17 +47,40 @@ func (a *API) ClearToken() {
 	a.token = ""
 }
 
-func (a *API) Register(ctx context.Context, email, password, displayName string) (account.LoginResult, error) {
+func (a *API) Register(ctx context.Context, email, password, displayName, emailCode string) (account.LoginResult, error) {
 	var out account.LoginResult
 	err := a.request(ctx, http.MethodPost, "/api/register", map[string]string{
 		"email":       email,
 		"password":    password,
 		"displayName": displayName,
+		"emailCode":   emailCode,
 	}, &out)
 	if err == nil {
 		a.token = out.Token
 	}
 	return out, err
+}
+
+func (a *API) SendEmailVerification(ctx context.Context, email, purpose string) error {
+	return a.request(ctx, http.MethodPost, "/api/email/verification/send", map[string]string{
+		"email":   email,
+		"purpose": purpose,
+	}, nil)
+}
+
+func (a *API) ResetPassword(ctx context.Context, email, emailCode, newPassword string) error {
+	return a.request(ctx, http.MethodPost, "/api/password/reset", map[string]string{
+		"email":       email,
+		"emailCode":   emailCode,
+		"newPassword": newPassword,
+	}, nil)
+}
+
+func (a *API) ChangePassword(ctx context.Context, oldPassword, newPassword string) error {
+	return a.request(ctx, http.MethodPost, "/api/password/change", map[string]string{
+		"oldPassword": oldPassword,
+		"newPassword": newPassword,
+	}, nil)
 }
 
 func (a *API) Login(ctx context.Context, email, password string) (account.LoginResult, error) {

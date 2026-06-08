@@ -119,6 +119,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			setting_value TEXT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS email_verifications (
+			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			email VARCHAR(254) NOT NULL,
+			purpose VARCHAR(32) NOT NULL,
+			code_hash VARCHAR(255) NOT NULL,
+			ip VARCHAR(64) NOT NULL DEFAULT '',
+			used_at TIMESTAMP NULL,
+			expires_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_email_verifications_email_purpose_created (email, purpose, created_at),
+			INDEX idx_email_verifications_ip_created (ip, created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`INSERT IGNORE INTO app_settings (setting_key, setting_value)
 		 VALUES ('announcement', '官方 QQ 群：715516422')`,
 	}
