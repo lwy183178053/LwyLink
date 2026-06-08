@@ -29,6 +29,7 @@ $windowsDistDir = Join-Path $repoRoot "build\windows-amd64"
 $clientExe = Join-Path $windowsDistDir "LwyLink.exe"
 $artifactManifest = Join-Path $repoRoot "build\artifacts.json"
 $utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+$defaultPublicApiURL = "https://www.lwylink.xyz"
 
 function Invoke-Step {
   param(
@@ -126,32 +127,22 @@ function Normalize-ReleaseBaseURL {
   return $raw.TrimEnd("/")
 }
 
-function Test-HostHasExplicitPort {
-  param([string]$Value)
-  if ($Value -match '^\[[^\]]+\]:\d+$') {
-    return $true
-  }
-  return $Value -match '^[^:]+:\d+$'
-}
-
 function Resolve-ReleaseApiURL {
   if (-not [string]::IsNullOrWhiteSpace($ApiURL)) {
     return Normalize-ReleaseBaseURL $ApiURL "ApiURL"
   }
+  if (-not [string]::IsNullOrWhiteSpace($env:LWYLINK_API_URL)) {
+    return Normalize-ReleaseBaseURL $env:LWYLINK_API_URL "LWYLINK_API_URL"
+  }
   $hostForURL = $HostName
-  if ([string]::IsNullOrWhiteSpace($hostForURL)) { $hostForURL = $env:LWYLINK_DEPLOY_HOST }
-  if ([string]::IsNullOrWhiteSpace($hostForURL)) { $hostForURL = "64.83.34.53" }
+  if ([string]::IsNullOrWhiteSpace($hostForURL)) {
+    return $defaultPublicApiURL
+  }
   $hostForURL = $hostForURL.Trim()
   if ($hostForURL -match '^https?://') {
     return Normalize-ReleaseBaseURL $hostForURL "HostName"
   }
-  if ($hostForURL.Contains("@")) {
-    $hostForURL = ($hostForURL -split "@")[-1]
-  }
-  if (Test-HostHasExplicitPort $hostForURL) {
-    return Normalize-ReleaseBaseURL $hostForURL "HostName"
-  }
-  return Normalize-ReleaseBaseURL "${hostForURL}:8080" "HostName"
+  return $defaultPublicApiURL
 }
 
 function Publish-ClientRelease {

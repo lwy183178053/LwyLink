@@ -85,8 +85,11 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data.Title = "更新发布"
 	rec = httptest.NewRecorder()
 	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
-	if !strings.Contains(rec.Body.String(), `placeholder="例如 /S，可留空"`) {
-		t.Fatalf("rendered releases html missing install args placeholder")
+	releasesHTML := rec.Body.String()
+	for _, want := range []string{`placeholder="例如 /S，可留空"`, `name="mandatory" value="true"`, "当前阶段所有客户端发布都会强制更新"} {
+		if !strings.Contains(releasesHTML, want) {
+			t.Fatalf("rendered releases html missing %q", want)
+		}
 	}
 }
 

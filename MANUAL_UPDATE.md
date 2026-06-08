@@ -108,11 +108,12 @@ go build -trimpath -o .\build\lwylink-net.exe .\cmd\lwylink-net
 ```text
 SSH: root@64.83.34.53:22
 远端目录: /opt/lwylink
-控制 API: http://64.83.34.53:8080
+官网 / 控制 API: https://www.lwylink.xyz
+控制 API 内网监听: http://64.83.34.53:8080
 Overlay: 64.83.34.53:35768
 ```
 
-注意：测试服 `443` 是旧服务，不属于 LwyLink。不要停止、覆盖或抢占它。
+`443/tcp` 现在归 LwyLink 官网 HTTPS 反向代理使用，反代到本机 `8080`。`8080` 只作为内网监听和排障直连入口。
 
 创建远端目录：
 
@@ -163,7 +164,7 @@ ss -ltnup | grep -E ':(443|8080|35768) ' || true
 
 ```powershell
 $adminToken = ((Get-Content .\configs\control.prod.json -Raw) | ConvertFrom-Json).adminToken
-go run .\cmd\lwylink-smoke -api http://64.83.34.53:8080 -overlay 64.83.34.53:35768 -admin-token $adminToken
+go run .\cmd\lwylink-smoke -api https://www.lwylink.xyz -overlay 64.83.34.53:35768 -admin-token $adminToken
 ```
 
 期望最后出现：
@@ -188,19 +189,19 @@ journalctl -u lwylink-node -n 50 --no-pager
 
 推荐在管理后台发布：
 
-1. 打开 `http://64.83.34.53:8080/admin?token=<ADMIN_TOKEN>`。
+1. 打开 `https://www.lwylink.xyz/admin?token=<ADMIN_TOKEN>`。
 2. 进入“更新发布”。
 3. 版本号填写当前版本，例如 `0.1.12`。
 4. 平台填写 `windows-amd64`。
 5. 上传 `cmd/lwylink-windows-ui/build/bin/LwyLink.exe` 或 `build/windows-amd64/LwyLink.exe`。
-6. 强制更新选择“是”。当前阶段经常是不兼容更新，不要发布成可选更新。
+6. 强制更新会固定为“是”。当前阶段经常是不兼容更新，不要发布成可选更新。
 7. 裸 `LwyLink.exe` 的安装参数留空。
 8. 更新说明按实际填写。
 
 发布后校验：
 
 ```powershell
-$latest = Invoke-RestMethod -Uri "http://64.83.34.53:8080/api/client/releases/latest?platform=windows-amd64"
+$latest = Invoke-RestMethod -Uri "https://www.lwylink.xyz/api/client/releases/latest?platform=windows-amd64"
 $localHash = (Get-FileHash -Algorithm SHA256 .\build\windows-amd64\LwyLink.exe).Hash.ToLowerInvariant()
 
 $latest | Select-Object version,platform,fileName,sizeBytes,sha256,downloadURL,createdAt
@@ -297,6 +298,7 @@ systemctl status lwylink-node --no-pager
 | 端口 | 说明 |
 | --- | --- |
 | `8080/tcp` | HTTP API 和管理后台 |
+| `443/tcp` | HTTPS 官网和控制 API 反向代理 |
 | MySQL / Redis | 只允许控制服务和受信节点访问 |
 
 房间节点：

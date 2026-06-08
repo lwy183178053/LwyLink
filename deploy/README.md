@@ -55,6 +55,7 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 5. 请求 `/api/client/releases/latest` 校验线上 latest 版本号和 SHA256。
 
 当前阶段客户端协议和账号/网络逻辑经常是不兼容更新，发布脚本会默认把 Windows 客户端标记为强制更新。
+客户端发布和 smoke 默认使用公网 HTTPS API：`https://www.lwylink.xyz`。如需临时绕过反向代理排障，可以显式传 `-ApiURL http://64.83.34.53:8080` 或设置 `LWYLINK_API_URL`。
 
 常用参数：
 
@@ -147,6 +148,7 @@ $env:LWYLINK_DEPLOY_SSH_USER = "root"
 $env:LWYLINK_DEPLOY_SSH_PORT = "22"
 $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 $env:LWYLINK_ADMIN_TOKEN = "这里填控制端 adminToken"
+$env:LWYLINK_API_URL = "https://www.lwylink.xyz"
 ```
 
 ## 新增房间节点

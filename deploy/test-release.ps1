@@ -26,7 +26,7 @@ $checks = @{
   '版本号占位符' = 'name="version" placeholder="例如 ' + $Version + '"'
   '流量占位符' = 'placeholder="例如 1024"'
   '安装参数占位符' = 'placeholder="例如 /S，可留空"'
-  '后台默认强制更新' = '<option value="true" selected>是</option>'
+  '后台固定强制更新' = '当前阶段所有客户端发布都会强制更新'
 }
 
 foreach ($item in $checks.GetEnumerator()) {
@@ -44,12 +44,12 @@ $urlChecks = @(
   @{
     name = "无参数默认值"
     args = @()
-    want = "http://64.83.34.53:8080"
+    want = "https://www.lwylink.xyz"
   },
   @{
-    name = "默认 HostName"
+    name = "部署 HostName 不影响公开 API"
     args = @("-HostName", "64.83.34.53")
-    want = "http://64.83.34.53:8080"
+    want = "https://www.lwylink.xyz"
   },
   @{
     name = "显式 ApiURL"

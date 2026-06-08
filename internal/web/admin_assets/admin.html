@@ -357,10 +357,9 @@
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新
-      <select name="mandatory">
-        <option value="true" selected>是</option>
-        <option value="false">否</option>
-      </select>
+      <input type="hidden" name="mandatory" value="true">
+      <input value="是" disabled>
+      <small>当前阶段所有客户端发布都会强制更新。</small>
     </label>
     <label class="wide">更新包<input name="file" type="file" accept=".exe,.msi,.zip,.7z" required></label>
     <label class="wide">更新说明<textarea name="notes" rows="5" placeholder="写给客户端用户看的更新内容"></textarea></label>

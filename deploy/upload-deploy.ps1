@@ -36,7 +36,8 @@ if ($RemoteRoot -notmatch '^/[A-Za-z0-9_./-]+$') {
   throw "RemoteRoot 只能使用简单的 Linux 绝对路径，例如 /opt/lwylink。当前值：$RemoteRoot"
 }
 
-if ($ApiURL -eq "") { $ApiURL = "http://${HostName}:8080" }
+if ($ApiURL -eq "" -and $env:LWYLINK_API_URL) { $ApiURL = $env:LWYLINK_API_URL }
+if ($ApiURL -eq "") { $ApiURL = "https://www.lwylink.xyz" }
 if ($OverlayAddr -eq "") { $OverlayAddr = "${HostName}:35768" }
 
 if ($AdminToken -eq "") { $AdminToken = $env:LWYLINK_ADMIN_TOKEN }
