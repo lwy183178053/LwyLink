@@ -17,6 +17,24 @@ function show(message) {
   }, 3200);
 }
 
+function withFormBusy(form, task) {
+  if (form.dataset.busy === "true") return Promise.resolve();
+  form.dataset.busy = "true";
+  const controls = Array.from(form.querySelectorAll("button, input, textarea, select"));
+  const states = controls.map((control) => [control, control.disabled]);
+  controls.forEach((control) => {
+    control.disabled = true;
+  });
+  return Promise.resolve()
+    .then(task)
+    .finally(() => {
+      states.forEach(([control, disabled]) => {
+        control.disabled = disabled;
+      });
+      form.dataset.busy = "false";
+    });
+}
+
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (!headers.has("Content-Type") && options.body) headers.set("Content-Type", "application/json");
@@ -35,58 +53,64 @@ function wireAuthForms() {
   const login = document.querySelector("[data-login-form]");
   login?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(login);
-    try {
-      const result = await api("/api/login", {
-        method: "POST",
-        body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
-      });
-      localStorage.setItem(tokenKey, result.token);
-      location.href = "/dashboard";
-    } catch (err) {
-      show(err.message);
-    }
+    await withFormBusy(login, async () => {
+      const form = new FormData(login);
+      try {
+        const result = await api("/api/login", {
+          method: "POST",
+          body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
+        });
+        localStorage.setItem(tokenKey, result.token);
+        location.href = "/dashboard";
+      } catch (err) {
+        show(err.message);
+      }
+    });
   });
 
   const register = document.querySelector("[data-register-form]");
   register?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(register);
-    try {
-      const result = await api("/api/register", {
-        method: "POST",
-        body: JSON.stringify({
-          email: form.get("email"),
-          password: form.get("password"),
-          displayName: form.get("displayName"),
-          emailCode: form.get("emailCode"),
-        }),
-      });
-      localStorage.setItem(tokenKey, result.token);
-      location.href = "/dashboard";
-    } catch (err) {
-      show(err.message);
-    }
+    await withFormBusy(register, async () => {
+      const form = new FormData(register);
+      try {
+        const result = await api("/api/register", {
+          method: "POST",
+          body: JSON.stringify({
+            email: form.get("email"),
+            password: form.get("password"),
+            displayName: form.get("displayName"),
+            emailCode: form.get("emailCode"),
+          }),
+        });
+        localStorage.setItem(tokenKey, result.token);
+        location.href = "/dashboard";
+      } catch (err) {
+        show(err.message);
+      }
+    });
   });
 
   const reset = document.querySelector("[data-reset-form]");
   reset?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(reset);
-    try {
-      await api("/api/password/reset", {
-        method: "POST",
-        body: JSON.stringify({
-          email: form.get("email"),
-          emailCode: form.get("emailCode"),
-          newPassword: form.get("newPassword"),
-        }),
-      });
-      reset.reset();
-      show("密码已重置，请使用新密码登录");
-    } catch (err) {
-      show(err.message);
-    }
+    await withFormBusy(reset, async () => {
+      const form = new FormData(reset);
+      try {
+        await api("/api/password/reset", {
+          method: "POST",
+          body: JSON.stringify({
+            email: form.get("email"),
+            emailCode: form.get("emailCode"),
+            newPassword: form.get("newPassword"),
+          }),
+        });
+        reset.reset();
+        show("密码已重置，请使用新密码登录");
+      } catch (err) {
+        show(err.message);
+      }
+    });
   });
 }
 
@@ -122,24 +146,26 @@ function wirePasswordChange() {
   const form = document.querySelector("[data-change-password-form]");
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const data = new FormData(form);
-    try {
-      await api("/api/password/change", {
-        method: "POST",
-        body: JSON.stringify({
-          oldPassword: data.get("oldPassword"),
-          newPassword: data.get("newPassword"),
-        }),
-      });
-      form.reset();
-      localStorage.removeItem(tokenKey);
-      show("密码已修改，请重新登录");
-      window.setTimeout(() => {
-        location.href = "/login";
-      }, 900);
-    } catch (err) {
-      show(err.message);
-    }
+    await withFormBusy(form, async () => {
+      const data = new FormData(form);
+      try {
+        await api("/api/password/change", {
+          method: "POST",
+          body: JSON.stringify({
+            oldPassword: data.get("oldPassword"),
+            newPassword: data.get("newPassword"),
+          }),
+        });
+        form.reset();
+        localStorage.removeItem(tokenKey);
+        show("密码已修改，请重新登录");
+        window.setTimeout(() => {
+          location.href = "/login";
+        }, 900);
+      } catch (err) {
+        show(err.message);
+      }
+    });
   });
 }
 

@@ -254,6 +254,10 @@ h2 {
   box-shadow: none;
 }
 
+form[data-busy="true"] {
+  opacity: .78;
+}
+
 .trust-row {
   display: flex;
   flex-wrap: wrap;
