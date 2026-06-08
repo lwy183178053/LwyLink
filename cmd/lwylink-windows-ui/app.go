@@ -762,7 +762,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		},
 		OnTransportState: func(status client.TransportStatus) {
 			a.updateConnection(seq, func(state *ConnectionState) {
-				state.DirectPeerIPs = append([]string(nil), status.DirectIPs...)
+				applyTransportStatus(state, status)
 			})
 		},
 	})
@@ -790,6 +790,13 @@ func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) {
 	}
 	apply(&a.connection)
 	a.commitStateLocked()
+}
+
+func applyTransportStatus(state *ConnectionState, status client.TransportStatus) {
+	if strings.TrimSpace(status.Message) != "" {
+		state.Message = status.Message
+	}
+	state.DirectPeerIPs = append([]string(nil), status.DirectIPs...)
 }
 
 func (a *App) cancelConnectionLocked() {
