@@ -703,6 +703,10 @@ func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
+	return decodeSingleJSON(dec, v)
+}
+
+func decodeSingleJSON(dec *json.Decoder, v any) error {
 	if err := dec.Decode(v); err != nil {
 		return err
 	}
