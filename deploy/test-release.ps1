@@ -45,6 +45,13 @@ if ($releaseScript.Contains('git add -A')) {
 if (-not $releaseScript.Contains('git add -u')) {
   throw "release 脚本提交必须只纳入已跟踪文件"
 }
+$uploadScript = Get-Content "deploy\upload-deploy.ps1" -Raw
+if (-not $uploadScript.Contains('ValidateDeployAuth')) {
+  throw "upload-deploy 脚本必须提供部署认证预检模式"
+}
+if (-not $uploadScript.Contains('-o BatchMode=yes')) {
+  throw "upload-deploy 脚本必须用 BatchMode 预检 native SSH，避免无凭据时卡住"
+}
 
 $urlChecks = @(
   @{

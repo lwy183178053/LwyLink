@@ -9,7 +9,8 @@ param(
   [switch]$SkipSmoke,
   [string]$AdminToken = "",
   [string]$ApiURL = "",
-  [string]$OverlayAddr = ""
+  [string]$OverlayAddr = "",
+  [switch]$ValidateDeployAuth
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,6 +106,19 @@ function New-DeployClient {
   }
 }
 
+function Assert-DeployAuthReady {
+  param([object]$Client)
+  if ($Client.mode -eq "posh") {
+    return
+  }
+
+  $target = "${User}@${HostName}"
+  & ssh -p $Port -o BatchMode=yes -o ConnectTimeout=8 $target "true" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw "SSH 无法非交互登录 $target。请配置 SSH key，或在 configs\deploy.local.json / LWYLINK_DEPLOY_SSH_PASSWORD / -Password 中提供密码。"
+  }
+}
+
 function Invoke-Remote {
   param(
     [object]$Client,
@@ -176,6 +190,12 @@ $uploadMailConfig = $UploadConfigs -and (Test-Path $mailLocalConfig)
 
 Set-Location $repoRoot
 $client = New-DeployClient
+Assert-DeployAuthReady $client
+
+if ($ValidateDeployAuth) {
+  Write-Host "部署认证预检通过：$User@${HostName}:$Port" -ForegroundColor Green
+  return
+}
 
 try {
   Invoke-Step "准备远端目录" {

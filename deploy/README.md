@@ -163,7 +163,8 @@ PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1
 .\deploy\upload-deploy.ps1 -AdminToken "这里填 adminToken"
 ```
 
-没有传密码时脚本会使用系统 `ssh/scp`，适合已经配置 SSH key 的机器。传了 `-Password` 或设置 `LWYLINK_DEPLOY_SSH_PASSWORD` 时，会使用 `Posh-SSH`。
+没有传密码时脚本会使用系统 `ssh/scp`，适合已经配置 SSH key 的机器。脚本会先用 `BatchMode` 做非交互登录预检；如果没有可用 SSH key，会直接报错，不会卡在密码交互提示里。
+传了 `-Password`、设置 `LWYLINK_DEPLOY_SSH_PASSWORD`，或在 `configs/deploy.local.json` 中填写 `password` 时，会使用 `Posh-SSH`。
 
 可用环境变量：
 
