@@ -136,6 +136,22 @@ func TestSitePagesRender(t *testing.T) {
 	}
 }
 
+func TestSiteFormBusySnapshotsDataBeforeDisablingInputs(t *testing.T) {
+	script, err := siteFiles.ReadFile("site_assets/site.js")
+	if err != nil {
+		t.Fatalf("read site.js: %v", err)
+	}
+	js := string(script)
+	formDataIndex := strings.Index(js, "const formData = new FormData(form);")
+	disableIndex := strings.Index(js, "control.disabled = true;")
+	if formDataIndex < 0 || disableIndex < 0 {
+		t.Fatalf("site form busy implementation markers missing")
+	}
+	if formDataIndex > disableIndex {
+		t.Fatalf("form data is captured after controls are disabled")
+	}
+}
+
 func TestSmokeRegisterRequiresAdminAndSmokeEmail(t *testing.T) {
 	accounts := account.NewService(&smokeAccountRepo{users: make(map[string]account.User)}, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
 	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil)

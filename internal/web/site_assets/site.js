@@ -19,6 +19,7 @@ function show(message) {
 
 function withFormBusy(form, task) {
   if (form.dataset.busy === "true") return Promise.resolve();
+  const formData = new FormData(form);
   form.dataset.busy = "true";
   const controls = Array.from(form.querySelectorAll("button, input, textarea, select"));
   const states = controls.map((control) => [control, control.disabled]);
@@ -26,7 +27,7 @@ function withFormBusy(form, task) {
     control.disabled = true;
   });
   return Promise.resolve()
-    .then(task)
+    .then(() => task(formData))
     .finally(() => {
       states.forEach(([control, disabled]) => {
         control.disabled = disabled;
@@ -53,8 +54,7 @@ function wireAuthForms() {
   const login = document.querySelector("[data-login-form]");
   login?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await withFormBusy(login, async () => {
-      const form = new FormData(login);
+    await withFormBusy(login, async (form) => {
       try {
         const result = await api("/api/login", {
           method: "POST",
@@ -71,8 +71,7 @@ function wireAuthForms() {
   const register = document.querySelector("[data-register-form]");
   register?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await withFormBusy(register, async () => {
-      const form = new FormData(register);
+    await withFormBusy(register, async (form) => {
       try {
         const result = await api("/api/register", {
           method: "POST",
@@ -94,8 +93,7 @@ function wireAuthForms() {
   const reset = document.querySelector("[data-reset-form]");
   reset?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await withFormBusy(reset, async () => {
-      const form = new FormData(reset);
+    await withFormBusy(reset, async (form) => {
       try {
         await api("/api/password/reset", {
           method: "POST",
@@ -146,8 +144,7 @@ function wirePasswordChange() {
   const form = document.querySelector("[data-change-password-form]");
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await withFormBusy(form, async () => {
-      const data = new FormData(form);
+    await withFormBusy(form, async (data) => {
       try {
         await api("/api/password/change", {
           method: "POST",
