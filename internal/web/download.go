@@ -103,6 +103,13 @@ func readOptionalJSON(r *http.Request, v any) error {
 		}
 		return err
 	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body must contain a single JSON object")
+		}
+		return err
+	}
 	return nil
 }
 

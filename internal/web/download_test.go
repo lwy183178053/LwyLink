@@ -75,6 +75,29 @@ func TestClientReleaseTicketRejectsBadJSON(t *testing.T) {
 	}
 }
 
+func TestClientReleaseTicketRejectsTrailingJSON(t *testing.T) {
+	releases := clientrelease.NewService(&ticketReleaseRepo{release: clientrelease.Release{
+		Version:        "0.1.18",
+		Platform:       "windows-amd64",
+		FileName:       "LwyLink.exe",
+		StoredFileName: "client.exe",
+	}}, t.TempDir())
+	accounts := account.NewService(&ticketAccountRepo{user: ticketUser(t)}, "secret", &ticketSessionStore{sessionID: "session"})
+	token, err := accounts.Login(context.Background(), "player@example.com", "secret1")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/client/releases/ticket", strings.NewReader(`{} {}`))
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+	rec := httptest.NewRecorder()
+	srv.handleClientReleaseTicket(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuthorizeClientDownload(t *testing.T) {
 	release := clientrelease.Release{StoredFileName: "client.exe"}
 	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
