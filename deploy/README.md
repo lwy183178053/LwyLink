@@ -54,6 +54,8 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 4. 上传 `build/windows-amd64/LwyLink.exe` 到管理端“更新发布”。
 5. 请求 `/api/client/releases/latest` 校验线上 latest 版本号和 SHA256。
 
+当前阶段客户端协议和账号/网络逻辑经常是不兼容更新，发布脚本会默认把 Windows 客户端标记为强制更新。
+
 常用参数：
 
 ```powershell

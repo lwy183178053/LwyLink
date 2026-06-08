@@ -193,8 +193,9 @@ journalctl -u lwylink-node -n 50 --no-pager
 3. 版本号填写当前版本，例如 `0.1.12`。
 4. 平台填写 `windows-amd64`。
 5. 上传 `cmd/lwylink-windows-ui/build/bin/LwyLink.exe` 或 `build/windows-amd64/LwyLink.exe`。
-6. 裸 `LwyLink.exe` 的安装参数留空。
-7. 更新说明按实际填写。
+6. 强制更新选择“是”。当前阶段经常是不兼容更新，不要发布成可选更新。
+7. 裸 `LwyLink.exe` 的安装参数留空。
+8. 更新说明按实际填写。
 
 发布后校验：
 

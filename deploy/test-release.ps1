@@ -26,12 +26,18 @@ $checks = @{
   '版本号占位符' = 'name="version" placeholder="例如 ' + $Version + '"'
   '流量占位符' = 'placeholder="例如 1024"'
   '安装参数占位符' = 'placeholder="例如 /S，可留空"'
+  '后台默认强制更新' = '<option value="true" selected>是</option>'
 }
 
 foreach ($item in $checks.GetEnumerator()) {
   if (-not $adminHTML.Contains($item.Value)) {
     throw "release 脚本占位符检查失败：$($item.Key)"
   }
+}
+
+$releaseScript = Get-Content "deploy\release.ps1" -Raw
+if (-not $releaseScript.Contains('$content.Add([System.Net.Http.StringContent]::new("true"), "mandatory")')) {
+  throw "release 脚本必须默认发布强制更新"
 }
 
 $urlChecks = @(

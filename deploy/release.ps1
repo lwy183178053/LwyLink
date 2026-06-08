@@ -176,7 +176,7 @@ function Publish-ClientRelease {
     $content.Add([System.Net.Http.StringContent]::new($Version), "version")
     $content.Add([System.Net.Http.StringContent]::new("windows-amd64"), "platform")
     $content.Add([System.Net.Http.StringContent]::new($Notes), "notes")
-    $content.Add([System.Net.Http.StringContent]::new("false"), "mandatory")
+    $content.Add([System.Net.Http.StringContent]::new("true"), "mandatory")
     $content.Add([System.Net.Http.StringContent]::new(""), "installArgs")
     $fileContent = [System.Net.Http.StreamContent]::new($fs)
     $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
