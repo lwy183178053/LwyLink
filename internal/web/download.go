@@ -248,31 +248,49 @@ func (l *downloadLimiter) Allow(key string, limit int) bool {
 }
 
 func clientIP(r *http.Request) string {
-	for _, header := range []string{"CF-Connecting-IP", "X-Real-IP"} {
-		if ip := validHeaderIP(r.Header.Get(header)); ip != "" {
-			return ip
+	remote := remoteIP(r.RemoteAddr)
+	if trustedProxyIP(remote) {
+		for _, header := range []string{"CF-Connecting-IP", "X-Real-IP"} {
+			if ip := validHeaderIP(r.Header.Get(header)); ip != "" {
+				return ip
+			}
 		}
-	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		for _, item := range strings.Split(forwarded, ",") {
-			if ip := validHeaderIP(item); ip != "" {
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			for _, item := range strings.Split(forwarded, ",") {
+				if ip := validHeaderIP(item); ip != "" {
+					return ip
+				}
+			}
+		}
+		if forwarded := parseForwardedHeader(r.Header.Get("Forwarded")); forwarded != nil {
+			if ip := validHeaderIP(forwarded["for"]); ip != "" {
 				return ip
 			}
 		}
 	}
-	if forwarded := parseForwardedHeader(r.Header.Get("Forwarded")); forwarded != nil {
-		if ip := validHeaderIP(forwarded["for"]); ip != "" {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && net.ParseIP(host) != nil {
-		return host
+	if remote != nil {
+		return remote.String()
 	}
 	if ip := validHeaderIP(r.RemoteAddr); ip != "" {
 		return ip
 	}
 	return "unknown"
+}
+
+func remoteIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return net.ParseIP(host)
+	}
+	return net.ParseIP(strings.TrimSpace(remoteAddr))
+}
+
+func trustedProxyIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	// Only accept forwarded client IP headers from a local/private reverse proxy.
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 func validHeaderIP(value string) string {
