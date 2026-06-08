@@ -22,9 +22,13 @@ export function InstallPreparedUpdate():Promise<main.AppState>;
 
 export function JoinRoom(arg1:main.JoinRoomInput):Promise<main.AppState>;
 
+export function JoinRoomVoice(arg1:number):Promise<main.AppState>;
+
 export function KickMember(arg1:main.MemberActionInput):Promise<main.AppState>;
 
 export function LeaveCurrentRoom():Promise<main.AppState>;
+
+export function LeaveRoomVoice(arg1:number):Promise<main.AppState>;
 
 export function Login(arg1:main.LoginInput):Promise<main.AppState>;
 
@@ -38,6 +42,14 @@ export function SendEmailVerification(arg1:main.EmailVerificationInput):Promise<
 
 export function SendRoomChat(arg1:main.SendChatInput):Promise<main.AppState>;
 
+export function SendVoiceAudioFrame(arg1:main.VoiceAudioFrameInput):Promise<main.AppState>;
+
+export function SetRoomVoiceMic(arg1:number,arg2:boolean):Promise<main.AppState>;
+
 export function SetSettings(arg1:main.SettingsInput):Promise<main.AppState>;
+
+export function StartVoiceAudio(arg1:number):Promise<main.AppState>;
+
+export function StopVoiceAudio(arg1:number):Promise<main.AppState>;
 
 export function TransferOwner(arg1:main.MemberActionInput):Promise<main.AppState>;

@@ -16,7 +16,10 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/vdhcp"
 )
 
-const relayTrafficFlushBytes int64 = 256 * 1024
+const (
+	relayTrafficFlushBytes int64 = 256 * 1024
+	maxVoiceFrameAge             = 2 * time.Second
+)
 
 type PresenceStore interface {
 	SetOnline(ctx context.Context, roomID, userID int64, ip string)
@@ -193,6 +196,8 @@ func (s *Server) handleSessionFrame(sess *session, typ FrameType, payload []byte
 	switch typ {
 	case FrameIP:
 		s.forwardIP(sess, payload)
+	case FrameVoice:
+		s.forwardVoice(sess, payload)
 	case FramePing:
 		_ = sess.conn.Write(PackFrame(FramePing, nil))
 	default:
@@ -211,13 +216,40 @@ func (s *Server) writeLoop(sess *session) {
 		select {
 		case <-sess.done:
 			return
-		case pkt := <-sess.send:
-			if err := sess.conn.Write(PackFrame(FrameIP, pkt)); err != nil {
+		case frame := <-sess.send:
+			if err := sess.conn.Write(PackFrame(frame.typ, frame.payload)); err != nil {
 				sess.close()
 				return
 			}
 		}
 	}
+}
+
+func (s *Server) forwardVoice(from *session, raw []byte) {
+	var voice VoicePayload
+	if err := json.Unmarshal(raw, &voice); err != nil {
+		return
+	}
+	if voice.RoomID != from.roomID || voice.FromUserID != from.userID || voice.ToUserID <= 0 || len(voice.Payload) == 0 || !voiceFrameFresh(voice.TimestampMS, time.Now()) {
+		return
+	}
+	target := s.findByUserID(from.roomID, voice.ToUserID)
+	if target == nil || target == from {
+		return
+	}
+	if !s.consumeRelayTraffic(from, int64(len(voice.Payload))) {
+		return
+	}
+	_ = target.enqueueFrame(FrameVoice, raw)
+}
+
+func voiceFrameFresh(timestampMS int64, now time.Time) bool {
+	if timestampMS <= 0 {
+		return false
+	}
+	sentAt := time.UnixMilli(timestampMS)
+	age := now.Sub(sentAt)
+	return age >= -maxVoiceFrameAge && age <= maxVoiceFrameAge
 }
 
 func (s *Server) onDisconnect(conn *tcpx.SecureConn, err error) {
@@ -438,6 +470,18 @@ func (s *Server) findByIP(roomID int64, ip string) *session {
 		return nil
 	}
 	return roomMap[ip]
+}
+
+func (s *Server) findByUserID(roomID, userID int64) *session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	roomMap := s.byRoomIP[roomID]
+	for _, sess := range roomMap {
+		if sess != nil && sess.userID == userID {
+			return sess
+		}
+	}
+	return nil
 }
 
 func (s *Server) roomPeers(from *session) []*session {

@@ -35,6 +35,8 @@ func (s *Server) handleSite(w http.ResponseWriter, r *http.Request) {
 		page = "login"
 	case "/register":
 		page = "register"
+	case "/reset":
+		page = "reset"
 	case "/dashboard":
 		page = "dashboard"
 	case "/download":

@@ -19,6 +19,7 @@ const (
 	FrameError      FrameType = 4
 	FramePing       FrameType = 5
 	FrameUDPControl FrameType = 6
+	FrameVoice      FrameType = 7
 )
 
 // AuthRequest is the first overlay frame a client must send after tcpx is ready.
@@ -70,6 +71,17 @@ type UDPRegisterPayload struct {
 	LANEndpoints []string `json:"lanEndpoints,omitempty"`
 }
 
+type VoicePayload struct {
+	RoomID      int64  `json:"roomID"`
+	FromUserID  int64  `json:"fromUserID"`
+	ToUserID    int64  `json:"toUserID"`
+	Seq         uint64 `json:"seq"`
+	TimestampMS int64  `json:"timestampMS"`
+	Codec       string `json:"codec"`
+	SampleRate  int    `json:"sampleRate"`
+	Payload     []byte `json:"payload"`
+}
+
 // PackFrame wraps an overlay payload for transport through tcpx.SecureConn.
 // It does not include a length header because tcpx already frames encrypted
 // messages.
@@ -87,7 +99,7 @@ func UnpackFrame(raw []byte) (FrameType, []byte, error) {
 	}
 	typ := FrameType(raw[0])
 	switch typ {
-	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing, FrameUDPControl:
+	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing, FrameUDPControl, FrameVoice:
 		return typ, raw[1:], nil
 	default:
 		return 0, nil, fmt.Errorf("unknown overlay frame: %d", raw[0])

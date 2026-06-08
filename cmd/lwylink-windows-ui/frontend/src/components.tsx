@@ -9,6 +9,7 @@ import {
   Headphones,
   MessageSquare,
   Mic,
+  MicOff,
   Network,
   PlugZap,
   Power,
@@ -18,7 +19,7 @@ import {
   UserMinus,
 } from "lucide-react";
 import { formatBytes, formatTime, initials, statusText, statusTone, userLabel } from "./client-ui";
-import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember } from "./types";
+import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, VoiceState } from "./types";
 
 export function NavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: ReactNode; label: string; detail: string; onClick: () => void }) {
   return (
@@ -218,8 +219,16 @@ export function RoomPlayersPanel({
   connectionRunning,
   directPeerNames,
   directPeerIPSet,
+  voiceState,
+  voiceActive,
+  voiceMicActive,
+  voiceMode,
+  voiceMessage,
   isOwner,
   disabled,
+  onJoinVoice,
+  onToggleVoiceMic,
+  onLeaveVoice,
   onKick,
   onTransfer,
 }: {
@@ -230,8 +239,16 @@ export function RoomPlayersPanel({
   connectionRunning: boolean;
   directPeerNames: string[];
   directPeerIPSet: Set<string>;
+  voiceState: VoiceState;
+  voiceActive: boolean;
+  voiceMicActive: boolean;
+  voiceMode: string;
+  voiceMessage: string;
   isOwner: boolean;
   disabled: boolean;
+  onJoinVoice: () => void;
+  onToggleVoiceMic: () => void;
+  onLeaveVoice: () => void;
   onKick: (userID: number) => void;
   onTransfer: (userID: number) => void;
 }) {
@@ -271,7 +288,19 @@ export function RoomPlayersPanel({
         ))}
       </div>
 
-      <VoiceDock />
+      <VoiceDock
+        room={room}
+        members={members}
+        voiceState={voiceState}
+        voiceActive={voiceActive}
+        voiceMicActive={voiceMicActive}
+        voiceMode={voiceMode}
+        voiceMessage={voiceMessage}
+        disabled={disabled}
+        onJoinVoice={onJoinVoice}
+        onToggleVoiceMic={onToggleVoiceMic}
+        onLeaveVoice={onLeaveVoice}
+      />
     </section>
   );
 }
@@ -289,25 +318,69 @@ function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, c
   return undefined;
 }
 
-function VoiceDock() {
+function VoiceDock({
+  room,
+  members,
+  voiceState,
+  voiceActive,
+  voiceMicActive,
+  voiceMode,
+  voiceMessage,
+  disabled,
+  onJoinVoice,
+  onToggleVoiceMic,
+  onLeaveVoice,
+}: {
+  room: Room;
+  members: RoomMember[];
+  voiceState: VoiceState;
+  voiceActive: boolean;
+  voiceMicActive: boolean;
+  voiceMode: string;
+  voiceMessage: string;
+  disabled: boolean;
+  onJoinVoice: () => void;
+  onToggleVoiceMic: () => void;
+  onLeaveVoice: () => void;
+}) {
+  const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
+  const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
+  const participants = voiceState.participants || [];
+  const participantNames = participants.map((item) => userLabel(item.displayName, item.username)).join("、");
+  const activeSpeakers = participants.filter((item) => item.speaking).map((item) => userLabel(item.displayName, item.username));
+  const transportText = voiceMessage || (voiceActive ? "语音连接中" : "未加入语音");
+  const transportClass = voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "";
   return (
     <div className="voice-dock">
       <div className="voice-dock-title">
         <Headphones size={16} />
         <span>房间语音</span>
+        <small>
+          {voiceState.participantCount || 0}/{voiceMaxMembers} 人语音 · {voiceState.speakerCount || 0}/{voiceMaxSpeakers} 个麦位
+        </small>
+      </div>
+      <div className={`voice-transport ${transportClass}`}>
+        <Radio size={14} />
+        <span>{transportText}</span>
+      </div>
+      <div className="voice-roster">
+        {participantNames || "暂无成员加入语音"}
+      </div>
+      <div className="voice-roster muted">
+        {activeSpeakers.length > 0 ? `正在开麦：${activeSpeakers.join("、")}` : "当前无人开麦"}
       </div>
       <div className="voice-actions">
-        <button type="button" disabled title="麦克风">
-          <Mic size={16} />
-          <span>麦克风</span>
-        </button>
-        <button type="button" disabled title="耳机">
+        <button type="button" disabled={disabled} title="加入/退出语音" onClick={voiceActive ? onLeaveVoice : onJoinVoice}>
           <Headphones size={16} />
-          <span>耳机</span>
+          <span>{voiceActive ? "退出语音" : "加入语音"}</span>
+        </button>
+        <button type="button" disabled={disabled || !voiceActive} title="麦克风" onClick={onToggleVoiceMic}>
+          {voiceMicActive ? <Mic size={16} /> : <MicOff size={16} />}
+          <span>{voiceMicActive ? "关闭麦克风" : "打开麦克风"}</span>
         </button>
         <button type="button" disabled title="按键说话">
           <Radio size={16} />
-          <span>按键说话</span>
+          <span>P2P 语音</span>
         </button>
       </div>
     </div>

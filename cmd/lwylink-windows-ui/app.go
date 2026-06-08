@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,6 +22,7 @@ const (
 	defaultAPIBaseURL = "https://www.lwylink.xyz"
 	defaultIfName     = "LwyLink"
 	maxChatMessages   = 120
+	maxVoiceFrameAge  = 2 * time.Second
 
 	statusDisconnected  = "disconnected"
 	statusConnecting    = "connecting"
@@ -29,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.1.18"
+var AppVersion = "0.1.20"
 
 type App struct {
 	ctx context.Context
@@ -45,11 +47,15 @@ type App struct {
 	currentRoom  *room.Room
 	members      []room.MemberView
 	chatMessages []room.ChatMessage
+	voiceState   room.VoiceState
 	announcement string
 
 	connectSeq    int64
 	connectCancel context.CancelFunc
 	connection    ConnectionState
+	voiceSend     chan client.VoicePacket
+	voiceMode     string
+	voiceMessage  string
 
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
@@ -112,6 +118,14 @@ type SendChatInput struct {
 	Message string `json:"message"`
 }
 
+type VoiceAudioFrameInput struct {
+	RoomID      int64  `json:"roomID"`
+	Seq         uint64 `json:"seq"`
+	TimestampMS int64  `json:"timestampMS"`
+	SampleRate  int    `json:"sampleRate"`
+	Payload     []byte `json:"payload"`
+}
+
 type MemberActionInput struct {
 	UserID int64 `json:"userID"`
 }
@@ -125,6 +139,9 @@ type AppState struct {
 	CurrentRoom   *room.Room          `json:"currentRoom,omitempty"`
 	Members       []room.MemberView   `json:"members"`
 	ChatMessages  []room.ChatMessage  `json:"chatMessages"`
+	Voice         room.VoiceState     `json:"voice"`
+	VoiceMode     string              `json:"voiceMode"`
+	VoiceMessage  string              `json:"voiceMessage"`
 	Connection    ConnectionState     `json:"connection"`
 	Update        UpdateState         `json:"update"`
 	Announcement  string              `json:"announcement"`
@@ -142,6 +159,7 @@ type fetchedRoomState struct {
 	rooms       []room.Room
 	currentRoom *room.Room
 	members     []room.MemberView
+	voice       room.VoiceState
 }
 
 func NewApp() *App {
@@ -153,6 +171,9 @@ func NewApp() *App {
 		p2pEnabled:   prefs.P2PEnabled,
 		announcement: appsettings.DefaultAnnouncement,
 		connection:   newConnectionState(statusDisconnected, "未连接"),
+		voiceSend:    make(chan client.VoicePacket, 256),
+		voiceMode:    "idle",
+		voiceMessage: "未加入语音",
 		update:       UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
@@ -201,6 +222,9 @@ func fetchRoomState(ctx context.Context, api *client.API) (fetchedRoomState, err
 		return fetchedRoomState{}, err
 	}
 	state.members = members
+	if voice, err := api.RoomVoiceState(ctx, current.ID); err == nil {
+		state.voice = voice
+	}
 	return state, nil
 }
 
@@ -595,6 +619,204 @@ func (a *App) SendRoomChat(input SendChatInput) (AppState, error) {
 	return a.commitStateLocked(), nil
 }
 
+func (a *App) JoinRoomVoice(roomID int64) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	if a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	if roomID <= 0 {
+		roomID = a.currentRoom.ID
+	}
+	if roomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能加入当前房间语音")
+	}
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	voiceState, err := api.JoinRoomVoice(ctx, roomID)
+	if err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
+	}
+	a.voiceState = voiceState
+	a.voiceMode = "connecting"
+	a.voiceMessage = "语音连接中"
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) LeaveRoomVoice(roomID int64) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	if a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	if roomID <= 0 {
+		roomID = a.currentRoom.ID
+	}
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	voiceState, err := api.LeaveRoomVoice(ctx, roomID)
+	if err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("服务器状态已变化，请重试")
+	}
+	a.voiceState = voiceState
+	a.voiceMode = "idle"
+	a.voiceMessage = "未加入语音"
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) SetRoomVoiceMic(roomID int64, speaking bool) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	if a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	if roomID <= 0 {
+		roomID = a.currentRoom.ID
+	}
+	if roomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能操作当前房间语音")
+	}
+	apiBaseURL := a.apiBaseURL
+	api := a.api.Clone()
+	a.mu.Unlock()
+
+	voiceState, err := api.SetRoomVoiceMic(ctx, roomID, speaking)
+	if err != nil {
+		return AppState{}, err
+	}
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
+	}
+	a.voiceState = voiceState
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) StartVoiceAudio(roomID int64) (AppState, error) {
+	a.mu.Lock()
+	if a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	if roomID <= 0 {
+		roomID = a.currentRoom.ID
+	}
+	if roomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能启动当前房间语音")
+	}
+	a.voiceMode = "connecting"
+	a.voiceMessage = "语音连接中"
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) StopVoiceAudio(roomID int64) (AppState, error) {
+	a.mu.Lock()
+	a.voiceMode = "idle"
+	a.voiceMessage = "未加入语音"
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) {
+	a.mu.Lock()
+	if a.user == nil || a.currentRoom == nil {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("当前没有加入房间")
+	}
+	if input.RoomID <= 0 {
+		input.RoomID = a.currentRoom.ID
+	}
+	if input.RoomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能发送当前房间语音")
+	}
+	if a.connection.Status != statusConnected || a.connection.RoomID != input.RoomID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("请先启动虚拟网络")
+	}
+	if input.SampleRate <= 0 || len(input.Payload) == 0 {
+		a.mu.Unlock()
+		return a.stateLocked(), nil
+	}
+	userID := a.user.ID
+	if !voiceParticipantSpeaking(a.voiceState, userID) {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("请先加入语音并打开麦克风")
+	}
+	membersByUser := make(map[int64]room.MemberView, len(a.members))
+	for _, member := range a.members {
+		membersByUser[member.UserID] = member
+	}
+	targets := make([]client.VoicePacket, 0, len(a.voiceState.Participants))
+	for _, participant := range a.voiceState.Participants {
+		if participant.UserID == userID || !participantHasJoinedVoice(participant) {
+			continue
+		}
+		member := membersByUser[participant.UserID]
+		if strings.TrimSpace(member.VirtualIP) == "" {
+			continue
+		}
+		voice := overlay.VoicePayload{
+			RoomID:      input.RoomID,
+			FromUserID:  userID,
+			ToUserID:    participant.UserID,
+			Seq:         input.Seq,
+			TimestampMS: input.TimestampMS,
+			Codec:       "pcm16",
+			SampleRate:  input.SampleRate,
+			Payload:     append([]byte(nil), input.Payload...),
+		}
+		raw, err := json.Marshal(voice)
+		if err != nil {
+			a.mu.Unlock()
+			return AppState{}, err
+		}
+		targets = append(targets, client.VoicePacket{PeerVirtualIP: member.VirtualIP, Payload: raw})
+	}
+	send := a.voiceSend
+	a.mu.Unlock()
+
+	for _, target := range targets {
+		select {
+		case send <- target:
+		default:
+			// Voice prefers dropping fresh frames over building latency.
+		}
+	}
+	a.mu.Lock()
+	a.voiceMode = "sending"
+	if a.voiceMessage == "" || a.voiceMessage == "语音连接中" {
+		a.voiceMessage = "语音发送中"
+	}
+	return a.commitStateLocked(), nil
+}
+
 func (a *App) DeleteRoom(roomID int64) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -755,6 +977,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		UserID:          userID,
 		Room:            selected,
 		P2PEnabled:      a.isP2PEnabled,
+		VoicePackets:    a.voiceSend,
 		OnConnected: func(lease overlay.DHCPResponse) {
 			a.updateConnection(seq, func(state *ConnectionState) {
 				*state = newConnectedState(selected, lease)
@@ -764,6 +987,12 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 			a.updateConnection(seq, func(state *ConnectionState) {
 				applyTransportStatus(state, status)
 			})
+		},
+		OnVoicePayload: func(payload []byte) {
+			a.handleVoicePayload(seq, payload)
+		},
+		OnVoiceTransport: func(status client.TransportStatus) {
+			a.updateVoiceTransport(seq, status)
 		},
 	})
 
@@ -790,6 +1019,63 @@ func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) {
 	}
 	apply(&a.connection)
 	a.commitStateLocked()
+}
+
+func (a *App) updateVoiceTransport(seq int64, status client.TransportStatus) {
+	a.mu.Lock()
+	if a.connectSeq != seq {
+		a.mu.Unlock()
+		return
+	}
+	a.voiceMode = status.Mode
+	if strings.TrimSpace(status.Message) != "" {
+		a.voiceMessage = status.Message
+	}
+	a.commitStateLocked()
+}
+
+func (a *App) handleVoicePayload(seq int64, payload []byte) {
+	var voice overlay.VoicePayload
+	if err := json.Unmarshal(payload, &voice); err != nil {
+		return
+	}
+	a.mu.Lock()
+	if a.connectSeq != seq ||
+		a.user == nil ||
+		a.currentRoom == nil ||
+		voice.RoomID != a.currentRoom.ID ||
+		voice.ToUserID != a.user.ID ||
+		!voiceParticipantSpeaking(a.voiceState, voice.FromUserID) ||
+		!voiceFrameFresh(voice.TimestampMS, time.Now()) {
+		a.mu.Unlock()
+		return
+	}
+	a.mu.Unlock()
+	if ctx := a.currentContext(); ctx != nil {
+		wailsRuntime.EventsEmit(ctx, "voice-audio", voice)
+	}
+}
+
+func voiceParticipantSpeaking(state room.VoiceState, userID int64) bool {
+	for _, participant := range state.Participants {
+		if participant.UserID == userID {
+			return participant.Speaking
+		}
+	}
+	return false
+}
+
+func participantHasJoinedVoice(participant room.VoiceParticipant) bool {
+	return participant.UserID > 0
+}
+
+func voiceFrameFresh(timestampMS int64, now time.Time) bool {
+	if timestampMS <= 0 {
+		return false
+	}
+	sentAt := time.UnixMilli(timestampMS)
+	age := now.Sub(sentAt)
+	return age >= -maxVoiceFrameAge && age <= maxVoiceFrameAge
 }
 
 func applyTransportStatus(state *ConnectionState, status client.TransportStatus) {
@@ -854,6 +1140,17 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 	if event.Type == "" {
 		return
 	}
+	if event.Type == room.RoomEventVoiceState && event.Voice != nil {
+		a.mu.Lock()
+		if a.roomEventsSeq != seq || a.user == nil {
+			a.mu.Unlock()
+			return
+		}
+		a.voiceState = *event.Voice
+		a.commitStateLocked()
+		a.emitRoomEvent(event)
+		return
+	}
 	if event.Type == room.RoomEventChatMessage && event.Chat != nil {
 		a.mu.Lock()
 		if a.roomEventsSeq != seq || a.user == nil {
@@ -862,6 +1159,7 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 		}
 		a.appendChatMessageLocked(*event.Chat)
 		a.commitStateLocked()
+		a.emitRoomEvent(event)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -935,6 +1233,7 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.members = nil
 	if next.currentRoom == nil {
 		a.chatMessages = nil
+		a.voiceState = room.VoiceState{}
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
 			a.connection = newConnectionState(statusDisconnected, "已离开房间，虚拟网卡已断开")
@@ -945,12 +1244,14 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.currentRoom = &current
 	if previousRoomID > 0 && previousRoomID != current.ID {
 		a.chatMessages = nil
+		a.voiceState = room.VoiceState{}
 	}
 	if activeRoomID > 0 && activeRoomID != current.ID {
 		a.cancelConnectionLocked()
 		a.connection = newConnectionState(statusDisconnected, "当前房间已变化，虚拟网卡已断开")
 	}
 	a.members = next.members
+	a.voiceState = next.voice
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {
@@ -997,6 +1298,9 @@ func (a *App) stateLocked() AppState {
 		CurrentRoom:   currentRoom,
 		Members:       members,
 		ChatMessages:  chatMessages,
+		Voice:         a.voiceState,
+		VoiceMode:     a.voiceMode,
+		VoiceMessage:  a.voiceMessage,
 		Connection:    a.connection,
 		Update:        a.update,
 		Announcement:  a.announcement,
@@ -1013,6 +1317,12 @@ func (a *App) emitState(state AppState) {
 	a.updateTray(state)
 	if ctx := a.currentContext(); ctx != nil {
 		wailsRuntime.EventsEmit(ctx, "state-changed", state)
+	}
+}
+
+func (a *App) emitRoomEvent(event room.RoomEvent) {
+	if ctx := a.currentContext(); ctx != nil {
+		wailsRuntime.EventsEmit(ctx, "room-event", event)
 	}
 }
 

@@ -383,7 +383,7 @@ form[data-busy="true"] {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin: 0;
 }
@@ -484,9 +484,7 @@ input:focus {
 }
 
 .password-reset {
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-  padding-top: 22px;
+  margin-top: 0;
 }
 
 .password-panel {
@@ -887,6 +885,7 @@ input:focus {
 [data-page="home"] [data-view]:not([data-view="home"]),
 [data-page="login"] [data-view]:not([data-view="login"]),
 [data-page="register"] [data-view]:not([data-view="register"]),
+[data-page="reset"] [data-view]:not([data-view="reset"]),
 [data-page="download"] [data-view]:not([data-view="download"]),
 [data-page="dashboard"] [data-view]:not([data-view="dashboard"]) {
   display: none;

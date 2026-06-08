@@ -31,7 +31,9 @@ import {
   HideToTray,
   InstallPreparedUpdate,
   JoinRoom,
+  JoinRoomVoice,
   KickMember,
+  LeaveRoomVoice,
   LeaveCurrentRoom,
   Login,
   Logout,
@@ -40,6 +42,7 @@ import {
   SendRoomChat,
   SendEmailVerification,
   SetSettings,
+  SetRoomVoiceMic,
   ChangePassword,
   TransferOwner,
 } from "../wailsjs/go/main/App";
@@ -51,7 +54,6 @@ import {
   defaultRoomName,
   errorText,
   formatBytes,
-  freeRoomMemberLimit,
   isConnectionRunning,
   membershipLabel,
   membershipTone,
@@ -62,7 +64,9 @@ import {
   emailMinLength,
   passwordMaxLength,
   passwordMinLength,
+  roomCapacityLimit,
   roomMemberOptions,
+  roomSizeTierLabel,
   serverHostFromAPI,
   statusText,
   statusTone,
@@ -78,7 +82,8 @@ import {
 } from "./client-ui";
 import { Avatar, Metric, NavButton, RoomChatPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
-import type { AppState } from "./types";
+import { VoiceSession, type IncomingVoiceFrame } from "./voice";
+import type { AppState, RoomEvent } from "./types";
 import { emptyState } from "./types";
 
 type NoticeTone = "info" | "success" | "error";
@@ -90,12 +95,14 @@ type PendingChat = {
 export default function App() {
   const [page, setPage] = useState<PageKey>("account");
   const [state, setState] = useState<AppState>(emptyState);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "reset">("login");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState<{ id: number; text: string; tone: NoticeTone } | null>(null);
   const [chatText, setChatText] = useState("");
   const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
   const [chatSending, setChatSending] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [voiceMicActive, setVoiceMicActive] = useState(false);
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
     password: "",
@@ -115,15 +122,30 @@ export default function App() {
   const settingsSignature = useRef("");
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const voiceSessionRef = useRef<VoiceSession | null>(null);
 
   useEffect(() => {
     CurrentState()
       .then((next: AppState) => applyState(next))
       .catch((err: unknown) => showNotice(errorText(err), "error"));
     const off = EventsOn("state-changed", (next: AppState) => applyState(next));
+    const offRoom = EventsOn("room-event", (event: RoomEvent) => {
+      if (event.type === "voice_state" && event.voice) {
+        void voiceSessionRef.current?.applyState(event.voice);
+      }
+    });
+    const offVoice = EventsOn("voice-audio", (frame: IncomingVoiceFrame) => {
+      voiceSessionRef.current?.playFrame(frame);
+    });
     return () => {
       if (typeof off === "function") {
         off();
+      }
+      if (typeof offRoom === "function") {
+        offRoom();
+      }
+      if (typeof offVoice === "function") {
+        offVoice();
       }
     };
   }, []);
@@ -161,10 +183,13 @@ export default function App() {
     state.update.latestVersion !== "";
   const isBusy = busy !== "";
   const authRules = authRuleState(loginForm.email, loginForm.password);
+  const canSubmitReset = authRules.emailFormat && loginForm.resetCode.trim().length === 6 && loginForm.resetPassword.length >= passwordMinLength;
   const canSubmitAuth =
     authMode === "login"
       ? loginForm.email.trim() !== "" && loginForm.password !== ""
-      : authRules.emailLength && authRules.emailFormat && authRules.passwordLength && loginForm.emailCode.trim().length === 6;
+      : authMode === "register"
+        ? authRules.emailLength && authRules.emailFormat && authRules.passwordLength && loginForm.emailCode.trim().length === 6
+        : canSubmitReset;
   const selectedMaxMembers = Number.parseInt(roomForm.maxMembers, 10) || defaultRoomMemberLimit;
   const roomSizeAllowed = canCreateRoomSize(selectedMaxMembers, state.user);
   const trafficPercent = trafficUsedPercent(state.user);
@@ -182,6 +207,20 @@ export default function App() {
   }, [currentRoom?.id]);
 
   useEffect(() => {
+    void voiceSessionRef.current?.applyState(state.voice);
+    const selfInVoice = !!state.user && state.voice.participants.some((item) => item.userID === state.user?.id);
+    if (!selfInVoice && voiceActive) {
+      void stopLocalVoice(false);
+    }
+  }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id]);
+
+  useEffect(() => {
+    return () => {
+      void stopLocalVoice(false);
+    };
+  }, [currentRoom?.id, state.user?.id]);
+
+  useEffect(() => {
     if (!state.user) {
       return;
     }
@@ -194,24 +233,25 @@ export default function App() {
       }
       return { ...current, name: nextName, maxMembers: nextMaxMembers };
     });
-  }, [state.user?.id, state.user?.username, state.user?.displayName, state.user?.membership]);
+  }, [state.user?.id, state.user?.username, state.user?.displayName, state.user?.membership, state.user?.role]);
 
   function applyState(next: AppState) {
-    setState(next);
-    const nextSettingsSignature = `${next.apiBaseURL}|${next.interfaceName}|${next.p2pEnabled}`;
+    const normalized = normalizeAppState(next);
+    setState(normalized);
+    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${normalized.p2pEnabled}`;
     if (settingsSignature.current !== nextSettingsSignature) {
       settingsSignature.current = nextSettingsSignature;
       setSettingsForm({
-        apiBaseURL: next.apiBaseURL,
-        p2pEnabled: next.p2pEnabled,
+        apiBaseURL: normalized.apiBaseURL,
+        p2pEnabled: normalized.p2pEnabled,
       });
     }
 
-    const signature = `${next.connection.status}|${next.connection.message}|${next.connection.ip}`;
+    const signature = `${normalized.connection.status}|${normalized.connection.message}|${normalized.connection.ip}`;
     if (connectionSignature.current && signature !== connectionSignature.current) {
       showNotice(
-        `网络状态: ${statusText(next.connection.status)}${next.connection.message ? ` - ${next.connection.message}` : ""}`,
-        next.connection.status === "error" ? "error" : "info",
+        `网络状态: ${statusText(normalized.connection.status)}${normalized.connection.message ? ` - ${normalized.connection.message}` : ""}`,
+        normalized.connection.status === "error" ? "error" : "info",
       );
     }
     connectionSignature.current = signature;
@@ -244,29 +284,42 @@ export default function App() {
   async function handleAuthSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmitAuth) {
-      showNotice(authMode === "login" ? "请输入邮箱和密码" : "请先完成账号规则", "error");
+      showNotice(authMode === "login" ? "请输入邮箱和密码" : authMode === "register" ? "请先完成账号规则" : "请填写邮箱、验证码和新密码", "error");
       return;
     }
     const ok =
       authMode === "login"
         ? await run("登录", () => Login({ email: loginForm.email, password: loginForm.password }))
-        : await run("注册", () =>
-            Register({
-              email: loginForm.email,
-              password: loginForm.password,
-              displayName: loginForm.displayName,
-              emailCode: loginForm.emailCode,
-            }),
-          );
+        : authMode === "register"
+          ? await run("注册", () =>
+              Register({
+                email: loginForm.email,
+                password: loginForm.password,
+                displayName: loginForm.displayName,
+                emailCode: loginForm.emailCode,
+              }),
+            )
+          : await run("重置密码", () => ResetPassword({ email: loginForm.email, emailCode: loginForm.resetCode, newPassword: loginForm.resetPassword }));
     if (ok) {
-      setPage("room");
+      setLoginForm((current) => ({
+        ...current,
+        password: authMode === "reset" ? current.resetPassword : current.password,
+        emailCode: "",
+        resetCode: "",
+        resetPassword: "",
+        displayName: authMode === "register" ? "" : current.displayName,
+      }));
+      setAuthMode("login");
+      if (authMode !== "reset") {
+        setPage("account");
+      }
     }
   }
 
   async function handleCreateRoom(event: FormEvent) {
     event.preventDefault();
     if (!roomSizeAllowed) {
-      showNotice("16人及以上房间需要会员账号", "error");
+      showNotice(`当前账号最多可创建 ${roomCapacityLimit(state.user)} 人房间`, "error");
       return;
     }
     const ok = await run("创建房间", () =>
@@ -306,6 +359,73 @@ export default function App() {
     } finally {
       setPendingChats((items) => items.filter((item) => item.id !== pendingID));
       setChatSending(false);
+    }
+  }
+
+  async function handleJoinVoice() {
+    if (!currentRoom || !state.user) {
+      return;
+    }
+    if (voiceActive) {
+      await handleLeaveVoice();
+      return;
+    }
+    const session = new VoiceSession(currentRoom, state.user.id, {
+      onError: (message) => showNotice(message, "error"),
+    });
+    try {
+      await session.start();
+      voiceSessionRef.current = session;
+      const next = await JoinRoomVoice(currentRoom.id);
+      applyState(next);
+      await session.applyState(next.voice);
+      setVoiceActive(true);
+      setVoiceMicActive(false);
+      showNotice("已加入房间语音", "success");
+    } catch (err) {
+      await session.close();
+      voiceSessionRef.current = null;
+      showNotice(errorText(err), "error");
+    }
+  }
+
+  async function handleLeaveVoice() {
+    if (!currentRoom) {
+      return;
+    }
+    await stopLocalVoice(true);
+  }
+
+  async function stopLocalVoice(notifyServer: boolean) {
+    const roomID = currentRoom?.id;
+    const session = voiceSessionRef.current;
+    voiceSessionRef.current = null;
+    setVoiceActive(false);
+    setVoiceMicActive(false);
+    await session?.close();
+    if (notifyServer && roomID) {
+      try {
+        const next = await LeaveRoomVoice(roomID);
+        applyState(next);
+      } catch (err) {
+        showNotice(errorText(err), "error");
+      }
+    }
+  }
+
+  async function handleToggleVoiceMic() {
+    if (!currentRoom || !voiceSessionRef.current) {
+      showNotice("请先加入语音", "error");
+      return;
+    }
+    const nextSpeaking = !voiceMicActive;
+    try {
+      const next = await SetRoomVoiceMic(currentRoom.id, nextSpeaking);
+      voiceSessionRef.current.setMicEnabled(nextSpeaking);
+      setVoiceMicActive(nextSpeaking);
+      applyState(next);
+    } catch (err) {
+      showNotice(errorText(err), "error");
     }
   }
 
@@ -392,7 +512,7 @@ export default function App() {
               onClick={() => setRoomForm((current) => ({ ...current, maxMembers: String(value) }))}
             >
               <strong>{value}</strong>
-              <span>{locked ? "会员" : value <= freeRoomMemberLimit ? "普通" : "会员"}</span>
+              <span>{roomSizeTierLabel(value)}</span>
             </button>
           );
         })}
@@ -541,9 +661,9 @@ export default function App() {
             <div className="surface-head">
               <div>
                 <span className="eyebrow">账号</span>
-                <h2>{authMode === "login" ? "登录" : "注册"}</h2>
+                <h2>{authMode === "login" ? "登录" : authMode === "register" ? "注册" : "找回密码"}</h2>
               </div>
-              <LogIn size={18} />
+              {authMode === "reset" ? <KeyRound size={18} /> : <LogIn size={18} />}
             </div>
             <div className="form-stack">
               <div className="segmented">
@@ -557,7 +677,37 @@ export default function App() {
               <Field label="邮箱">
                 <Input className="pretty-input" type="email" value={loginForm.email} onChange={(_, data) => handleEmailChange(data.value)} />
               </Field>
-              {authMode === "register" && (
+              {authMode === "reset" ? (
+                <>
+                  <div className="inline-action-field">
+                    <Field label="邮箱验证码">
+                      <Input
+                        className="pretty-input"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={loginForm.resetCode}
+                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
+                      />
+                    </Field>
+                    <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("password_reset")}>
+                      发送
+                    </Button>
+                  </div>
+                  <Field label="新密码">
+                    <Input
+                      className="pretty-input"
+                      type="password"
+                      value={loginForm.resetPassword}
+                      onChange={(_, data) => setLoginForm((current) => ({ ...current, resetPassword: data.value }))}
+                    />
+                  </Field>
+                  <div className="rules compact">
+                    <Rule ok={authRules.emailFormat} text="请输入有效邮箱格式" />
+                    <Rule ok={loginForm.resetCode.trim().length === 6} text="6 位邮箱验证码" />
+                    <Rule ok={loginForm.resetPassword.length >= passwordMinLength} text={`新密码至少 ${passwordMinLength} 位`} />
+                  </div>
+                </>
+              ) : authMode === "register" && (
                 <Field label="昵称">
                   <Input
                     className="pretty-input"
@@ -582,14 +732,16 @@ export default function App() {
                   </Button>
                 </div>
               )}
-              <Field label="密码">
-                <Input
-                  className="pretty-input"
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))}
-                />
-              </Field>
+              {authMode !== "reset" && (
+                <Field label="密码">
+                  <Input
+                    className="pretty-input"
+                    type="password"
+                    value={loginForm.password}
+                    onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))}
+                  />
+                </Field>
+              )}
               {authMode === "register" && (
                 <div className="rules">
                   <Rule ok={authRules.emailLength} text={`${emailMinLength}-${emailMaxLength} 位邮箱`} />
@@ -598,46 +750,21 @@ export default function App() {
                   <Rule ok={loginForm.emailCode.trim().length === 6} text="6 位邮箱验证码" />
                 </div>
               )}
-              <Button appearance="primary" icon={<LogIn size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
-                {authMode === "login" ? "进入客户端" : "创建账号"}
+              <Button appearance="primary" icon={authMode === "reset" ? <RefreshCw size={16} /> : <LogIn size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
+                {authMode === "login" ? "进入客户端" : authMode === "register" ? "创建账号" : "重置密码"}
               </Button>
               {authMode === "login" && (
-                <div className="password-reset-box">
-                  <div className="mini-head">
+                <button type="button" className="auth-link-button" onClick={() => setAuthMode("reset")}>
+                  <span>
                     <KeyRound size={15} />
-                    <strong>忘记密码</strong>
-                  </div>
-                  <div className="inline-action-field">
-                    <Field label="验证码">
-                      <Input
-                        className="pretty-input"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={loginForm.resetCode}
-                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
-                      />
-                    </Field>
-                    <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("password_reset")}>
-                      发送
-                    </Button>
-                  </div>
-                  <Field label="新密码">
-                    <Input
-                      className="pretty-input"
-                      type="password"
-                      value={loginForm.resetPassword}
-                      onChange={(_, data) => setLoginForm((current) => ({ ...current, resetPassword: data.value }))}
-                    />
-                  </Field>
-                  <Button
-                    type="button"
-                    icon={<RefreshCw size={16} />}
-                    disabled={isBusy || !loginForm.email || loginForm.resetCode.trim().length !== 6 || loginForm.resetPassword.length < passwordMinLength}
-                    onClick={handleResetPassword}
-                  >
-                    重置密码
-                  </Button>
-                </div>
+                    忘记密码，使用邮箱验证码找回
+                  </span>
+                </button>
+              )}
+              {authMode === "reset" && (
+                <button type="button" className="auth-link-button" onClick={() => setAuthMode("login")}>
+                  返回登录
+                </button>
               )}
             </div>
           </form>
@@ -746,7 +873,7 @@ export default function App() {
               <Field label="人数上限">
                 {renderRoomSizePicker()}
               </Field>
-              {!roomSizeAllowed && <span className="form-hint">16 人及以上房间需要会员账号。</span>}
+              {!roomSizeAllowed && <span className="form-hint">当前账号最多可创建 {roomCapacityLimit(state.user)} 人房间。</span>}
               <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={isBusy || roomForm.name.trim() === "" || !roomSizeAllowed}>
                 创建
               </Button>
@@ -804,8 +931,16 @@ export default function App() {
           connectionRunning={connectionRunning}
           directPeerNames={directPeerNames}
           directPeerIPSet={directPeerIPSet}
+          voiceState={state.voice}
+          voiceActive={voiceActive}
+          voiceMicActive={voiceMicActive}
+          voiceMode={state.voiceMode}
+          voiceMessage={state.voiceMessage}
           isOwner={isOwner}
           disabled={isBusy}
+          onJoinVoice={handleJoinVoice}
+          onToggleVoiceMic={handleToggleVoiceMic}
+          onLeaveVoice={handleLeaveVoice}
           onKick={(userID) => run("移出成员", () => KickMember({ userID }))}
           onTransfer={(userID) => run("转让房主", () => TransferOwner({ userID }))}
         />
@@ -934,4 +1069,31 @@ export default function App() {
       </div>
     );
   }
+}
+
+function normalizeAppState(next: AppState): AppState {
+  return {
+    ...emptyState,
+    ...next,
+    rooms: Array.isArray(next.rooms) ? next.rooms : [],
+    members: Array.isArray(next.members) ? next.members : [],
+    chatMessages: Array.isArray(next.chatMessages) ? next.chatMessages : [],
+    voice: {
+      ...emptyState.voice,
+      ...(next.voice ?? emptyState.voice),
+      participants: Array.isArray(next.voice?.participants) ? next.voice.participants : [],
+    },
+    connection: {
+      ...emptyState.connection,
+      ...(next.connection ?? emptyState.connection),
+      directPeerIPs: Array.isArray(next.connection?.directPeerIPs) ? next.connection.directPeerIPs : [],
+    },
+    update: {
+      ...emptyState.update,
+      ...(next.update ?? emptyState.update),
+    },
+    voiceMode: next.voiceMode || emptyState.voiceMode,
+    voiceMessage: next.voiceMessage || emptyState.voiceMessage,
+    announcement: next.announcement || emptyState.announcement,
+  };
 }

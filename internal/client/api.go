@@ -146,6 +146,31 @@ func (a *API) SendRoomChat(ctx context.Context, roomID int64, message string) (r
 	return out, err
 }
 
+func (a *API) RoomVoiceState(ctx context.Context, roomID int64) (room.VoiceState, error) {
+	var out room.VoiceState
+	path := "/api/rooms/voice?roomID=" + url.QueryEscape(fmt.Sprintf("%d", roomID))
+	err := a.request(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+func (a *API) JoinRoomVoice(ctx context.Context, roomID int64) (room.VoiceState, error) {
+	var out room.VoiceState
+	err := a.request(ctx, http.MethodPost, "/api/rooms/voice/join", map[string]int64{"roomID": roomID}, &out)
+	return out, err
+}
+
+func (a *API) LeaveRoomVoice(ctx context.Context, roomID int64) (room.VoiceState, error) {
+	var out room.VoiceState
+	err := a.request(ctx, http.MethodPost, "/api/rooms/voice/leave", map[string]int64{"roomID": roomID}, &out)
+	return out, err
+}
+
+func (a *API) SetRoomVoiceMic(ctx context.Context, roomID int64, speaking bool) (room.VoiceState, error) {
+	var out room.VoiceState
+	err := a.request(ctx, http.MethodPost, "/api/rooms/voice/mic", map[string]any{"roomID": roomID, "speaking": speaking}, &out)
+	return out, err
+}
+
 func (a *API) DeleteRoom(ctx context.Context, roomID int64) error {
 	return a.request(ctx, http.MethodPost, "/api/rooms/delete", map[string]int64{"roomID": roomID}, nil)
 }

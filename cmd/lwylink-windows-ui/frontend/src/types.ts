@@ -22,6 +22,8 @@ export type Room = {
   roomPublicKey: string;
   networkCIDR: string;
   maxMembers: number;
+  voiceMaxMembers?: number;
+  voiceMaxSpeakers?: number;
   memberCount: number;
   status: string;
   nodeName?: string;
@@ -41,6 +43,35 @@ export type RoomMember = {
   online?: boolean;
   virtualIP?: string;
   createdAt: string;
+};
+
+export type VoiceParticipant = {
+  roomID: number;
+  userID: number;
+  username: string;
+  displayName: string;
+  speaking: boolean;
+  muted: boolean;
+  joinedAt: string;
+  updatedAt: string;
+};
+
+export type VoiceState = {
+  roomID: number;
+  maxMembers: number;
+  maxSpeakers: number;
+  participantCount: number;
+  speakerCount: number;
+  participants: VoiceParticipant[];
+  updatedAt: string;
+};
+
+export type RoomEvent = {
+  type: string;
+  roomID: number;
+  actorUserID?: number;
+  targetUserID?: number;
+  voice?: VoiceState;
 };
 
 export type ChatMessage = {
@@ -84,6 +115,9 @@ export type AppState = {
   currentRoom?: Room;
   members: RoomMember[];
   chatMessages: ChatMessage[];
+  voice: VoiceState;
+  voiceMode: string;
+  voiceMessage: string;
   connection: ConnectionState;
   update: UpdateState;
   announcement: string;
@@ -96,6 +130,17 @@ export const emptyState: AppState = {
   rooms: [],
   members: [],
   chatMessages: [],
+  voice: {
+    roomID: 0,
+    maxMembers: 0,
+    maxSpeakers: 0,
+    participantCount: 0,
+    speakerCount: 0,
+    participants: [],
+    updatedAt: "",
+  },
+  voiceMode: "idle",
+  voiceMessage: "未加入语音",
   announcement: "官方 QQ 群：715516422",
   connection: {
     status: "disconnected",
@@ -107,7 +152,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.1.18",
+    currentVersion: "0.1.20",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

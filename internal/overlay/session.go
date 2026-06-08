@@ -29,9 +29,14 @@ type session struct {
 	relayPendingBytes   int64
 	relayRemainingBytes int64
 
-	send     chan []byte
+	send     chan outboundFrame
 	done     chan struct{}
 	closeOne sync.Once
+}
+
+type outboundFrame struct {
+	typ     FrameType
+	payload []byte
 }
 
 func newSession(conn *tcpx.SecureConn, userID int64, username string, sessionID string, roomID int64, lease vdhcp.Lease, relayRemainingBytes int64) *session {
@@ -43,7 +48,7 @@ func newSession(conn *tcpx.SecureConn, userID int64, username string, sessionID 
 		roomID:              roomID,
 		lease:               lease,
 		relayRemainingBytes: relayRemainingBytes,
-		send:                make(chan []byte, 2048),
+		send:                make(chan outboundFrame, 2048),
 		done:                make(chan struct{}),
 	}
 }
@@ -58,17 +63,22 @@ func (s *session) close() {
 }
 
 func (s *session) enqueue(pkt []byte) bool {
+	return s.enqueueFrame(FrameIP, pkt)
+}
+
+func (s *session) enqueueFrame(typ FrameType, payload []byte) bool {
 	select {
 	case <-s.done:
 		return false
 	default:
 	}
-	cp := make([]byte, len(pkt))
-	copy(cp, pkt)
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+	frame := outboundFrame{typ: typ, payload: cp}
 	select {
 	case <-s.done:
 		return false
-	case s.send <- cp:
+	case s.send <- frame:
 		return true
 	default:
 		// Games prefer fresh packets over unbounded latency. If a player cannot

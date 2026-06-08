@@ -18,6 +18,7 @@ const (
 	RoomEventPresenceChanged  = "presence_changed"
 	RoomEventChatMessage      = "chat_message"
 	RoomEventAccountUpdated   = "account_updated"
+	RoomEventVoiceState       = "voice_state"
 )
 
 type ChatMessage struct {
@@ -37,7 +38,29 @@ type RoomEvent struct {
 	TargetUserID int64        `json:"targetUserID,omitempty"`
 	UserIDs      []int64      `json:"userIDs,omitempty"`
 	Chat         *ChatMessage `json:"chat,omitempty"`
+	Voice        *VoiceState  `json:"voice,omitempty"`
 	CreatedAt    time.Time    `json:"createdAt"`
+}
+
+type VoiceParticipant struct {
+	RoomID      int64     `json:"roomID"`
+	UserID      int64     `json:"userID"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"displayName"`
+	Speaking    bool      `json:"speaking"`
+	Muted       bool      `json:"muted"`
+	JoinedAt    time.Time `json:"joinedAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type VoiceState struct {
+	RoomID           int64              `json:"roomID"`
+	MaxMembers       int                `json:"maxMembers"`
+	MaxSpeakers      int                `json:"maxSpeakers"`
+	ParticipantCount int                `json:"participantCount"`
+	SpeakerCount     int                `json:"speakerCount"`
+	Participants     []VoiceParticipant `json:"participants"`
+	UpdatedAt        time.Time          `json:"updatedAt"`
 }
 
 type EventBus interface {

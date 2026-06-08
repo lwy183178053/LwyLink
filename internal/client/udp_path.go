@@ -56,6 +56,7 @@ type udpManagerConfig struct {
 	UserID     int64
 	VirtualIP  string
 	OnPacket   func([]byte)
+	OnVoice    func([]byte)
 	OnStatus   func(TransportStatus)
 	OnDisabled func()
 }
@@ -198,6 +199,10 @@ func (m *udpManager) AddPeer(candidate overlay.UDPPeerCandidate) {
 }
 
 func (m *udpManager) SendToPeer(dstIP string, pkt []byte) udpSendDecision {
+	return m.SendPayloadToPeer(dstIP, overlay.UDPTypeIP, pkt)
+}
+
+func (m *udpManager) SendPayloadToPeer(dstIP string, packetType byte, payload []byte) udpSendDecision {
 	var probe udpProbeTarget
 	var shouldProbe bool
 	m.mu.Lock()
@@ -228,7 +233,7 @@ func (m *udpManager) SendToPeer(dstIP string, pkt []byte) udpSendDecision {
 		decision = udpSendMirror
 	}
 	m.mu.Unlock()
-	if err := m.sendEncrypted(endpoint, overlay.UDPTypeIP, sessionID, key, seq, pkt); err != nil {
+	if err := m.sendEncrypted(endpoint, packetType, sessionID, key, seq, payload); err != nil {
 		m.markInactive(sessionID)
 		return udpSendRelay
 	}
@@ -295,6 +300,10 @@ func (m *udpManager) handlePeerPacket(sessionID, peerVirtualIP string, packet ov
 		}
 		if m.cfg.OnPacket != nil {
 			m.cfg.OnPacket(packet.Payload)
+		}
+	case overlay.UDPTypeVoice:
+		if m.cfg.OnVoice != nil {
+			m.cfg.OnVoice(packet.Payload)
 		}
 	}
 }

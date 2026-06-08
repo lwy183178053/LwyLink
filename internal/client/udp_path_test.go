@@ -125,6 +125,35 @@ func TestUDPManagerAcceptsOnlyExpectedPeerIPPacket(t *testing.T) {
 	}
 }
 
+func TestUDPManagerDeliversVoicePacketToVoiceCallback(t *testing.T) {
+	m := newTestUDPManager()
+	var ipDelivered int
+	var voiceDelivered [][]byte
+	m.cfg.OnPacket = func(pkt []byte) {
+		ipDelivered++
+	}
+	m.cfg.OnVoice = func(pkt []byte) {
+		voiceDelivered = append(voiceDelivered, append([]byte(nil), pkt...))
+	}
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	pairKey := testUDPKey(1)
+	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
+	payload := []byte(`{"roomID":1,"fromUserID":11,"toUserID":10,"payload":"AA=="}`)
+	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeVoice, "pair-1", path.recvKey, m.nextSeqLocked(), payload)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	m.handlePacket(endpoint, raw)
+
+	if ipDelivered != 0 {
+		t.Fatalf("voice packet was delivered to IP callback")
+	}
+	if len(voiceDelivered) != 1 || !bytes.Equal(voiceDelivered[0], payload) {
+		t.Fatalf("voice delivered=%d payload=%q", len(voiceDelivered), voiceDelivered)
+	}
+}
+
 func TestUDPManagersProbeAndDeliverDirectIPPacket(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

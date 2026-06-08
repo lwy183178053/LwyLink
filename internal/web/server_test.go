@@ -133,7 +133,7 @@ func TestReadJSONRejectsTrailingJSON(t *testing.T) {
 
 func TestSitePagesRender(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
-	for _, path := range []string{"/", "/login", "/register", "/dashboard", "/download"} {
+	for _, path := range []string{"/", "/login", "/register", "/reset", "/dashboard", "/download"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		srv.handleSite(rec, req)
@@ -143,6 +143,48 @@ func TestSitePagesRender(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "LwyLink") {
 			t.Fatalf("%s page did not render site content", path)
 		}
+	}
+}
+
+func TestSitePasswordResetIsSeparatePage(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	srv.handleSite(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status=%d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `<section class="panel auth-panel" data-view="login">
+      <div class="password-reset">`) {
+		t.Fatalf("password reset form is still rendered as login view")
+	}
+	if !strings.Contains(body, `href="/reset"`) {
+		t.Fatalf("login page does not link to reset page")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/reset", nil)
+	rec = httptest.NewRecorder()
+	srv.handleSite(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset status=%d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `data-view="reset"`) || !strings.Contains(rec.Body.String(), "重置密码") {
+		t.Fatalf("reset page did not render password reset view")
+	}
+	css, err := siteFiles.ReadFile("site_assets/site.css")
+	if err != nil {
+		t.Fatalf("read site.css: %v", err)
+	}
+	if !strings.Contains(string(css), `[data-page="reset"] [data-view]:not([data-view="reset"])`) {
+		t.Fatalf("reset page visibility rule is missing")
+	}
+	script, err := siteFiles.ReadFile("site_assets/site.js")
+	if err != nil {
+		t.Fatalf("read site.js: %v", err)
+	}
+	if !strings.Contains(string(script), "data-${source}-form") {
+		t.Fatalf("email verification script no longer resolves source forms")
 	}
 }
 

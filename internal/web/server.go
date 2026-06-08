@@ -69,6 +69,10 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/delete", s.handleDeleteRoom)
 	mux.HandleFunc("/api/rooms/members", s.handleRoomMembers)
 	mux.HandleFunc("/api/rooms/chat", s.handleRoomChat)
+	mux.HandleFunc("/api/rooms/voice", s.handleRoomVoice)
+	mux.HandleFunc("/api/rooms/voice/join", s.handleJoinRoomVoice)
+	mux.HandleFunc("/api/rooms/voice/leave", s.handleLeaveRoomVoice)
+	mux.HandleFunc("/api/rooms/voice/mic", s.handleRoomVoiceMic)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
@@ -446,6 +450,101 @@ func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, chat)
+}
+
+func (s *Server) handleRoomVoice(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	roomID, _ := strconv.ParseInt(r.URL.Query().Get("roomID"), 10, 64)
+	if roomID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad roomID")
+		return
+	}
+	state, err := s.rooms.VoiceState(r.Context(), user.ID, roomID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleJoinRoomVoice(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID int64 `json:"roomID"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	state, err := s.rooms.JoinVoice(r.Context(), user.ID, req.RoomID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleLeaveRoomVoice(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID int64 `json:"roomID"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	state, err := s.rooms.LeaveVoice(r.Context(), user.ID, req.RoomID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleRoomVoiceMic(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID   int64 `json:"roomID"`
+		Speaking bool  `json:"speaking"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	state, err := s.rooms.SetVoiceSpeaking(r.Context(), user.ID, req.RoomID, req.Speaking)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {

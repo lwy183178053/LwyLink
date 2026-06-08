@@ -42,12 +42,20 @@ export function JoinRoom(arg1) {
   return window['go']['main']['App']['JoinRoom'](arg1);
 }
 
+export function JoinRoomVoice(arg1) {
+  return window['go']['main']['App']['JoinRoomVoice'](arg1);
+}
+
 export function KickMember(arg1) {
   return window['go']['main']['App']['KickMember'](arg1);
 }
 
 export function LeaveCurrentRoom() {
   return window['go']['main']['App']['LeaveCurrentRoom']();
+}
+
+export function LeaveRoomVoice(arg1) {
+  return window['go']['main']['App']['LeaveRoomVoice'](arg1);
 }
 
 export function Login(arg1) {
@@ -74,8 +82,24 @@ export function SendRoomChat(arg1) {
   return window['go']['main']['App']['SendRoomChat'](arg1);
 }
 
+export function SendVoiceAudioFrame(arg1) {
+  return window['go']['main']['App']['SendVoiceAudioFrame'](arg1);
+}
+
+export function SetRoomVoiceMic(arg1, arg2) {
+  return window['go']['main']['App']['SetRoomVoiceMic'](arg1, arg2);
+}
+
 export function SetSettings(arg1) {
   return window['go']['main']['App']['SetSettings'](arg1);
+}
+
+export function StartVoiceAudio(arg1) {
+  return window['go']['main']['App']['StartVoiceAudio'](arg1);
+}
+
+export function StopVoiceAudio(arg1) {
+  return window['go']['main']['App']['StopVoiceAudio'](arg1);
 }
 
 export function TransferOwner(arg1) {

@@ -113,16 +113,40 @@ export function isConnectionRunning(status: string) {
   return status === "connected" || status === "connecting";
 }
 
-export const roomMemberOptions = [2, 4, 6, 8, 16, 32, 50, 100];
-export const freeRoomMemberLimit = 8;
+export const roomMemberOptions = [2, 4, 8, 16, 32, 64];
+export const freeRoomMemberLimit = 4;
 export const defaultRoomMemberLimit = freeRoomMemberLimit;
+
+export function isAdmin(user?: PublicUser) {
+  return user?.role === "admin";
+}
 
 export function isVIP(user?: PublicUser) {
   return user?.membership === "vip";
 }
 
+export function roomCapacityLimit(user?: PublicUser) {
+  if (isAdmin(user)) {
+    return 64;
+  }
+  if (isVIP(user)) {
+    return 16;
+  }
+  return freeRoomMemberLimit;
+}
+
 export function canCreateRoomSize(maxMembers: number, user?: PublicUser) {
-  return maxMembers <= freeRoomMemberLimit || isVIP(user);
+  return roomMemberOptions.includes(maxMembers) && maxMembers <= roomCapacityLimit(user);
+}
+
+export function roomSizeTierLabel(maxMembers: number) {
+  if (maxMembers > 16) {
+    return "管理";
+  }
+  if (maxMembers > freeRoomMemberLimit) {
+    return "会员";
+  }
+  return "普通";
 }
 
 export function defaultRoomName(user?: PublicUser) {

@@ -44,6 +44,7 @@
           <span>房间联机</span>
           <span>UDP 打洞</span>
           <span>TCP 兜底</span>
+          <span>房间语音</span>
         </div>
       </div>
       <div class="network-console" aria-label="LwyLink 网络状态示意">
@@ -72,6 +73,7 @@
           <div><dt>控制信令</dt><dd>TCP 加密</dd></div>
           <div><dt>游戏流量</dt><dd>UDP 优先</dd></div>
           <div><dt>NAT 失败</dt><dd>自动中继</dd></div>
+          <div><dt>语音帧</dt><dd>Overlay 原生</dd></div>
         </dl>
       </div>
     </section>
@@ -89,6 +91,18 @@
         <h2>可控下载</h2>
         <p>客户端包通过登录、短期链接和限流保护，下载页提供版本和 SHA256。</p>
       </article>
+      <article>
+        <h2>原生房间语音</h2>
+        <p>语音使用独立 Overlay 帧，和联机流量共用 P2P 与 relay fallback，旧包直接丢弃以降低延迟。</p>
+      </article>
+      <article>
+        <h2>容量分级</h2>
+        <p>普通房间适合 2-4 人，VIP 可创建 8/16 人房间，管理员用于更大规模测试房间。</p>
+      </article>
+      <article>
+        <h2>麦位限制</h2>
+        <p>听众可以更多，开麦人数受控，避免多人语音过乱，同时中继流量会按账号额度统计。</p>
+      </article>
     </section>
 
     <section class="panel auth-panel" data-view="login">
@@ -102,7 +116,7 @@
         <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="button primary" type="submit">登录</button>
       </form>
-      <p class="form-note">还没有账号？<a href="/register">立即注册</a></p>
+      <p class="form-note">还没有账号？<a href="/register">立即注册</a> · <a href="/reset">忘记密码</a></p>
     </section>
 
     <section class="panel auth-panel" data-view="register">
@@ -124,9 +138,11 @@
       <p class="form-note">已有账号？<a href="/login">去登录</a></p>
     </section>
 
-    <section class="panel auth-panel" data-view="login">
+    <section class="panel auth-panel" data-view="reset">
       <div class="password-reset">
+        <p class="eyebrow">Recovery</p>
         <h2>忘记密码</h2>
+        <p class="muted">输入邮箱并获取验证码，验证通过后即可设置新密码。</p>
         <form data-reset-form>
           <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
           <div class="inline-field">
@@ -136,6 +152,7 @@
           <label>新密码<input name="newPassword" type="password" minlength="6" maxlength="128" autocomplete="new-password" required></label>
           <button class="button" type="submit">重置密码</button>
         </form>
+        <p class="form-note">想起来了？<a href="/login">返回登录</a></p>
       </div>
     </section>
 
@@ -182,6 +199,11 @@
             <span>P2P 策略</span>
             <strong>默认开启</strong>
             <small>UDP 直连优先，失败自动 TCP relay</small>
+          </div>
+          <div class="mini-card">
+            <span>语音传输</span>
+            <strong>同链路</strong>
+            <small>原生语音帧复用联机链路，P2P 可用时优先直连</small>
           </div>
           <div class="mini-card">
             <span>下载保护</span>

@@ -9,7 +9,7 @@ const (
 	MemberRoleOwner  = "owner"
 	MemberRoleMember = "member"
 
-	FreeMaxMembers    = 8
+	FreeMaxMembers    = 4
 	DefaultMaxMembers = FreeMaxMembers
 )
 
@@ -21,17 +21,19 @@ type Room struct {
 	// RoomPublicKey is the invite credential players use to join the room.
 	// It is also indexed in Redis; deleting/closing the room removes that Redis
 	// key so stale invites stop working immediately.
-	RoomPublicKey   string    `json:"roomPublicKey"`
-	NetworkCIDR     string    `json:"networkCIDR"`
-	MaxMembers      int       `json:"maxMembers"`
-	MemberCount     int       `json:"memberCount"`
-	Status          string    `json:"status"`
-	NodeName        string    `json:"nodeName,omitempty"`
-	NodeOverlayAddr string    `json:"nodeOverlayAddr,omitempty"`
-	NodeUDPAddr     string    `json:"nodeUDPAddr,omitempty"`
-	NodePublicKey   string    `json:"nodePublicKey,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	RoomPublicKey    string    `json:"roomPublicKey"`
+	NetworkCIDR      string    `json:"networkCIDR"`
+	MaxMembers       int       `json:"maxMembers"`
+	VoiceMaxMembers  int       `json:"voiceMaxMembers"`
+	VoiceMaxSpeakers int       `json:"voiceMaxSpeakers"`
+	MemberCount      int       `json:"memberCount"`
+	Status           string    `json:"status"`
+	NodeName         string    `json:"nodeName,omitempty"`
+	NodeOverlayAddr  string    `json:"nodeOverlayAddr,omitempty"`
+	NodeUDPAddr      string    `json:"nodeUDPAddr,omitempty"`
+	NodePublicKey    string    `json:"nodePublicKey,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 type Member struct {

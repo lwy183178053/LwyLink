@@ -9,18 +9,17 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/netutil"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
 const maxChatMessageRunes = 500
-
-var allowedMaxMembers = []int{2, 4, 6, 8, 16, 32, 50, 100}
 
 type PublicKeyStore interface {
 	PutRoomPublicKey(ctx context.Context, publicKey string, roomID int64) error
@@ -52,6 +51,8 @@ type Service struct {
 	nodes            NodeScheduler
 	roomNetworkBase  string
 	roomSubnetPrefix int
+	voiceMu          sync.Mutex
+	voiceRooms       map[int64]map[int64]VoiceParticipant
 }
 
 func NewService(repo *Repository, runtime RuntimeStore, nodes NodeScheduler, roomNetworkBase string, roomSubnetPrefix int) *Service {
@@ -61,6 +62,7 @@ func NewService(repo *Repository, runtime RuntimeStore, nodes NodeScheduler, roo
 		nodes:            nodes,
 		roomNetworkBase:  roomNetworkBase,
 		roomSubnetPrefix: roomSubnetPrefix,
+		voiceRooms:       make(map[int64]map[int64]VoiceParticipant),
 	}
 }
 
@@ -299,6 +301,91 @@ func (s *Service) SendChat(ctx context.Context, userID, roomID int64, message st
 	return chat, nil
 }
 
+func (s *Service) VoiceState(ctx context.Context, requesterUserID, roomID int64) (VoiceState, error) {
+	room, err := s.EnsureMember(ctx, roomID, requesterUserID)
+	if err != nil {
+		return VoiceState{}, err
+	}
+	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
+	return s.voiceStateForRoom(room), nil
+}
+
+func (s *Service) JoinVoice(ctx context.Context, userID, roomID int64) (VoiceState, error) {
+	room, err := s.EnsureMember(ctx, roomID, userID)
+	if err != nil {
+		return VoiceState{}, err
+	}
+	participant, err := s.voiceParticipantForUser(ctx, roomID, userID)
+	if err != nil {
+		return VoiceState{}, err
+	}
+
+	now := time.Now()
+	s.voiceMu.Lock()
+	participants := s.voiceRooms[roomID]
+	if participants == nil {
+		participants = make(map[int64]VoiceParticipant)
+		s.voiceRooms[roomID] = participants
+	}
+	if _, exists := participants[userID]; !exists && len(participants) >= room.VoiceMaxMembers {
+		s.voiceMu.Unlock()
+		return VoiceState{}, fmt.Errorf("语音房人数已满，最多 %d 人加入语音", room.VoiceMaxMembers)
+	}
+	if existing, exists := participants[userID]; exists {
+		participant.Speaking = existing.Speaking
+		participant.Muted = existing.Muted
+		participant.JoinedAt = existing.JoinedAt
+	} else {
+		participant.JoinedAt = now
+	}
+	participant.UpdatedAt = now
+	participants[userID] = participant
+	state := s.voiceStateLocked(room)
+	s.voiceMu.Unlock()
+
+	s.publishVoiceState(ctx, state, userID)
+	return state, nil
+}
+
+func (s *Service) LeaveVoice(ctx context.Context, userID, roomID int64) (VoiceState, error) {
+	room, err := s.EnsureMember(ctx, roomID, userID)
+	if err != nil {
+		return VoiceState{}, err
+	}
+	state, changed := s.removeVoiceParticipant(room, userID)
+	if changed {
+		s.publishVoiceState(ctx, state, userID)
+	}
+	return state, nil
+}
+
+func (s *Service) SetVoiceSpeaking(ctx context.Context, userID, roomID int64, speaking bool) (VoiceState, error) {
+	room, err := s.EnsureMember(ctx, roomID, userID)
+	if err != nil {
+		return VoiceState{}, err
+	}
+	s.voiceMu.Lock()
+	participants := s.voiceRooms[roomID]
+	participant, exists := participants[userID]
+	if !exists {
+		s.voiceMu.Unlock()
+		return VoiceState{}, fmt.Errorf("请先加入语音房")
+	}
+	if speaking && !participant.Speaking && s.voiceSpeakerCountLocked(roomID) >= room.VoiceMaxSpeakers {
+		s.voiceMu.Unlock()
+		return VoiceState{}, fmt.Errorf("当前房间最多 %d 人同时开麦", room.VoiceMaxSpeakers)
+	}
+	participant.Speaking = speaking
+	participant.Muted = !speaking
+	participant.UpdatedAt = time.Now()
+	participants[userID] = participant
+	state := s.voiceStateLocked(room)
+	s.voiceMu.Unlock()
+
+	s.publishVoiceState(ctx, state, userID)
+	return state, nil
+}
+
 func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
 	return s.repo.List(ctx, filter)
 }
@@ -434,6 +521,7 @@ func (s *Service) LeaveRoom(ctx context.Context, requesterUserID, roomID int64) 
 	if err := s.repo.RemoveMember(ctx, roomID, requesterUserID); err != nil {
 		return err
 	}
+	voiceState, voiceChanged := s.removeVoiceParticipant(room, requesterUserID)
 	s.deleteRoomUserOnline(ctx, roomID, requesterUserID)
 	s.publishRoomEventToMembers(ctx, RoomEvent{
 		Type:         RoomEventMemberLeft,
@@ -442,6 +530,9 @@ func (s *Service) LeaveRoom(ctx context.Context, requesterUserID, roomID int64) 
 		TargetUserID: requesterUserID,
 		UserIDs:      []int64{requesterUserID},
 	})
+	if voiceChanged {
+		s.publishVoiceState(ctx, voiceState, requesterUserID)
+	}
 	return nil
 }
 
@@ -467,6 +558,7 @@ func (s *Service) KickMember(ctx context.Context, requesterUserID, roomID, targe
 	if err := s.repo.RemoveMember(ctx, roomID, targetUserID); err != nil {
 		return err
 	}
+	voiceState, voiceChanged := s.removeVoiceParticipant(room, targetUserID)
 	s.deleteRoomUserOnline(ctx, roomID, targetUserID)
 	s.publishRoomEventToMembers(ctx, RoomEvent{
 		Type:         RoomEventMemberKicked,
@@ -475,6 +567,9 @@ func (s *Service) KickMember(ctx context.Context, requesterUserID, roomID, targe
 		TargetUserID: targetUserID,
 		UserIDs:      []int64{targetUserID},
 	})
+	if voiceChanged {
+		s.publishVoiceState(ctx, voiceState, targetUserID)
+	}
 	return nil
 }
 
@@ -496,6 +591,13 @@ func (s *Service) TransferOwner(ctx context.Context, requesterUserID, roomID, ta
 	if !member {
 		return Room{}, fmt.Errorf("target user is not a room member")
 	}
+	capacity, err := s.repo.UserCapacity(ctx, targetUserID)
+	if err != nil {
+		return Room{}, err
+	}
+	if !capacity.CanOwnRoom(room.MaxMembers) {
+		return Room{}, fmt.Errorf("目标用户身份最多只能承接 %d 人房间，当前房间为 %d 人", capacity.MaxMembers, room.MaxMembers)
+	}
 	s.touchRoomAppOnline(ctx, roomID, requesterUserID)
 	s.touchRoomAppOnline(ctx, roomID, targetUserID)
 	if err := s.repo.SetOwner(ctx, roomID, targetUserID); err != nil {
@@ -511,6 +613,7 @@ func (s *Service) TransferOwner(ctx context.Context, requesterUserID, roomID, ta
 		ActorUserID:  requesterUserID,
 		TargetUserID: targetUserID,
 	})
+	s.publishVoiceState(ctx, s.voiceStateForRoom(updated), targetUserID)
 	return updated, nil
 }
 
@@ -535,6 +638,7 @@ func (s *Service) deleteRoom(ctx context.Context, room Room, actorUserID int64) 
 	if err := s.repo.Delete(ctx, room.ID); err != nil {
 		return err
 	}
+	s.clearVoiceRoom(room.ID)
 	if s.runtime != nil {
 		s.runtime.DeleteRoomOnline(ctx, room.ID)
 	}
@@ -654,6 +758,99 @@ func (s *Service) roomUserIDs(ctx context.Context, roomID int64) []int64 {
 	return ids
 }
 
+func (s *Service) voiceParticipantForUser(ctx context.Context, roomID, userID int64) (VoiceParticipant, error) {
+	members, err := s.repo.ListMembers(ctx, roomID)
+	if err != nil {
+		return VoiceParticipant{}, err
+	}
+	for _, member := range members {
+		if member.UserID == userID {
+			return VoiceParticipant{
+				RoomID:      roomID,
+				UserID:      userID,
+				Username:    member.Username,
+				DisplayName: member.DisplayName,
+				Muted:       true,
+			}, nil
+		}
+	}
+	return VoiceParticipant{}, fmt.Errorf("user is not a room member")
+}
+
+func (s *Service) voiceStateForRoom(room Room) VoiceState {
+	s.voiceMu.Lock()
+	defer s.voiceMu.Unlock()
+	return s.voiceStateLocked(room)
+}
+
+func (s *Service) voiceStateLocked(room Room) VoiceState {
+	participantsByUser := s.voiceRooms[room.ID]
+	participants := make([]VoiceParticipant, 0, len(participantsByUser))
+	for _, participant := range participantsByUser {
+		participants = append(participants, participant)
+	}
+	sort.Slice(participants, func(i, j int) bool {
+		if participants[i].JoinedAt.Equal(participants[j].JoinedAt) {
+			return participants[i].UserID < participants[j].UserID
+		}
+		return participants[i].JoinedAt.Before(participants[j].JoinedAt)
+	})
+	state := VoiceState{
+		RoomID:           room.ID,
+		MaxMembers:       room.VoiceMaxMembers,
+		MaxSpeakers:      room.VoiceMaxSpeakers,
+		ParticipantCount: len(participants),
+		Participants:     participants,
+		UpdatedAt:        time.Now(),
+	}
+	for _, participant := range participants {
+		if participant.Speaking {
+			state.SpeakerCount++
+		}
+	}
+	return state
+}
+
+func (s *Service) voiceSpeakerCountLocked(roomID int64) int {
+	count := 0
+	for _, participant := range s.voiceRooms[roomID] {
+		if participant.Speaking {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Service) removeVoiceParticipant(room Room, userID int64) (VoiceState, bool) {
+	s.voiceMu.Lock()
+	defer s.voiceMu.Unlock()
+	participants := s.voiceRooms[room.ID]
+	if _, exists := participants[userID]; !exists {
+		return s.voiceStateLocked(room), false
+	}
+	delete(participants, userID)
+	if len(participants) == 0 {
+		delete(s.voiceRooms, room.ID)
+	}
+	return s.voiceStateLocked(room), true
+}
+
+func (s *Service) clearVoiceRoom(roomID int64) {
+	s.voiceMu.Lock()
+	defer s.voiceMu.Unlock()
+	delete(s.voiceRooms, roomID)
+}
+
+func (s *Service) publishVoiceState(ctx context.Context, state VoiceState, actorUserID int64) {
+	s.publishRoomEventToMembers(ctx, RoomEvent{
+		Type:        RoomEventVoiceState,
+		RoomID:      state.RoomID,
+		ActorUserID: actorUserID,
+		Voice:       &state,
+		CreatedAt:   state.UpdatedAt,
+	})
+}
+
 func uniquePositiveUserIDs(ids []int64) []int64 {
 	if len(ids) == 0 {
 		return nil
@@ -728,15 +925,12 @@ func randomJoinCode() string {
 }
 
 func (s *Service) requireRoomCapacity(ctx context.Context, ownerUserID int64, maxMembers int) error {
-	if maxMembers <= FreeMaxMembers {
-		return nil
-	}
-	membership, err := s.repo.UserMembership(ctx, ownerUserID)
+	capacity, err := s.repo.UserCapacity(ctx, ownerUserID)
 	if err != nil {
 		return err
 	}
-	if membership != account.MembershipVIP {
-		return fmt.Errorf("16人及以上房间仅会员可创建")
+	if !capacity.CanCreateRoom(maxMembers) {
+		return capacity.createRoomError()
 	}
 	return nil
 }
@@ -745,18 +939,10 @@ func normalizeMaxMembers(v int) (int, error) {
 	if v <= 0 {
 		return DefaultMaxMembers, nil
 	}
-	for _, option := range allowedMaxMembers {
+	for _, option := range allRoomMemberOptions {
 		if v == option {
 			return v, nil
 		}
 	}
 	return 0, fmt.Errorf("房间人数只能选择 %s", allowedMaxMembersText())
-}
-
-func allowedMaxMembersText() string {
-	parts := make([]string, 0, len(allowedMaxMembers))
-	for _, option := range allowedMaxMembers {
-		parts = append(parts, fmt.Sprintf("%d", option))
-	}
-	return strings.Join(parts, "、")
 }

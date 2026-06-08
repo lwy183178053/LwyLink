@@ -51,7 +51,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			join_code VARCHAR(16) NOT NULL UNIQUE,
 			room_public_key VARCHAR(128) NOT NULL UNIQUE,
 			network_cidr VARCHAR(32) NOT NULL UNIQUE,
-			max_members INT NOT NULL DEFAULT 8,
+			max_members INT NOT NULL DEFAULT 4,
 			status VARCHAR(16) NOT NULL DEFAULT 'open',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

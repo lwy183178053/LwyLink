@@ -67,21 +67,22 @@ func (r *Repository) UserHasMembership(ctx context.Context, userID int64) (bool,
 	return err == nil, err
 }
 
-func (r *Repository) UserMembership(ctx context.Context, userID int64) (string, error) {
-	var membership string
-	err := r.db.QueryRowContext(ctx, `SELECT membership FROM users WHERE id = ?`, userID).Scan(&membership)
+func (r *Repository) UserCapacity(ctx context.Context, userID int64) (Capacity, error) {
+	var role, membership string
+	err := r.db.QueryRowContext(ctx, `SELECT role, membership FROM users WHERE id = ?`, userID).Scan(&role, &membership)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", errors.New("user not found")
+		return Capacity{}, errors.New("user not found")
 	}
-	return membership, err
+	if err != nil {
+		return Capacity{}, err
+	}
+	return CapacityForUser(role, membership), nil
 }
 
 func (r *Repository) FindForUser(ctx context.Context, userID int64) (Room, bool, error) {
 	room, err := scanRoom(r.db.QueryRowContext(ctx,
-		roomColumns()+`
-		FROM rooms r
+		roomColumns()+roomBaseJoins()+`
 		 JOIN room_members m ON m.room_id = r.id
-		 LEFT JOIN server_nodes n ON n.id = r.node_id
 		 WHERE m.user_id = ?
 		 ORDER BY r.id DESC LIMIT 1`,
 		userID,
@@ -168,10 +169,8 @@ func (r *Repository) IsMember(ctx context.Context, roomID, userID int64) (bool, 
 
 func (r *Repository) ListForUser(ctx context.Context, userID int64) ([]Room, error) {
 	rows, err := r.db.QueryContext(ctx,
-		roomColumns()+`
-		FROM rooms r
+		roomColumns()+roomBaseJoins()+`
 		 JOIN room_members m ON m.room_id = r.id
-		 LEFT JOIN server_nodes n ON n.id = r.node_id
 		 WHERE m.user_id = ?
 		 ORDER BY r.id DESC`,
 		userID,
@@ -348,9 +347,14 @@ type roomScanner interface {
 }
 
 func roomSelect() string {
-	return roomColumns() + `
+	return roomColumns() + roomBaseJoins()
+}
+
+func roomBaseJoins() string {
+	return `
 	       FROM rooms r
-	       LEFT JOIN server_nodes n ON n.id = r.node_id`
+	       LEFT JOIN server_nodes n ON n.id = r.node_id
+	       LEFT JOIN users ou ON ou.id = r.owner_user_id`
 }
 
 func roomColumns() string {
@@ -358,20 +362,26 @@ func roomColumns() string {
 	       r.room_public_key, r.network_cidr, r.status,
 	       r.max_members, (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id = r.id),
 	       COALESCE(n.name, ''), COALESCE(n.public_overlay_addr, ''), COALESCE(n.public_udp_addr, ''), COALESCE(n.overlay_public_key, ''),
+	       COALESCE(ou.role, ''), COALESCE(ou.membership, ''),
 	       r.created_at, r.updated_at`
 }
 
 func scanRoom(scanner roomScanner) (Room, error) {
 	var r Room
+	var ownerRole, ownerMembership string
 	err := scanner.Scan(
 		&r.ID, &r.Name, &r.OwnerUserID, &r.NodeID,
 		&r.RoomPublicKey, &r.NetworkCIDR, &r.Status,
 		&r.MaxMembers, &r.MemberCount,
 		&r.NodeName, &r.NodeOverlayAddr, &r.NodeUDPAddr, &r.NodePublicKey,
+		&ownerRole, &ownerMembership,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Room{}, ErrNotFound
+	}
+	if err == nil {
+		applyOwnerCapacity(&r, ownerRole, ownerMembership)
 	}
 	return r, err
 }

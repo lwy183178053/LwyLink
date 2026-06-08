@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"encoding/json"
 	"net"
 	"slices"
 	"testing"
@@ -52,6 +53,87 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 
 	assertNoPacket(t, peer, "room peer")
 	assertNoPacket(t, from, "sender")
+}
+
+func TestForwardVoiceRoutesOnlyFreshFramesToTarget(t *testing.T) {
+	srv, from, peer, other := newForwardTestServer()
+	from.userID = 10
+	peer.userID = 11
+	other.userID = 12
+	from.relayRemainingBytes = 1024
+	voice := VoicePayload{
+		RoomID:      from.roomID,
+		FromUserID:  from.userID,
+		ToUserID:    peer.userID,
+		Seq:         1,
+		TimestampMS: time.Now().UnixMilli(),
+		Codec:       "pcm16",
+		SampleRate:  16000,
+		Payload:     []byte{1, 2, 3, 4},
+	}
+	raw, err := json.Marshal(voice)
+	if err != nil {
+		t.Fatalf("marshal voice: %v", err)
+	}
+
+	srv.forwardVoice(from, raw)
+
+	assertVoiceFrame(t, peer, peer.userID)
+	assertNoPacket(t, from, "sender")
+	assertNoPacket(t, other, "other room")
+}
+
+func TestForwardVoiceDropsForgedAndExpiredFrames(t *testing.T) {
+	tests := []struct {
+		name   string
+		adjust func(*VoicePayload)
+	}{
+		{
+			name: "forged sender",
+			adjust: func(voice *VoicePayload) {
+				voice.FromUserID = 99
+			},
+		},
+		{
+			name: "wrong room",
+			adjust: func(voice *VoicePayload) {
+				voice.RoomID = 99
+			},
+		},
+		{
+			name: "expired",
+			adjust: func(voice *VoicePayload) {
+				voice.TimestampMS = time.Now().Add(-maxVoiceFrameAge - time.Second).UnixMilli()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, from, peer, _ := newForwardTestServer()
+			from.userID = 10
+			peer.userID = 11
+			from.relayRemainingBytes = 1024
+			voice := VoicePayload{
+				RoomID:      from.roomID,
+				FromUserID:  from.userID,
+				ToUserID:    peer.userID,
+				Seq:         1,
+				TimestampMS: time.Now().UnixMilli(),
+				Codec:       "pcm16",
+				SampleRate:  16000,
+				Payload:     []byte{1, 2, 3, 4},
+			}
+			tt.adjust(&voice)
+			raw, err := json.Marshal(voice)
+			if err != nil {
+				t.Fatalf("marshal voice: %v", err)
+			}
+
+			srv.forwardVoice(from, raw)
+
+			assertNoPacket(t, peer, "target peer")
+		})
+	}
 }
 
 func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
@@ -255,7 +337,7 @@ func testSession(roomID int64, ip string) *session {
 			IP:         ip,
 			SubnetMask: "255.255.255.0",
 		},
-		send: make(chan []byte, 4),
+		send: make(chan outboundFrame, 4),
 		done: make(chan struct{}),
 	}
 }
@@ -280,23 +362,45 @@ func testIPv4Packet(src, dst string) []byte {
 func assertPacket(t *testing.T, sess *session, name string) {
 	t.Helper()
 	select {
-	case payload := <-sess.send:
-		if len(payload) == 0 {
+	case frame := <-sess.send:
+		if frame.typ != FrameIP {
+			t.Fatalf("%s received frame type=%d, want FrameIP", name, frame.typ)
+		}
+		if len(frame.payload) == 0 {
 			t.Fatalf("%s received empty payload", name)
 		}
-		if _, pkt, err := UnpackIPPayload(payload); err != nil || len(pkt) == 0 {
-			t.Fatalf("%s received bad payload: len=%d err=%v", name, len(payload), err)
+		if _, pkt, err := UnpackIPPayload(frame.payload); err != nil || len(pkt) == 0 {
+			t.Fatalf("%s received bad payload: len=%d err=%v", name, len(frame.payload), err)
 		}
 	default:
 		t.Fatalf("%s did not receive packet", name)
 	}
 }
 
+func assertVoiceFrame(t *testing.T, sess *session, targetUserID int64) {
+	t.Helper()
+	select {
+	case frame := <-sess.send:
+		if frame.typ != FrameVoice {
+			t.Fatalf("received frame type=%d, want FrameVoice", frame.typ)
+		}
+		var voice VoicePayload
+		if err := json.Unmarshal(frame.payload, &voice); err != nil {
+			t.Fatalf("bad voice payload: %v", err)
+		}
+		if voice.ToUserID != targetUserID || len(voice.Payload) == 0 {
+			t.Fatalf("voice target=%d payload=%d", voice.ToUserID, len(voice.Payload))
+		}
+	default:
+		t.Fatalf("target peer did not receive voice frame")
+	}
+}
+
 func assertNoPacket(t *testing.T, sess *session, name string) {
 	t.Helper()
 	select {
-	case pkt := <-sess.send:
-		t.Fatalf("%s unexpectedly received packet length=%d", name, len(pkt))
+	case frame := <-sess.send:
+		t.Fatalf("%s unexpectedly received frame type=%d length=%d", name, frame.typ, len(frame.payload))
 	default:
 	}
 }
