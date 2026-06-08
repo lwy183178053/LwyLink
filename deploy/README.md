@@ -7,6 +7,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | `release.cmd` / `release.ps1` | 一键发布入口：同步版本、构建、部署、发布 Windows 客户端并校验 latest 接口 |
+| `check.ps1` | 日常开发自检入口：Go 测试、前端构建、发布脚本自测和空白检查 |
 | `build-all.ps1` | 本机一键全编译 |
 | `upload-deploy.ps1` | 上传已有构建产物、安装 systemd、重启并可选 smoke 验证 |
 | `test-release.ps1` | 发布脚本自测，检查版本同步幂等和后台占位符不被误改 |
@@ -77,6 +78,23 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填 SSH 密码"
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\deploy\test-release.ps1
 ```
+
+## 日常自检
+
+代码整理、UI 调整或语音/Overlay 改动后，优先跑统一自检：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1
+```
+
+它会依次执行：
+
+1. `go test ./...`
+2. Windows UI `npm.cmd run build`
+3. `deploy/test-release.ps1`
+4. `git diff --check`
+
+需要更重的并发检查时加 `-Race`；需要静态检查时加 `-Vet`。只改服务端时可以加 `-SkipFrontend`，只改业务代码且不涉及发布脚本时可以加 `-SkipReleaseScript`。
 
 ## 构建产物
 

@@ -98,7 +98,7 @@ func TestSendVoiceAudioFrameRequiresOpenMicAndTargetsVoicePeers(t *testing.T) {
 	app.mu.Lock()
 	app.voiceState.Participants[0].Speaking = true
 	app.mu.Unlock()
-	if _, err := app.SendVoiceAudioFrame(VoiceAudioFrameInput{RoomID: 7, Seq: 2, TimestampMS: time.Now().UnixMilli(), SampleRate: 16000, Payload: []byte{3, 4}}); err != nil {
+	if _, err := app.SendVoiceAudioFrame(VoiceAudioFrameInput{RoomID: 7, Seq: 2, TimestampMS: time.Now().UnixMilli(), Codec: "opus", SampleRate: 48000, Payload: []byte{3, 4}}); err != nil {
 		t.Fatalf("send voice frame: %v", err)
 	}
 
@@ -113,6 +113,9 @@ func TestSendVoiceAudioFrameRequiresOpenMicAndTargetsVoicePeers(t *testing.T) {
 		}
 		if voice.FromUserID != 10 || voice.ToUserID != 11 || voice.RoomID != 7 {
 			t.Fatalf("voice route=%d->%d room=%d", voice.FromUserID, voice.ToUserID, voice.RoomID)
+		}
+		if voice.Codec != "opus" || voice.SampleRate != 48000 {
+			t.Fatalf("voice codec=%q sampleRate=%d", voice.Codec, voice.SampleRate)
 		}
 	default:
 		t.Fatalf("voice packet was not queued")

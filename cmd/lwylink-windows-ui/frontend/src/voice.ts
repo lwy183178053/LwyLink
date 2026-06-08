@@ -5,6 +5,15 @@ type VoiceSessionCallbacks = {
   onError: (message: string) => void;
 };
 
+type EncodedVoiceFrame = {
+  codec: VoiceCodec;
+  sampleRate: number;
+  timestampMS: number;
+  payload: Uint8Array;
+};
+
+type VoiceCodec = "opus" | "pcm16";
+
 export type IncomingVoiceFrame = {
   roomID: number;
   fromUserID: number;
@@ -16,7 +25,11 @@ export type IncomingVoiceFrame = {
   payload: number[] | string;
 };
 
-const targetSampleRate = 16000;
+const targetSampleRate = 48000;
+const pcmFallbackSampleRate = 16000;
+const frameDurationMS = 20;
+const frameSamples = (targetSampleRate * frameDurationMS) / 1000;
+const opusBitrate = 24000;
 const silenceThreshold = 0.012;
 const playoutDelaySeconds = 0.08;
 const maxBufferedSeconds = 0.45;
@@ -30,6 +43,9 @@ export class VoiceSession {
   private source?: MediaStreamAudioSourceNode;
   private processor?: ScriptProcessorNode;
   private monitorGain?: GainNode;
+  private encoder?: VoiceEncoder;
+  private decoder?: VoiceDecoder;
+  private micBuffer = new Float32Array(0);
   private micEnabled = false;
   private seq = 0;
   private started = false;
@@ -54,29 +70,13 @@ export class VoiceSession {
       video: false,
     });
     this.audioContext = new AudioContext({ sampleRate: targetSampleRate });
+    this.encoder = await VoiceEncoder.create((frame) => this.sendEncodedFrame(frame));
+    this.decoder = await VoiceDecoder.create((frame) => this.playPCMFrame(frame));
     this.source = this.audioContext.createMediaStreamSource(this.stream);
     this.processor = this.audioContext.createScriptProcessor(1024, 1, 1);
     this.monitorGain = this.audioContext.createGain();
     this.monitorGain.gain.value = 0;
-    this.processor.onaudioprocess = (event) => {
-      if (!this.micEnabled) {
-        return;
-      }
-      const input = event.inputBuffer.getChannelData(0);
-      if (rms(input) < silenceThreshold) {
-        return;
-      }
-      const sampleRate = this.audioContext?.sampleRate || targetSampleRate;
-      const resampled = resampleMono(input, sampleRate, targetSampleRate);
-      const pcm = floatToPCM16(resampled);
-      void SendVoiceAudioFrame({
-        roomID: this.room.id,
-        seq: ++this.seq,
-        timestampMS: Date.now(),
-        sampleRate: targetSampleRate,
-        payload: Array.from(new Uint8Array(pcm.buffer)),
-      }).catch((err) => this.callbacks.onError(errorMessage(err)));
-    };
+    this.processor.onaudioprocess = (event) => this.captureAudio(event.inputBuffer.getChannelData(0));
     this.source.connect(this.processor);
     this.processor.connect(this.monitorGain);
     this.monitorGain.connect(this.audioContext.destination);
@@ -85,6 +85,9 @@ export class VoiceSession {
 
   setMicEnabled(enabled: boolean) {
     this.micEnabled = enabled;
+    if (!enabled) {
+      this.micBuffer = new Float32Array(0);
+    }
   }
 
   async applyState(_state: VoiceState) {
@@ -92,22 +95,82 @@ export class VoiceSession {
   }
 
   playFrame(frame: IncomingVoiceFrame) {
-    if (!this.audioContext || frame.roomID !== this.room.id || frame.codec !== "pcm16") {
-      return;
-    }
-    if (Math.abs(Date.now() - frame.timestampMS) > maxIncomingAgeMS) {
+    if (!this.audioContext || frame.roomID !== this.room.id || Math.abs(Date.now() - frame.timestampMS) > maxIncomingAgeMS) {
       return;
     }
     const bytes = payloadBytes(frame.payload);
     if (bytes.length === 0) {
       return;
     }
-    const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
-    const buffer = this.audioContext.createBuffer(1, pcm.length, frame.sampleRate || targetSampleRate);
-    const out = buffer.getChannelData(0);
-    for (let i = 0; i < pcm.length; i++) {
-      out[i] = Math.max(-1, Math.min(1, pcm[i] / 32768));
+    if (frame.codec === "opus") {
+      this.decoder?.decodeOpus(frame.fromUserID, frame.timestampMS, bytes);
+      return;
     }
+    if (frame.codec === "pcm16") {
+      this.playPCMFrame({
+        fromUserID: frame.fromUserID,
+        sampleRate: frame.sampleRate || targetSampleRate,
+        samples: pcm16ToFloat(bytes),
+      });
+    }
+  }
+
+  async close() {
+    this.micEnabled = false;
+    this.started = false;
+    this.processor?.disconnect();
+    this.monitorGain?.disconnect();
+    this.source?.disconnect();
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.encoder?.close();
+    this.decoder?.close();
+    await this.audioContext?.close().catch(() => undefined);
+    this.processor = undefined;
+    this.monitorGain = undefined;
+    this.source = undefined;
+    this.stream = undefined;
+    this.audioContext = undefined;
+    this.encoder = undefined;
+    this.decoder = undefined;
+    this.micBuffer = new Float32Array(0);
+    this.playbackAtByUser.clear();
+  }
+
+  private captureAudio(input: Float32Array) {
+    if (!this.micEnabled || !this.encoder || !this.audioContext) {
+      return;
+    }
+    const sampleRate = this.audioContext.sampleRate || targetSampleRate;
+    const resampled = resampleMono(input, sampleRate, targetSampleRate);
+    this.micBuffer = appendSamples(this.micBuffer, resampled);
+    while (this.micBuffer.length >= frameSamples) {
+      const frame = this.micBuffer.slice(0, frameSamples);
+      this.micBuffer = this.micBuffer.slice(frameSamples);
+      if (rms(frame) < silenceThreshold) {
+        continue;
+      }
+      this.encoder.encode(frame, Date.now());
+    }
+  }
+
+  private sendEncodedFrame(frame: EncodedVoiceFrame) {
+    void SendVoiceAudioFrame({
+      roomID: this.room.id,
+      seq: ++this.seq,
+      timestampMS: frame.timestampMS,
+      codec: frame.codec,
+      sampleRate: frame.sampleRate,
+      payload: Array.from(frame.payload),
+    }).catch((err) => this.callbacks.onError(errorMessage(err)));
+  }
+
+  private playPCMFrame(frame: DecodedVoiceFrame) {
+    if (!this.audioContext || frame.samples.length === 0) {
+      return;
+    }
+    const samples = new Float32Array(frame.samples);
+    const buffer = this.audioContext.createBuffer(1, samples.length, frame.sampleRate || targetSampleRate);
+    buffer.copyToChannel(samples, 0);
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(this.audioContext.destination);
@@ -119,22 +182,179 @@ export class VoiceSession {
     source.start(startAt);
     this.playbackAtByUser.set(frame.fromUserID, startAt + buffer.duration);
   }
+}
 
-  async close() {
-    this.micEnabled = false;
-    this.started = false;
-    this.processor?.disconnect();
-    this.monitorGain?.disconnect();
-    this.source?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    await this.audioContext?.close().catch(() => undefined);
-    this.processor = undefined;
-    this.monitorGain = undefined;
-    this.source = undefined;
-    this.stream = undefined;
-    this.audioContext = undefined;
-    this.playbackAtByUser.clear();
+type DecodedVoiceFrame = {
+  fromUserID: number;
+  sampleRate: number;
+  samples: Float32Array<ArrayBuffer>;
+};
+
+class VoiceEncoder {
+  private encoder?: AudioEncoder;
+  private readonly output: (frame: EncodedVoiceFrame) => void;
+  private readonly codec: VoiceCodec;
+
+  private constructor(codec: VoiceCodec, output: (frame: EncodedVoiceFrame) => void, encoder?: AudioEncoder) {
+    this.codec = codec;
+    this.output = output;
+    this.encoder = encoder;
   }
+
+  static async create(output: (frame: EncodedVoiceFrame) => void) {
+    const config: AudioEncoderConfig = {
+      codec: "opus",
+      sampleRate: targetSampleRate,
+      numberOfChannels: 1,
+      bitrate: opusBitrate,
+      bitrateMode: "constant",
+    };
+    if (typeof AudioEncoder !== "undefined" && typeof AudioData !== "undefined") {
+      const support = await AudioEncoder.isConfigSupported(config).catch(() => ({ supported: false }));
+      if (support.supported) {
+        const encoder = new AudioEncoder({
+          output: (chunk) => {
+            const payload = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(payload);
+            output({
+              codec: "opus",
+              sampleRate: targetSampleRate,
+              timestampMS: Math.round(chunk.timestamp / 1000),
+              payload,
+            });
+          },
+          error: () => undefined,
+        });
+        encoder.configure(config);
+        return new VoiceEncoder("opus", output, encoder);
+      }
+    }
+    return new VoiceEncoder("pcm16", output);
+  }
+
+  encode(samples: Float32Array, timestampMS: number) {
+    if (this.encoder && this.codec === "opus") {
+      if (this.encoder.encodeQueueSize > 3) {
+        return;
+      }
+      const ownedSamples = new Float32Array(samples);
+      const data = new AudioData({
+        format: "f32",
+        sampleRate: targetSampleRate,
+        numberOfChannels: 1,
+        numberOfFrames: ownedSamples.length,
+        timestamp: timestampMS * 1000,
+        data: ownedSamples.buffer,
+      });
+      this.encoder.encode(data);
+      data.close();
+      return;
+    }
+    const pcmSamples = resampleMono(samples, targetSampleRate, pcmFallbackSampleRate);
+    const pcm = floatToPCM16(pcmSamples);
+    this.output({
+      codec: "pcm16",
+      sampleRate: pcmFallbackSampleRate,
+      timestampMS,
+      payload: new Uint8Array(pcm.buffer),
+    });
+  }
+
+  close() {
+    this.encoder?.close();
+    this.encoder = undefined;
+  }
+}
+
+class VoiceDecoder {
+  private decoder?: AudioDecoder;
+  private readonly output: (frame: DecodedVoiceFrame) => void;
+  private pendingByTimestamp = new Map<number, number>();
+
+  private constructor(output: (frame: DecodedVoiceFrame) => void, decoder?: AudioDecoder) {
+    this.output = output;
+    this.decoder = decoder;
+  }
+
+  static async create(output: (frame: DecodedVoiceFrame) => void) {
+    const config: AudioDecoderConfig = {
+      codec: "opus",
+      sampleRate: targetSampleRate,
+      numberOfChannels: 1,
+    };
+    if (typeof AudioDecoder !== "undefined" && typeof EncodedAudioChunk !== "undefined") {
+      const support = await AudioDecoder.isConfigSupported(config).catch(() => ({ supported: false }));
+      if (support.supported) {
+        const decoderOwner = new VoiceDecoder(output);
+        const decoder = new AudioDecoder({
+          output: (audio) => decoderOwner.handleDecodedAudio(audio),
+          error: () => undefined,
+        });
+        decoderOwner.decoder = decoder;
+        decoder.configure(config);
+        return decoderOwner;
+      }
+    }
+    return new VoiceDecoder(output);
+  }
+
+  decodeOpus(fromUserID: number, timestampMS: number, payload: Uint8Array) {
+    if (!this.decoder || this.decoder.state !== "configured") {
+      return;
+    }
+    if (this.decoder.decodeQueueSize > 6) {
+      return;
+    }
+    const timestamp = timestampMS * 1000;
+    this.pendingByTimestamp.set(timestamp, fromUserID);
+    this.decoder.decode(
+      new EncodedAudioChunk({
+        type: "key",
+        timestamp,
+        duration: frameDurationMS * 1000,
+        data: payload,
+      }),
+    );
+  }
+
+  close() {
+    this.decoder?.close();
+    this.decoder = undefined;
+    this.pendingByTimestamp.clear();
+  }
+
+  private handleDecodedAudio(audio: AudioData) {
+    const fromUserID = thisFromTimestamp(audio.timestamp, this.pendingByTimestamp);
+    if (fromUserID <= 0) {
+      audio.close();
+      return;
+    }
+    const samples = audioDataToFloat32(audio);
+    this.output({ fromUserID, sampleRate: audio.sampleRate || targetSampleRate, samples });
+    audio.close();
+  }
+}
+
+function thisFromTimestamp(timestamp: number, pending: Map<number, number>) {
+  const userID = pending.get(timestamp) || 0;
+  pending.delete(timestamp);
+  return userID;
+}
+
+function audioDataToFloat32(audio: AudioData) {
+  const samples = new Float32Array(audio.numberOfFrames);
+  audio.copyTo(samples, { planeIndex: 0, format: "f32" });
+  return samples;
+}
+
+function appendSamples(current: Float32Array, next: Float32Array) {
+  if (current.length === 0) {
+    return next.slice();
+  }
+  const out = new Float32Array(current.length + next.length);
+  out.set(current, 0);
+  out.set(next, current.length);
+  return out;
 }
 
 function resampleMono(input: Float32Array, sourceRate: number, targetRate: number) {
@@ -161,6 +381,15 @@ function floatToPCM16(input: Float32Array) {
     pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
   }
   return pcm;
+}
+
+function pcm16ToFloat(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const samples = new Float32Array(Math.floor(bytes.byteLength / 2));
+  for (let i = 0; i < samples.length; i++) {
+    samples[i] = view.getInt16(i * 2, true) / 32768;
+  }
+  return samples;
 }
 
 function rms(input: Float32Array) {

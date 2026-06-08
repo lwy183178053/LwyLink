@@ -462,6 +462,7 @@ export namespace main {
 	    roomID: number;
 	    seq: number;
 	    timestampMS: number;
+	    codec: string;
 	    sampleRate: number;
 	    payload: number[];
 
@@ -474,6 +475,7 @@ export namespace main {
 	        this.roomID = source["roomID"];
 	        this.seq = source["seq"];
 	        this.timestampMS = source["timestampMS"];
+	        this.codec = source["codec"];
 	        this.sampleRate = source["sampleRate"];
 	        this.payload = source["payload"];
 	    }

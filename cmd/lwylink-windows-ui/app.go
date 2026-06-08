@@ -122,6 +122,7 @@ type VoiceAudioFrameInput struct {
 	RoomID      int64  `json:"roomID"`
 	Seq         uint64 `json:"seq"`
 	TimestampMS int64  `json:"timestampMS"`
+	Codec       string `json:"codec"`
 	SampleRate  int    `json:"sampleRate"`
 	Payload     []byte `json:"payload"`
 }
@@ -849,6 +850,10 @@ func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) 
 		a.mu.Unlock()
 		return AppState{}, fmt.Errorf("请先启动虚拟网络")
 	}
+	codec := strings.TrimSpace(input.Codec)
+	if codec == "" {
+		codec = "pcm16"
+	}
 	if input.SampleRate <= 0 || len(input.Payload) == 0 {
 		a.mu.Unlock()
 		return a.stateLocked(), nil
@@ -877,7 +882,7 @@ func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) 
 			ToUserID:    participant.UserID,
 			Seq:         input.Seq,
 			TimestampMS: input.TimestampMS,
-			Codec:       "pcm16",
+			Codec:       codec,
 			SampleRate:  input.SampleRate,
 			Payload:     append([]byte(nil), input.Payload...),
 		}
