@@ -89,7 +89,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			version VARCHAR(32) NOT NULL,
 			platform VARCHAR(32) NOT NULL,
 			notes TEXT NULL,
-			mandatory BOOLEAN NOT NULL DEFAULT FALSE,
+			mandatory BOOLEAN NOT NULL DEFAULT TRUE,
 			install_args VARCHAR(255) NOT NULL DEFAULT '',
 			file_name VARCHAR(255) NOT NULL,
 			stored_file_name VARCHAR(255) NOT NULL UNIQUE,
@@ -158,6 +158,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	if err := ensureColumn(ctx, db, "server_nodes", "public_udp_addr", "VARCHAR(255) NOT NULL DEFAULT '' AFTER public_overlay_addr"); err != nil {
 		return fmt.Errorf("migrate server_nodes.public_udp_addr: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE client_releases MODIFY COLUMN mandatory BOOLEAN NOT NULL DEFAULT TRUE`); err != nil {
+		return fmt.Errorf("migrate client_releases.mandatory: %w", err)
 	}
 	return nil
 }

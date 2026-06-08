@@ -69,7 +69,7 @@ func (s *Server) handleClientReleaseTicket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	expires := time.Now().Add(downloadTicketTTL)
-	ticket := s.signDownloadTicket(release.StoredFileName, user.ID, expires)
+	ticket := s.signDownloadTicket(release.StoredFileName, user.ID, ip, expires)
 	u := s.clientReleaseDownloadURL(r, release)
 	sep := "?"
 	if strings.Contains(u, "?") {
@@ -93,7 +93,7 @@ func (s *Server) authorizeClientDownload(r *http.Request, release clientrelease.
 		return downloadAuth{result: "admin"}, nil
 	}
 	if ticket := strings.TrimSpace(r.URL.Query().Get("ticket")); ticket != "" {
-		userID, err := s.verifyDownloadTicket(ticket, release.StoredFileName)
+		userID, err := s.verifyDownloadTicket(ticket, release.StoredFileName, clientIP(r))
 		if err != nil {
 			return downloadAuth{}, err
 		}
@@ -140,20 +140,20 @@ func (s *Server) logClientDownload(r *http.Request, release clientrelease.Releas
 	})
 }
 
-func (s *Server) signDownloadTicket(storedName string, userID int64, expires time.Time) string {
+func (s *Server) signDownloadTicket(storedName string, userID int64, ip string, expires time.Time) string {
 	exp := expires.Unix()
-	payload := fmt.Sprintf("%s|%d|%d", storedName, userID, exp)
+	payload := fmt.Sprintf("%s|%d|%d|%s", storedName, userID, exp, normalizeTicketIP(ip))
 	sig := signDownloadPayload(s.downloadTicketSecret(), payload)
 	return base64.RawURLEncoding.EncodeToString([]byte(payload + "|" + sig))
 }
 
-func (s *Server) verifyDownloadTicket(ticket, storedName string) (int64, error) {
+func (s *Server) verifyDownloadTicket(ticket, storedName, ip string) (int64, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(ticket)
 	if err != nil {
 		return 0, fmt.Errorf("bad download ticket")
 	}
 	parts := strings.Split(string(raw), "|")
-	if len(parts) != 4 || parts[0] != storedName {
+	if len(parts) != 5 || parts[0] != storedName || parts[3] != normalizeTicketIP(ip) {
 		return 0, fmt.Errorf("bad download ticket")
 	}
 	userID, err := strconv.ParseInt(parts[1], 10, 64)
@@ -164,12 +164,16 @@ func (s *Server) verifyDownloadTicket(ticket, storedName string) (int64, error) 
 	if err != nil || time.Now().Unix() > exp {
 		return 0, fmt.Errorf("download ticket expired")
 	}
-	payload := strings.Join(parts[:3], "|")
+	payload := strings.Join(parts[:4], "|")
 	want := signDownloadPayload(s.downloadTicketSecret(), payload)
-	if !hmac.Equal([]byte(want), []byte(parts[3])) {
+	if !hmac.Equal([]byte(want), []byte(parts[4])) {
 		return 0, fmt.Errorf("bad download ticket")
 	}
 	return userID, nil
+}
+
+func normalizeTicketIP(ip string) string {
+	return strings.TrimSpace(strings.ToLower(ip))
 }
 
 func (s *Server) downloadTicketSecret() []byte {

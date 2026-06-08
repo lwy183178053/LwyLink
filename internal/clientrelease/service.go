@@ -83,7 +83,7 @@ func (s *Service) Upload(ctx context.Context, input UploadInput, file multipart.
 		Version:        version,
 		Platform:       platform,
 		Notes:          strings.TrimSpace(input.Notes),
-		Mandatory:      input.Mandatory,
+		Mandatory:      true,
 		InstallArgs:    strings.TrimSpace(input.InstallArgs),
 		FileName:       originalName,
 		StoredFileName: storedName,

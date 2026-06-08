@@ -11,20 +11,23 @@ import (
 
 func TestDownloadTicketRoundTripAndExpiry(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
-	ticket := srv.signDownloadTicket("client.exe", 42, time.Now().Add(time.Minute))
-	userID, err := srv.verifyDownloadTicket(ticket, "client.exe")
+	ticket := srv.signDownloadTicket("client.exe", 42, "203.0.113.8", time.Now().Add(time.Minute))
+	userID, err := srv.verifyDownloadTicket(ticket, "client.exe", "203.0.113.8")
 	if err != nil {
 		t.Fatalf("verify ticket: %v", err)
 	}
 	if userID != 42 {
 		t.Fatalf("userID=%d, want 42", userID)
 	}
-	if _, err := srv.verifyDownloadTicket(ticket, "other.exe"); err == nil {
+	if _, err := srv.verifyDownloadTicket(ticket, "other.exe", "203.0.113.8"); err == nil {
 		t.Fatalf("ticket verified for wrong file")
 	}
+	if _, err := srv.verifyDownloadTicket(ticket, "client.exe", "203.0.113.9"); err == nil {
+		t.Fatalf("ticket verified for wrong ip")
+	}
 
-	expired := srv.signDownloadTicket("client.exe", 42, time.Now().Add(-time.Second))
-	if _, err := srv.verifyDownloadTicket(expired, "client.exe"); err == nil {
+	expired := srv.signDownloadTicket("client.exe", 42, "203.0.113.8", time.Now().Add(-time.Second))
+	if _, err := srv.verifyDownloadTicket(expired, "client.exe", "203.0.113.8"); err == nil {
 		t.Fatalf("expired ticket verified")
 	}
 }
@@ -63,8 +66,9 @@ func TestAuthorizeClientDownload(t *testing.T) {
 		t.Fatalf("auth result=%q, want admin", auth.result)
 	}
 
-	ticket := srv.signDownloadTicket(release.StoredFileName, 7, time.Now().Add(time.Minute))
+	ticket := srv.signDownloadTicket(release.StoredFileName, 7, "192.0.2.1", time.Now().Add(time.Minute))
 	req = httptest.NewRequest(http.MethodGet, "/downloads/client/client.exe?ticket="+ticket, nil)
+	req.RemoteAddr = "192.0.2.1:12345"
 	auth, err = srv.authorizeClientDownload(req, release)
 	if err != nil {
 		t.Fatalf("ticket download rejected: %v", err)
