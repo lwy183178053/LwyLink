@@ -245,16 +245,10 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				}
 				switch control.Type {
 				case overlay.UDPControlConfig:
-					select {
-					case udpConfigCh <- control:
-					default:
-					}
+					sendLatestUDPConfig(udpConfigCh, control)
 				case overlay.UDPControlPeer:
 					if control.Peer != nil {
-						select {
-						case udpPeerCh <- *control.Peer:
-						default:
-						}
+						sendLatestUDPPeer(udpPeerCh, *control.Peer)
 					}
 				}
 			default:
@@ -336,6 +330,38 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	_ = t.Close()
 	wg.Wait()
 	return nil
+}
+
+func sendLatestUDPConfig(ch chan overlay.UDPControl, control overlay.UDPControl) {
+	select {
+	case ch <- control:
+		return
+	default:
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	select {
+	case ch <- control:
+	default:
+	}
+}
+
+func sendLatestUDPPeer(ch chan overlay.UDPPeerCandidate, peer overlay.UDPPeerCandidate) {
+	select {
+	case ch <- peer:
+		return
+	default:
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	select {
+	case ch <- peer:
+	default:
+	}
 }
 
 func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
