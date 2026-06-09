@@ -51,6 +51,16 @@ func TestAdminPaginationBounds(t *testing.T) {
 	}
 }
 
+func TestNormalizedAdminStatus(t *testing.T) {
+	allowed := []string{"active", "disabled"}
+	if got := normalizedAdminStatus(" Active ", allowed); got != "active" {
+		t.Fatalf("normalizedAdminStatus() = %q, want active", got)
+	}
+	if got := normalizedAdminStatus("paused", allowed); got != "" {
+		t.Fatalf("normalizedAdminStatus() = %q, want empty", got)
+	}
+}
+
 func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data := adminPageData{
 		Active:       "overview",

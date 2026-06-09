@@ -1663,10 +1663,10 @@ func paginateAdminNodes(nodes []node.Node, page, perPage int) ([]node.Node, bool
 }
 
 func normalizedAdminStatus(value string, allowed []string) string {
-	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimSpace(value)
 	for _, item := range allowed {
-		if value == item {
-			return value
+		if strings.EqualFold(value, item) {
+			return item
 		}
 	}
 	return ""
@@ -1674,7 +1674,7 @@ func normalizedAdminStatus(value string, allowed []string) string {
 
 func filterAdminNodes(nodes []node.Node, query, status string) []node.Node {
 	query = strings.ToLower(strings.TrimSpace(query))
-	status = strings.TrimSpace(strings.ToLower(status))
+	status = strings.ToLower(strings.TrimSpace(status))
 	if query == "" && status == "" {
 		return nodes
 	}
