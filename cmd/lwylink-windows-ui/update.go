@@ -31,6 +31,8 @@ const (
 	updatePlatform = "windows-amd64"
 
 	updateApplyFlag = "--lwylink-apply-update"
+
+	manualUpdateCheckCooldown = 30 * time.Second
 )
 
 type UpdateState struct {
@@ -48,7 +50,23 @@ type UpdateState struct {
 }
 
 func (a *App) CheckForUpdates() (AppState, error) {
+	return a.checkForUpdates(true)
+}
+
+func (a *App) checkForUpdates(manual bool) (AppState, error) {
 	a.mu.Lock()
+	if manual {
+		now := time.Now()
+		if !a.lastManualUpdateAt.IsZero() {
+			remaining := manualUpdateCheckCooldown - now.Sub(a.lastManualUpdateAt)
+			if remaining > 0 {
+				state := a.stateLocked()
+				a.mu.Unlock()
+				return state, fmt.Errorf("检查更新太频繁，请 %d 秒后再试", int(remaining.Seconds())+1)
+			}
+		}
+		a.lastManualUpdateAt = now
+	}
 	a.resetUpdateLocked()
 	a.startUpdateCheckLocked("正在检查更新")
 	return a.commitStateLocked(), nil

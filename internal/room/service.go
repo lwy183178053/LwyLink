@@ -21,7 +21,25 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
-const maxChatMessageRunes = 500
+const MaxChatMessageRunes = 500
+
+func NormalizeChatMessage(message string) (string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", fmt.Errorf("聊天内容不能为空")
+	}
+	if len([]rune(message)) > MaxChatMessageRunes {
+		return "", fmt.Errorf("聊天内容不能超过 %d 个字符", MaxChatMessageRunes)
+	}
+	return message, nil
+}
+
+func ChatRelayTrafficBytes(message string, recipients int) int64 {
+	if recipients < 1 {
+		recipients = 1
+	}
+	return int64(len([]byte(message))) * int64(recipients)
+}
 
 type PublicKeyStore interface {
 	PutRoomPublicKey(ctx context.Context, publicKey string, roomID int64) error
@@ -265,12 +283,13 @@ func (s *Service) ListMembers(ctx context.Context, requesterUserID, roomID int64
 }
 
 func (s *Service) SendChat(ctx context.Context, userID, roomID int64, message string) (ChatMessage, error) {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return ChatMessage{}, fmt.Errorf("聊天内容不能为空")
-	}
-	if len([]rune(message)) > maxChatMessageRunes {
-		return ChatMessage{}, fmt.Errorf("聊天内容不能超过 %d 个字符", maxChatMessageRunes)
+	return s.SendChatWithTrafficCharge(ctx, userID, roomID, message, nil)
+}
+
+func (s *Service) SendChatWithTrafficCharge(ctx context.Context, userID, roomID int64, message string, charge func(bytes int64) error) (ChatMessage, error) {
+	message, err := NormalizeChatMessage(message)
+	if err != nil {
+		return ChatMessage{}, err
 	}
 	if _, err := s.EnsureMember(ctx, roomID, userID); err != nil {
 		return ChatMessage{}, err
@@ -282,6 +301,11 @@ func (s *Service) SendChat(ctx context.Context, userID, roomID int64, message st
 	sender, ok := memberByUserID(members, userID)
 	if !ok {
 		return ChatMessage{}, fmt.Errorf("user is not a room member")
+	}
+	if charge != nil {
+		if err := charge(ChatRelayTrafficBytes(message, len(members))); err != nil {
+			return ChatMessage{}, err
+		}
 	}
 	chat := ChatMessage{
 		ID:          randomChatID(),

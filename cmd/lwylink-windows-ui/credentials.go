@@ -26,11 +26,7 @@ type savedLoginFile struct {
 }
 
 func normalizeSavedAPIBaseURL(value string) string {
-	apiBaseURL := strings.TrimRight(strings.TrimSpace(value), "/")
-	if apiBaseURL == "" {
-		return defaultAPIBaseURL
-	}
-	return apiBaseURL
+	return defaultAPIBaseURL
 }
 
 func loadSavedLogin() (savedLogin, bool, error) {

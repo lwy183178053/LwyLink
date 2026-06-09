@@ -59,6 +59,7 @@ type App struct {
 	updateSeq          int64
 	preparedUpdatePath string
 	update             UpdateState
+	lastManualUpdateAt time.Time
 
 	tray               *trayController
 	allowQuit          bool

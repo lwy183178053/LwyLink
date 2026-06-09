@@ -34,7 +34,6 @@ export type RoomForm = {
 };
 
 export type SettingsForm = {
-  apiBaseURL: string;
   voiceSettings: VoiceSettings;
 };
 

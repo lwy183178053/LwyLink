@@ -22,7 +22,6 @@ import {
   Radio,
   RefreshCw,
   Send,
-  SlidersHorizontal,
   Trash2,
   UserMinus,
   UserPlus,
@@ -843,7 +842,6 @@ export function SettingsPage({
   voiceDevices,
   disabled,
   onSubmit,
-  onAPIBaseURLChange,
   onVoiceSettingsChange,
   onCheckUpdates,
   onInstallUpdate,
@@ -855,7 +853,6 @@ export function SettingsPage({
   voiceDevices: { inputs: VoiceDevice[]; outputs: VoiceDevice[] };
   disabled: boolean;
   onSubmit: (event: FormEvent) => void;
-  onAPIBaseURLChange: (value: string) => void;
   onVoiceSettingsChange: (patch: Partial<VoiceSettings>) => void;
   onCheckUpdates: () => void;
   onInstallUpdate: () => void;
@@ -865,26 +862,6 @@ export function SettingsPage({
   return (
     <section className="settings-grid">
       <div className="settings-column">
-        <form className="surface settings-panel" onSubmit={onSubmit}>
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">客户端</span>
-              <h2>服务器设置</h2>
-            </div>
-            <SlidersHorizontal size={18} />
-          </div>
-          <div className="form-stack">
-            <Field label="接口地址">
-              <Input className="pretty-input" value={form.apiBaseURL} onChange={(_, data) => onAPIBaseURLChange(data.value)} />
-            </Field>
-            <div className="command-actions">
-              <Button appearance="primary" type="submit" disabled={disabled}>
-                保存
-              </Button>
-            </div>
-          </div>
-        </form>
-
         <form className="surface voice-settings-panel" onSubmit={onSubmit}>
           <div className="surface-head">
             <div>

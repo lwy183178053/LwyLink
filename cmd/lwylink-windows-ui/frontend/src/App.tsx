@@ -107,7 +107,6 @@ export default function App() {
   });
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
-    apiBaseURL: emptyState.apiBaseURL,
     voiceSettings: emptyState.voiceSettings,
   });
   const connectionSignature = useRef("");
@@ -238,11 +237,10 @@ export default function App() {
   function applyState(next: AppState) {
     const normalized = normalizeAppState(next);
     setState(normalized);
-    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${JSON.stringify(normalized.voiceSettings)}`;
+    const nextSettingsSignature = `${normalized.interfaceName}|${JSON.stringify(normalized.voiceSettings)}`;
     if (settingsSignature.current !== nextSettingsSignature) {
       settingsSignature.current = nextSettingsSignature;
       setSettingsForm({
-        apiBaseURL: normalized.apiBaseURL,
         voiceSettings: normalized.voiceSettings,
       });
     }
@@ -570,7 +568,7 @@ export default function App() {
     event.preventDefault();
     await run("保存设置", () =>
       SetSettings(goModels.SettingsInput.createFrom({
-        apiBaseURL: settingsForm.apiBaseURL,
+        apiBaseURL: state.apiBaseURL,
         interfaceName: state.interfaceName,
         voiceSettings: settingsForm.voiceSettings,
       })),
@@ -821,7 +819,7 @@ export default function App() {
         authMode={authMode}
         loginForm={loginForm}
         authRules={authRules}
-        apiBaseURL={settingsForm.apiBaseURL}
+        apiBaseURL={state.apiBaseURL}
         interfaceName={state.interfaceName}
         connection={state.connection}
         currentRoom={currentRoom}
@@ -925,7 +923,6 @@ export default function App() {
         voiceDevices={voiceDevices}
         disabled={isBusy}
         onSubmit={handleSaveSettings}
-        onAPIBaseURLChange={(value) => setSettingsForm((current) => ({ ...current, apiBaseURL: value }))}
         onVoiceSettingsChange={updateVoiceSettings}
         onCheckUpdates={handleCheckUpdates}
         onInstallUpdate={() => run("启动更新", InstallPreparedUpdate)}

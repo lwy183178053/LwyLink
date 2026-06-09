@@ -461,11 +461,14 @@ func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	chat, err := s.rooms.SendChat(r.Context(), user.ID, req.RoomID, req.Message)
+	chat, err := s.rooms.SendChatWithTrafficCharge(r.Context(), user.ID, req.RoomID, req.Message, func(bytes int64) error {
+		return s.accounts.ConsumeRelayTraffic(r.Context(), user.ID, bytes)
+	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, statusForAccountError(err, http.StatusBadRequest), err.Error())
 		return
 	}
+	s.notifyUserUpdated(r.Context(), user.ID)
 	writeJSON(w, http.StatusOK, chat)
 }
 
