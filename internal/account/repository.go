@@ -187,13 +187,13 @@ func (r *Repository) ConsumeRelayTraffic(ctx context.Context, userID, bytes int6
 		u.RelayTrafficUsedBytes = 0
 		u.RelayTrafficPeriod = period
 	}
-	baseRemaining := maxInt64(0, u.RelayTrafficBaseQuotaBytes()-maxInt64(0, u.RelayTrafficUsedBytes))
-	extraCost := maxInt64(0, bytes-baseRemaining)
-	if extraCost > maxInt64(0, u.RelayTrafficExtraBytes) {
+	baseRemaining := max(0, u.RelayTrafficBaseQuotaBytes()-max(0, u.RelayTrafficUsedBytes))
+	extraCost := max(0, bytes-baseRemaining)
+	if extraCost > max(0, u.RelayTrafficExtraBytes) {
 		return ErrRelayTrafficExceeded
 	}
-	nextUsed := maxInt64(0, u.RelayTrafficUsedBytes) + bytes
-	nextExtra := maxInt64(0, u.RelayTrafficExtraBytes) - extraCost
+	nextUsed := max(0, u.RelayTrafficUsedBytes) + bytes
+	nextExtra := max(0, u.RelayTrafficExtraBytes) - extraCost
 
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE users

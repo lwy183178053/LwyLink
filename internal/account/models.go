@@ -74,12 +74,12 @@ func (u User) RelayTrafficBaseQuotaBytes() int64 {
 }
 
 func (u User) RelayTrafficQuotaBytes() int64 {
-	return maxInt64(0, u.RelayTrafficUsedBytes) + u.RelayTrafficRemainingBytes()
+	return max(0, u.RelayTrafficUsedBytes) + u.RelayTrafficRemainingBytes()
 }
 
 func (u User) RelayTrafficRemainingBytes() int64 {
-	baseRemaining := maxInt64(0, u.RelayTrafficBaseQuotaBytes()-maxInt64(0, u.RelayTrafficUsedBytes))
-	return baseRemaining + maxInt64(0, u.RelayTrafficExtraBytes)
+	baseRemaining := max(0, u.RelayTrafficBaseQuotaBytes()-max(0, u.RelayTrafficUsedBytes))
+	return baseRemaining + max(0, u.RelayTrafficExtraBytes)
 }
 
 func normalizeMembership(value string) string {
@@ -87,11 +87,4 @@ func normalizeMembership(value string) string {
 		return MembershipVIP
 	}
 	return MembershipFree
-}
-
-func maxInt64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
 }
