@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -964,10 +965,8 @@ func normalizeMaxMembers(v int) (int, error) {
 	if v <= 0 {
 		return DefaultMaxMembers, nil
 	}
-	for _, option := range allRoomMemberOptions {
-		if v == option {
-			return v, nil
-		}
+	if slices.Contains(allRoomMemberOptions, v) {
+		return v, nil
 	}
 	return 0, fmt.Errorf("房间人数只能选择 %s", allowedMaxMembersText())
 }
