@@ -164,18 +164,18 @@ Risks:
 
 ## P4: UDP or QUIC Relay
 
-Current TCP relay is stable, but realtime voice over TCP can suffer head-of-line blocking.
+Current TCP relay is stable, but high-throughput or latency-sensitive virtual LAN traffic can still suffer head-of-line blocking.
 
 Investigate:
 
-- UDP relay for voice frames.
+- UDP relay for selected overlay payloads.
 - QUIC datagrams if available.
 - Keep TCP relay for IP/control fallback.
 
 Benefits:
 
-- Better voice under loss/jitter.
-- Avoids one large IP frame delaying voice frames.
+- Better latency behavior under loss/jitter.
+- Avoids one large IP frame delaying later latency-sensitive packets.
 
 Risks:
 
@@ -198,8 +198,8 @@ This is later work, but the diagnostics model should not assume only one node fo
 1. Add smoke output for current UDP candidate attempts and selected path.
 2. Add STUN srflx candidate behind config flag.
 3. Compare direct success rate before/after STUN.
-4. Add voice relay jitter measurement to smoke.
-5. Decide whether UDP/QUIC relay is needed for voice if WebRTC is not adopted.
+4. Add relay latency/jitter measurement to smoke.
+5. Decide whether UDP/QUIC relay is needed for virtual LAN traffic after diagnostics show TCP relay head-of-line blocking in real use.
 
 ## Non-Goals For Now
 
@@ -210,4 +210,4 @@ This is later work, but the diagnostics model should not assume only one node fo
 
 ## Decision Rule
 
-Improve the LwyLink overlay for virtual LAN traffic regardless of the voice decision. Even if voice moves to WebRTC, better NAT traversal still benefits games and applications using the virtual network.
+Improve the LwyLink overlay for virtual LAN traffic. Voice now uses WebRTC, but better NAT traversal still benefits games and applications using the virtual network.
