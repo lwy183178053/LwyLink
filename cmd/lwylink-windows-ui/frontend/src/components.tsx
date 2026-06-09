@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, ReactNode, RefObject } from "react";
-import { Button, Field, Input, Select, Slider, Spinner, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Select, Slider, Spinner } from "@fluentui/react-components";
 import {
   CircleCheck,
   CircleX,
@@ -327,7 +327,23 @@ export function RoomEntryPage({
 }) {
   return (
     <section className="room-entry">
-      <form className="surface command-panel" onSubmit={onCreateRoom}>
+      <div className="room-entry-brief">
+        <div className="room-entry-mark">
+          <Network size={24} />
+        </div>
+        <div>
+          <span className="eyebrow">LwyLink Rooms</span>
+          <h2>一间房，把组网和语音放到一起</h2>
+          <p>创建房间后复制密钥邀请成员；客户端会先保证中继可用，再自动尝试加速路径。</p>
+        </div>
+        <div className="room-entry-points">
+          <span>自动加速</span>
+          <span>高清语音</span>
+          <span>TCP 保底</span>
+        </div>
+      </div>
+
+      <form className="surface command-panel room-create-panel" onSubmit={onCreateRoom}>
         <div className="surface-head">
           <div>
             <span className="eyebrow">房主</span>
@@ -347,7 +363,7 @@ export function RoomEntryPage({
         </div>
       </form>
 
-      <form className="surface command-panel" onSubmit={onJoinRoom}>
+      <form className="surface command-panel room-join-panel" onSubmit={onJoinRoom}>
         <div className="surface-head">
           <div>
             <span className="eyebrow">成员</span>
@@ -357,7 +373,7 @@ export function RoomEntryPage({
         </div>
         <div className="form-stack">
           <Field label="房间密钥">
-            <Textarea className="pretty-textarea" rows={8} value={form.joinKey} onChange={(_, data) => onJoinKeyChange(data.value)} />
+            <Input className="pretty-input room-key-input" value={form.joinKey} onChange={(_, data) => onJoinKeyChange(data.value)} />
           </Field>
           <Button appearance="primary" icon={<UserPlus size={16} />} type="submit" disabled={disabled || form.joinKey.trim() === ""}>
             加入

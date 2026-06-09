@@ -126,16 +126,16 @@
   <div class="panel">
     <div class="panel-head">
       <div>
-        <h2>实时状态</h2>
+        <h2>系统健康</h2>
         <p>生成时间 {{timeText .Metrics.GeneratedAt}}</p>
       </div>
       <a href="{{.CurrentURL}}">刷新</a>
     </div>
     <div class="status-list">
-      <div><span>玩家账号</span><strong>{{.Metrics.ActiveUsers}} / {{.Metrics.Users}}</strong></div>
-      <div><span>开放房间</span><strong>{{.Metrics.OpenRooms}} / {{.Metrics.Rooms}}</strong></div>
-      <div><span>发布版本</span><strong>{{.Metrics.Releases}}</strong></div>
-      <div><span>语音开麦</span><strong>{{.Metrics.VoiceSpeakers}}</strong></div>
+      <div><span>Overlay 在线连接</span><strong>{{.Metrics.OverlayConnections}}</strong></div>
+      <div><span>语音使用</span><strong>{{.Metrics.VoiceParticipants}} 人 / {{.Metrics.VoiceSpeakers}} 麦</strong></div>
+      <div><span>近 1 小时下载</span><strong>{{.Metrics.DownloadsLastHour}}</strong></div>
+      <div><span>节点异常</span><strong>{{len .Metrics.RecentErrors}}</strong></div>
     </div>
   </div>
   <div class="panel">
