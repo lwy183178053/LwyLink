@@ -286,15 +286,26 @@ function voiceRTCDiagnostic(stats: WebRTCVoiceStats[]) {
   if (stats.length === 0) {
     return { label: "高清语音", detail: "等待媒体路径", tone: "" };
   }
-  const connected = stats.filter((item) => item.connectionState === "connected" || item.iceConnectionState === "completed");
-  const candidates = stats.map((item) => item.candidateType).filter(Boolean);
+  const connected = stats.filter(isWebRTCConnected);
+  const reconnecting = stats.filter((item) => item.connectionState === "disconnected" || item.connectionState === "failed" || item.iceConnectionState === "disconnected" || item.iceConnectionState === "failed");
+  const candidateSource = connected.length > 0 ? connected : stats;
+  const candidates = candidateSource.map((item) => item.candidateType).filter(Boolean);
   const usingRelay = candidates.includes("relay");
   const usingDirect = candidates.some((item) => item === "host" || item === "srflx" || item === "prflx");
   const qualityStats = connected.length > 0 ? connected : stats;
   const avgRTT = averageNumber(qualityStats.map((item) => item.roundTripTimeMS).filter((item) => item > 0));
   const avgJitter = averageNumber(qualityStats.map((item) => item.jitterMS).filter((item) => item > 0));
   const lost = qualityStats.reduce((sum, item) => sum + Math.max(0, item.packetsLost), 0);
-  const label = usingRelay ? "TURN 语音" : usingDirect ? "P2P 语音" : connected.length > 0 ? "高清语音" : "语音连接中";
+  const label =
+    connected.length === 0 && reconnecting.length > 0
+      ? "语音重连中"
+      : usingRelay
+        ? "TURN 语音"
+        : usingDirect
+          ? "P2P 语音"
+          : connected.length > 0
+            ? "高清语音"
+            : "语音连接中";
   const tone = usingRelay ? "warn" : connected.length > 0 ? "good" : "";
   const detail = [
     avgRTT > 0 ? `RTT ${avgRTT}ms` : "",
@@ -302,6 +313,10 @@ function voiceRTCDiagnostic(stats: WebRTCVoiceStats[]) {
     lost > 0 ? `丢包 ${lost}` : "",
   ].filter(Boolean).join(" · ");
   return { label, detail: detail || `${connected.length}/${stats.length} 路连接`, tone };
+}
+
+function isWebRTCConnected(item: WebRTCVoiceStats) {
+  return item.connectionState === "connected" || item.iceConnectionState === "connected" || item.iceConnectionState === "completed";
 }
 
 function averageNumber(values: number[]) {

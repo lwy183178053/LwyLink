@@ -211,19 +211,10 @@ export class WebRTCVoiceExperiment {
       }
     };
     peer.onconnectionstatechange = () => {
-      if (peer.connectionState === "connected") {
-        this.clearDisconnectTimer(peerUserID);
-      }
-      if (peer.connectionState === "disconnected") {
-        this.scheduleDisconnectRecovery(peerUserID, peer);
-      }
-      if (peer.connectionState === "failed") {
-        this.closePeer(peerUserID);
-        this.scheduleReconnect(peerUserID);
-      }
-      if (peer.connectionState === "closed") {
-        this.closePeer(peerUserID);
-      }
+      this.handlePeerStateChange(peerUserID, peer);
+    };
+    peer.oniceconnectionstatechange = () => {
+      this.handlePeerStateChange(peerUserID, peer);
     };
     if (initiator) {
       const offer = await peer.createOffer({ offerToReceiveAudio: true });
@@ -240,7 +231,7 @@ export class WebRTCVoiceExperiment {
       this.pendingICE.set(peerUserID, pending.slice(-32));
       return;
     }
-    await peer.addIceCandidate(candidate);
+    await peer.addIceCandidate(candidate).catch(() => undefined);
   }
 
   private async flushPendingICE(peerUserID: number, peer: RTCPeerConnection) {
@@ -295,6 +286,22 @@ export class WebRTCVoiceExperiment {
     }
     window.clearTimeout(timer);
     this.disconnectTimers.delete(peerUserID);
+  }
+
+  private handlePeerStateChange(peerUserID: number, peer: RTCPeerConnection) {
+    if (peer.connectionState === "connected" || peer.iceConnectionState === "connected" || peer.iceConnectionState === "completed") {
+      this.clearDisconnectTimer(peerUserID);
+    }
+    if (peer.connectionState === "disconnected" || peer.iceConnectionState === "disconnected") {
+      this.scheduleDisconnectRecovery(peerUserID, peer);
+    }
+    if (peer.connectionState === "failed" || peer.iceConnectionState === "failed") {
+      this.closePeer(peerUserID);
+      this.scheduleReconnect(peerUserID);
+    }
+    if (peer.connectionState === "closed" || peer.iceConnectionState === "closed") {
+      this.closePeer(peerUserID);
+    }
   }
 
   private closePeer(peerUserID: number) {
