@@ -117,7 +117,7 @@ func PackJSON(typ FrameType, v any) ([]byte, error) {
 
 const (
 	ipPayloadVersion   byte = 1
-	ipPayloadHeaderLen      = 16
+	ipPayloadHeaderLen int  = 16
 )
 
 var ipPayloadMagic = [4]byte{'L', 'W', 'Y', 'I'}
