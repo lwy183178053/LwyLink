@@ -601,9 +601,11 @@ function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, c
   return undefined;
 }
 
-function voiceRTCDiagnostic(stats: WebRTCVoiceStats[]) {
+function voiceRTCDiagnostic(stats: WebRTCVoiceStats[], voiceState: VoiceState) {
   if (stats.length === 0) {
-    return { label: "高清语音", detail: "等待媒体路径", tone: "" };
+    return (voiceState.participantCount || 0) > 1
+      ? { label: "高清语音", detail: "等待媒体路径", tone: "" }
+      : { label: "高清语音", detail: "等待其他成员", tone: "" };
   }
   const connected = stats.filter(isWebRTCConnected);
   const reconnecting = stats.filter((item) => item.connectionState === "disconnected" || item.connectionState === "failed" || item.iceConnectionState === "disconnected" || item.iceConnectionState === "failed");
@@ -670,7 +672,7 @@ function VoiceDock({
 }) {
   const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
   const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
-  const diagnostic = voiceRTCDiagnostic(voiceRTCStats);
+  const diagnostic = voiceRTCDiagnostic(voiceRTCStats, voiceState);
   const transportText = voiceActive ? diagnostic.label : "未加入语音";
   const transportClass = voiceActive ? diagnostic.tone : "";
   return (

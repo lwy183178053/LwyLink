@@ -175,7 +175,9 @@ export class WebRTCVoiceSession {
     this.disconnectTimers.clear();
     this.pendingICE.clear();
     this.voiceMemberIDs.clear();
-    this.peers.forEach((peer) => peer.close());
+    for (const peerUserID of [...this.peers.keys()]) {
+      this.closePeer(peerUserID);
+    }
     this.peers.clear();
     this.outputGainNodes.clear();
     this.source?.disconnect();
@@ -318,7 +320,7 @@ export class WebRTCVoiceSession {
     this.pendingICE.delete(peerUserID);
     this.clearDisconnectTimer(peerUserID);
     peer.close();
-    removeRemoteStream(peerUserID);
+    removeRemoteAudio(peerUserID);
     const gain = this.outputGainNodes.get(peerUserID);
     gain?.disconnect();
     this.outputGainNodes.delete(peerUserID);
@@ -462,8 +464,14 @@ function playRemoteStream(peerUserID: number, stream: MediaStream) {
   void audio.play().catch(() => undefined);
 }
 
-function removeRemoteStream(peerUserID: number) {
-  document.getElementById(remoteAudioID(peerUserID))?.remove();
+function removeRemoteAudio(peerUserID: number) {
+  const audio = document.getElementById(remoteAudioID(peerUserID)) as HTMLAudioElement | null;
+  if (!audio) {
+    return;
+  }
+  audio.pause();
+  audio.srcObject = null;
+  audio.remove();
 }
 
 function remoteAudioID(peerUserID: number) {
