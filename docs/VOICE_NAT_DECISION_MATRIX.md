@@ -1,6 +1,6 @@
 # LwyLink Voice and NAT Decision Matrix
 
-本文件是 `NETWORK_RESEARCH.md` 的后续决策表。目标是在改代码前先明确：我们要用什么证据判断“哪条路线最好”。
+本文件是 `NETWORK_RESEARCH.md` 的后续决策表。它记录语音路线从原生 Overlay 实验收敛到 WebRTC 产品路线的依据，以及后续网络侧应该继续补强的方向。
 
 ## 当前状态
 
@@ -50,18 +50,18 @@ LwyLink 的虚拟局域网核心目标仍然是：
 - 如果目标是证明 LwyLink overlay 可以承载所有业务，原生 Overlay 语音更统一，但必须投入更多实时媒体工程。
 - 混合路线适合测试阶段找答案，但不适合作为长期产品架构。
 
-## WebRTC 语音实验设计
+## WebRTC 语音产品路线
 
-### 最小范围
+### 已落地范围
 
 - 只支持 Windows 客户端。
 - 只做房间内语音，不做视频。
 - 复用现有账号、房间、麦位限制。
-- 新增信令接口，但不改变虚拟局域网传输。
+- 使用独立 WebRTC 媒体通道，不改变虚拟局域网传输。
 - 使用公网 STUN。
-- 允许配置 TURN；如果没有 TURN，先记录 P2P 成功率。
+- 允许配置 TURN；如果没有 TURN，记录 P2P 成功率和失败原因。
 
-### 需要新增的服务端能力
+### 服务端能力
 
 - `POST /api/rooms/voice/webrtc/signal`
 - `GET /api/rooms/voice/webrtc/ice`
@@ -86,7 +86,7 @@ LwyLink 的虚拟局域网核心目标仍然是：
   - `语音连接中`
   - `语音质量不佳`
 
-### 成功标准
+### 继续完善标准
 
 - 两个客户端同房间，语音连续性明显好于当前原生 Overlay 语音。
 - 小声和尾音不被明显吃掉。
@@ -94,16 +94,15 @@ LwyLink 的虚拟局域网核心目标仍然是：
 - `getStats()` 能解释当前路径。
 - 失败时能回落到 TURN，而不是静默失败。
 
-## 原生 Overlay 语音实验设计
+## 原生 Overlay 语音归档路线
 
-### 最小范围
+### 保留范围
 
 - 继续使用 `FrameVoice / UDPTypeVoice`。
-- 不改变房间和账号接口。
-- 不再调大固定缓冲。
-- 重点重写接收端播放策略。
+- 保留底层传输 smoke 和未来协议实验。
+- 不再作为 Windows 客户端产品媒体路径。
 
-### 需要补的媒体层能力
+### 如果未来重新启用，必须补的媒体层能力
 
 - Per-peer jitter estimator。
 - Per-peer adaptive target delay。
@@ -117,7 +116,7 @@ LwyLink 的虚拟局域网核心目标仍然是：
   - TCP relay 下语音帧不应被大 IP 包长期阻塞。
   - IP 和 Voice 至少要有独立逻辑队列。
 
-### 成功标准
+### 重新启用门槛
 
 - P2P 模式初始 jitter 不超过 160ms。
 - Relay 模式初始 jitter 不超过 350ms。
@@ -172,24 +171,13 @@ LwyLink 现在能做 LAN/public candidate 和 UDP rendezvous，但还缺：
 - 不在没有实验数据时重写主线。
 - 不在当前阶段维护两套长期并行的语音产品路线。
 
-## 推荐执行顺序
+## 当前执行顺序
 
-1. 搭建 WebRTC 语音最小实验。
-2. 同时加语音/打洞诊断，不改变正式体验。
-3. 用两台本地客户端和测试服务器做 A/B：
-   - WebRTC P2P。
-   - WebRTC TURN。
-   - 原生 Overlay P2P。
-   - 原生 Overlay TCP Relay。
-4. 对比：
-   - 主观听感。
-   - 往返延迟。
-   - jitter。
-   - packet loss。
-   - tail clipping。
-   - CPU。
-   - relay 流量。
-5. 选择主路线后再大改代码。
+1. 继续完善 WebRTC 语音产品路线。
+2. 部署/验证 TURN 兜底。
+3. 改进语音和虚拟网络路径可观测性。
+4. 将 TURN/relay 流量纳入账号统计或至少进入管理员可见数据。
+5. 持续删除已经被 WebRTC 替代的客户端旧实验代码。
 
 ## 实验结论
 

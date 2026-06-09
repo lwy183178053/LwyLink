@@ -1,10 +1,10 @@
 # LwyLink 网络与语音调研笔记
 
-本文件用于在继续改代码前，先系统学习成熟项目。重点不是“照抄某个项目”，而是判断 LwyLink 当前路线哪里正确、哪里可能陷入误区、下一步应该用实验验证什么。
+本文件用于记录 LwyLink 网络与语音路线的调研依据。重点不是“照抄某个项目”，而是判断 LwyLink 当前路线哪里正确、哪里可能陷入误区，以及后续应该优先补哪些产品能力。
 
 进一步的路线评分和实验标准见 `docs/VOICE_NAT_DECISION_MATRIX.md`。
 
-WebRTC 语音实验计划见 `docs/WEBRTC_VOICE_EXPERIMENT_PLAN.md`。
+WebRTC 语音决策记录见 `docs/WEBRTC_VOICE_EXPERIMENT_PLAN.md`。
 
 NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
@@ -14,14 +14,15 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 当前 LwyLink 的大方向没有错：房间成员鉴权、虚拟网卡 Overlay、UDP P2P 优先、失败后 Relay 保底、控制信号走 TCP，这些都符合成熟虚拟组网产品的基本形态。
 
-但语音这块可能确实陷入了一个误区：我们把语音塞进自研 Overlay 帧后，虽然统一了传输路径，却也把 WebRTC/NetEQ 这种成熟语音栈里最难的部分重新做了一遍，包括自适应 jitter buffer、PLC 丢包隐藏、时钟漂移、回声消除、拥塞控制、音频设备兼容和网络切换。现在靠提高固定缓冲能让语音“不断”，但这更像是在牺牲延迟掩盖接收端播放策略不成熟。
+语音这块已经做过一次重要路线收敛：把客户端产品语音从自研 Overlay 媒体路径切到 WebRTC。原生 Overlay 语音证明了房间成员、P2P/relay 路由和流量统计可以承载业务帧，但也暴露了实时媒体系统的复杂度：自适应 jitter buffer、PLC 丢包隐藏、时钟漂移、回声消除、拥塞控制、音频设备兼容和网络切换都不是“小功能”。
 
-更合理的路线可能有两条：
+当前合理边界是：
 
-1. 游戏/虚拟局域网流量继续走 LwyLink Overlay；语音改回成熟 WebRTC 媒体通道，LwyLink 只负责房间、鉴权、信令和 UI。
-2. 继续保留原生 Overlay 语音，但必须承认它是一个独立实时媒体系统，需要补 RTP-like 接收端：自适应 jitter、PLC、优先级队列、拥塞/丢包统计、按 P2P/Relay 分档策略。
+1. 虚拟局域网流量继续走 LwyLink Overlay。
+2. 房间语音使用成熟 WebRTC 媒体通道，LwyLink 负责房间、鉴权、信令、麦位限制和 UI。
+3. `FrameVoice / UDPTypeVoice` 只保留为底层传输 smoke 和未来实验能力，不再作为 Windows 客户端主语音媒体路径。
 
-我倾向先做 A/B 实验，而不是继续在当前原生语音上盲调参数。
+后续优化重点应放在 TURN 兜底、WebRTC 路径可观测性、账号流量统计、UDP 打洞诊断和持续删除被替代的实验代码。
 
 ## 资料来源
 
@@ -255,53 +256,24 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 适合目标：
 
-- 先验证哪条路线真实体验最好。
+- 保留历史依据，但不要重新引入第二套客户端媒体引擎。
 
-## 我建议的下一步实验
+## 当前后续重点
 
-### 实验 1：WebRTC 语音最小闭环
+### WebRTC 语音产品化
 
-目标：
-
-- 两个 Windows 客户端同房间。
-- 通过现有控制 TCP 做信令。
-- WebRTC 建立语音通话。
-- 使用公网 STUN 和自建 TURN。
+- 部署并验证 TURN 兜底。
 - 记录 ICE candidate 类型、RTT、jitter、packet loss。
+- UI 展示 P2P/TURN/连接不佳的原因，而不是只显示笼统状态。
+- TURN 流量后续纳入账号额度或至少进入可观测统计。
 
-成功标准：
-
-- 小声说话不断尾。
-- 延迟明显低于当前固定 800ms 原生语音。
-- Relay/TURN 下仍可接受。
-
-### 实验 2：原生语音改成自适应 jitter
-
-目标：
-
-- 不改协议大结构。
-- 接收端按 per-peer arrival jitter 动态调整 buffer。
-- 加简单 PLC：丢一两帧时复制/衰减上一帧，而不是直接静音。
-- P2P 初始 120ms，Relay 初始 300ms，上限 800ms。
-
-成功标准：
-
-- 不能只靠 800ms 固定延迟。
-- 自动 QA 和实际听感都要比当前版本好。
-
-### 实验 3：打洞路径诊断
-
-目标：
+### 打洞路径诊断
 
 - 增加 STUN reflexive candidate。
 - 记录每个 peer 的候选、探测结果、选中路径、失败原因。
 - 客户端/管理端能看到为什么走 relay。
-
-成功标准：
-
 - 用户不再只能看到“优化连接/稳定连接”这种模糊词。
-- 能判断是 CGNAT、UDP blocked、symmetric NAT、还是候选探测失败。
 
-## 暂定方向
+### 代码瘦身
 
-WebRTC 语音听感已经通过本地实测，Windows 客户端主路线切到 WebRTC。后续不再继续维护两套客户端媒体引擎；重点转向 TURN 兜底、路径可观测性、账号流量统计和代码瘦身。
+WebRTC 语音听感已经通过本地实测，Windows 客户端主路线切到 WebRTC。后续不再维护两套客户端媒体引擎；已经被 WebRTC 替代的实验代码应持续删除，底层 overlay voice frame 只保留为传输 smoke/实验能力。

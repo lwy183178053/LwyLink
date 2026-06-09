@@ -4,9 +4,9 @@ Status: archived decision record. The Windows client voice product path is now W
 
 The sections below are kept as rationale for why the project moved away from maintaining two client media engines.
 
-## Why This Experiment Exists
+## Why This Decision Exists
 
-The current native overlay voice path proves that voice can share LwyLink room membership, P2P/relay routing, and traffic accounting. However, real-time voice quality depends on a full media stack:
+The former native overlay voice path proved that voice could share LwyLink room membership, P2P/relay routing, and traffic accounting. However, real-time voice quality depends on a full media stack:
 
 - Adaptive jitter buffering.
 - Packet loss concealment.
@@ -17,7 +17,7 @@ The current native overlay voice path proves that voice can share LwyLink room m
 - Audio device compatibility.
 - Per-peer stats and network quality adaptation.
 
-WebRTC already ships these capabilities. The experiment should answer one question:
+WebRTC already ships these capabilities. The experiment answered one question:
 
 > Should LwyLink voice use WebRTC media while LwyLink overlay remains responsible for virtual LAN traffic?
 
@@ -99,9 +99,9 @@ When to move to WebSocket:
 - If bidirectional signaling latency becomes visible.
 - If mobile clients are added later.
 
-## Client-Side Shape
+## Client-Side Shape Chosen
 
-Create a separate experimental module, for example:
+The Windows client now keeps WebRTC voice in:
 
 - `cmd/lwylink-windows-ui/frontend/src/webrtcVoice.ts`
 
@@ -114,16 +114,16 @@ Responsibilities:
 - Render remote audio through regular `HTMLAudioElement` or Web Audio graph.
 - Periodically call `getStats()`.
 
-The experiment phase is over for the Windows client. The native voice frontend module has been removed; keep this document as rationale and historical context.
+The experiment phase is over for the Windows client. The native voice frontend module has been removed; keep this document as rationale and historical context, not as an active implementation plan.
 
 ## ICE Servers
 
-Start with:
+Development started with:
 
 - Public STUN for quick experiment.
 - Configurable STUN/TURN list from server config.
 
-Production likely needs:
+Production still needs:
 
 - Self-hosted coturn or equivalent TURN service.
 - TURN credentials generated per session or short TTL.

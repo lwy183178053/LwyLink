@@ -111,12 +111,12 @@ Should evolve toward:
 - TCP relay for reliability.
 - UDP rendezvous.
 - Candidate observation.
-- Future UDP/QUIC relay for realtime media if native voice remains.
+- Future UDP/QUIC relay for application traffic if TCP head-of-line blocking becomes a practical problem.
 
 Should avoid:
 
 - Media mixing for now.
-- TURN replacement before WebRTC experiment proves the need.
+- Replacing TURN for WebRTC voice unless product evidence shows a clear need.
 
 ### Windows Client
 
@@ -124,7 +124,7 @@ Should evolve toward:
 
 - Clear path diagnostics.
 - Separate virtual LAN, voice, and diagnostics modules.
-- A/B selectable voice backend while experimenting.
+- WebRTC voice as the single product media engine.
 
 Should avoid:
 
@@ -141,14 +141,14 @@ Current Windows voice should be treated as:
 
 The native overlay voice frontend prototype has been removed from the Windows UI to avoid carrying two media engines. Low-level overlay voice frames may remain for transport smoke tests and future protocol experiments.
 
-## Experiment Stop Conditions
+## Voice Route Decision
 
-Stop WebRTC experiment if:
+The WebRTC experiment is complete enough for the Windows product path. Continue with WebRTC voice unless one of these product-level problems appears:
 
 - WebView2 cannot reliably run WebRTC audio capture/playback.
 - TURN configuration or credentials are too fragile for self-hosted users.
 - `getStats()` does not provide enough path/quality visibility in Wails.
-- Latency or audio quality is not meaningfully better than native overlay voice.
+- Latency or audio quality regresses below the removed native overlay prototype.
 
 Keep native overlay voice out of the Windows product path if:
 
@@ -163,4 +163,4 @@ The bias should be:
 - Use LwyLink overlay where LwyLink is unique: virtual LAN, room networking, P2P/relay for arbitrary app traffic.
 - Use mature media systems where the problem is already solved: voice capture, jitter, echo, loss concealment, media NAT traversal.
 
-This bias is not a final decision. It is the hypothesis the next experiment should test.
+This is now the default product direction. Future experiments should prove a concrete improvement before adding another client media engine.
