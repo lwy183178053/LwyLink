@@ -53,15 +53,7 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (User, error) {
 }
 
 func (r *Repository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	return dbutil.RequireAffected(r.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID))
 }
 
 func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error) {
@@ -111,47 +103,23 @@ func (r *Repository) Stats(ctx context.Context) (Stats, error) {
 }
 
 func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE users SET disabled = ? WHERE id = ?`, disabled, userID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	return dbutil.RequireAffected(r.db.ExecContext(ctx, `UPDATE users SET disabled = ? WHERE id = ?`, disabled, userID))
 }
 
 func (r *Repository) SetMembership(ctx context.Context, userID int64, membership string) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE users SET membership = ? WHERE id = ?`, normalizeMembership(membership), userID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	return dbutil.RequireAffected(r.db.ExecContext(ctx, `UPDATE users SET membership = ? WHERE id = ?`, normalizeMembership(membership), userID))
 }
 
 func (r *Repository) AddRelayTraffic(ctx context.Context, userID, bytes int64) error {
 	if bytes <= 0 {
 		return fmt.Errorf("traffic bytes must be positive")
 	}
-	res, err := r.db.ExecContext(ctx,
+	return dbutil.RequireAffected(r.db.ExecContext(ctx,
 		`UPDATE users
 		    SET relay_traffic_extra_bytes = relay_traffic_extra_bytes + ?
 		  WHERE id = ?`,
 		bytes, userID,
-	)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	))
 }
 
 func (r *Repository) ConsumeRelayTraffic(ctx context.Context, userID, bytes int64) error {
@@ -209,15 +177,7 @@ func (r *Repository) ConsumeRelayTraffic(ctx context.Context, userID, bytes int6
 }
 
 func (r *Repository) Delete(ctx context.Context, userID int64) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	return dbutil.RequireAffected(r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID))
 }
 
 func userWhere(filter UserFilter) (string, []any) {
