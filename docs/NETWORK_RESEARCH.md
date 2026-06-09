@@ -276,4 +276,4 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 ### 代码瘦身
 
-WebRTC 语音听感已经通过本地实测，Windows 客户端主路线切到 WebRTC。后续不再维护两套客户端媒体引擎；已经被 WebRTC 替代的实验代码应持续删除，底层 overlay voice frame 只保留为传输 smoke/实验能力。
+WebRTC 语音听感已经通过本地实测，Windows 客户端主路线切到 WebRTC。后续不再维护两套客户端媒体引擎；已经被 WebRTC 替代的实验代码应持续删除，底层 overlay voice frame 不再保留实验传输能力。
