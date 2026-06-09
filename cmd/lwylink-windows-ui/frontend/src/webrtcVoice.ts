@@ -511,16 +511,25 @@ function voiceLevel(input: Float32Array) {
 
 function normalizeICEServers(servers: RTCIceServer[]) {
   const out = servers
-    .map((server) => ({
-      urls: server.urls,
-      username: server.username,
-      credential: server.credential,
-    }))
+    .map((server) => {
+      return {
+        urls: normalizeICEURLs(server.urls),
+        username: typeof server.username === "string" ? server.username.trim() : server.username,
+        credential: typeof server.credential === "string" ? server.credential.trim() : server.credential,
+      };
+    })
     .filter((server) => {
       if (Array.isArray(server.urls)) {
-        return server.urls.some((url) => typeof url === "string" && url.trim() !== "");
+        return server.urls.length > 0;
       }
-      return typeof server.urls === "string" && server.urls.trim() !== "";
+      return server.urls !== "";
     });
   return out.length > 0 ? out : defaultICEServers;
+}
+
+function normalizeICEURLs(urls: RTCIceServer["urls"]) {
+  if (Array.isArray(urls)) {
+    return urls.map((url) => (typeof url === "string" ? url.trim() : "")).filter(Boolean);
+  }
+  return typeof urls === "string" ? urls.trim() : "";
 }
