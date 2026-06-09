@@ -81,6 +81,7 @@ export type ConnectionState = {
   message: string;
   roomID: number;
   ip: string;
+  transportMode?: string;
   directPeerIPs?: string[];
   transportDiagnostics?: TransportDiagnostic[];
 };
@@ -158,14 +159,15 @@ export const emptyState: AppState = {
     updatedAt: "",
   },
   announcement: "官方 QQ 群：715516422",
-  connection: {
-    status: "disconnected",
-    message: "未连接",
-    roomID: 0,
-    ip: "",
-    directPeerIPs: [],
-    transportDiagnostics: [],
-  },
+    connection: {
+      status: "disconnected",
+      message: "未连接",
+      roomID: 0,
+      ip: "",
+      transportMode: "",
+      directPeerIPs: [],
+      transportDiagnostics: [],
+    },
   update: {
     status: "idle",
     message: "",

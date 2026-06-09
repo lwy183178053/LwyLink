@@ -253,7 +253,7 @@ export function RoomPlayersPanel({
   onlineCount,
   connectionRunning,
   directPeerIPSet,
-  connectionMessage,
+  transportMode,
   voiceState,
   isOwner,
   disabled,
@@ -265,7 +265,7 @@ export function RoomPlayersPanel({
   onlineCount: number;
   connectionRunning: boolean;
   directPeerIPSet: Set<string>;
-  connectionMessage: string;
+  transportMode: string;
   voiceState: VoiceState;
   isOwner: boolean;
   disabled: boolean;
@@ -288,8 +288,8 @@ export function RoomPlayersPanel({
             key={member.userID}
             member={member}
             isSelf={member.userID === currentUserID}
-            transportLabel={memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage)}
-            transportTone={memberTransportTone(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage)}
+            transportLabel={memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, transportMode)}
+            transportTone={memberTransportTone(member, currentUserID, connectionRunning, directPeerIPSet, transportMode)}
             speaking={isVoiceSpeaking(voiceState, member.userID)}
             canManage={isOwner && member.userID !== currentUserID}
             disabled={disabled}
@@ -591,21 +591,22 @@ function isVoiceSpeaking(voiceState: VoiceState, userID: number) {
   return (voiceState.participants || []).some((item) => item.userID === userID && item.speaking);
 }
 
-function memberTransportLabel(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, connectionMessage: string) {
+function memberTransportLabel(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, transportMode: string) {
   if (!connectionRunning) {
     return undefined;
   }
+  const probing = transportMode === "udp-probing";
   if (member.userID === currentUserID) {
-    return connectionMessage.includes("探测") ? "探测中" : directPeerIPSet.size > 0 ? "P2P 直连" : "中继";
+    return probing ? "探测中" : directPeerIPSet.size > 0 ? "P2P 直连" : "中继";
   }
   if (member.virtualIP && directPeerIPSet.has(member.virtualIP)) {
     return "P2P 直连";
   }
-  return connectionMessage.includes("探测") ? "探测中" : "中继";
+  return probing ? "探测中" : "中继";
 }
 
-function memberTransportTone(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, connectionMessage: string) {
-  const label = memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage);
+function memberTransportTone(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, transportMode: string) {
+  const label = memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, transportMode);
   if (label === "P2P 直连") {
     return "direct";
   }

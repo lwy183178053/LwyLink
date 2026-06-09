@@ -234,6 +234,7 @@ type ConnectionState struct {
 	Message              string                `json:"message"`
 	RoomID               int64                 `json:"roomID"`
 	IP                   string                `json:"ip"`
+	TransportMode        string                `json:"transportMode"`
 	DirectPeerIPs        []string              `json:"directPeerIPs"`
 	TransportDiagnostics []TransportDiagnostic `json:"transportDiagnostics"`
 }
@@ -1065,6 +1066,7 @@ func applyTransportStatus(state *ConnectionState, status client.TransportStatus)
 	if strings.TrimSpace(status.Message) != "" {
 		state.Message = status.Message
 	}
+	state.TransportMode = status.Mode
 	state.DirectPeerIPs = append([]string(nil), status.DirectIPs...)
 	state.TransportDiagnostics = viewTransportDiagnostics(status.Diagnostics)
 }

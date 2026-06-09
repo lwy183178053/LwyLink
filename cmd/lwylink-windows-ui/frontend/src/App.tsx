@@ -894,7 +894,7 @@ export default function App() {
           onlineCount={onlineCount}
           connectionRunning={connectionRunning}
           directPeerIPSet={directPeerIPSet}
-          connectionMessage={state.connection.message}
+          transportMode={state.connection.transportMode || ""}
           voiceState={state.voice}
           isOwner={isOwner}
           disabled={isBusy}

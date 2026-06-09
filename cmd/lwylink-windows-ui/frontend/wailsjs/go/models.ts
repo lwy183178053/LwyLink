@@ -36,6 +36,7 @@ export namespace main {
     message: string;
     roomID: number;
     ip: string;
+    transportMode: string;
     directPeerIPs: string[];
     transportDiagnostics: TransportDiagnostic[];
 
@@ -49,6 +50,7 @@ export namespace main {
       this.message = source["message"];
       this.roomID = source["roomID"];
       this.ip = source["ip"];
+      this.transportMode = source["transportMode"];
       this.directPeerIPs = source["directPeerIPs"];
       this.transportDiagnostics = this.convertValues(source["transportDiagnostics"], TransportDiagnostic);
     }

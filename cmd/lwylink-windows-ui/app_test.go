@@ -34,6 +34,9 @@ func TestUpdateConnectionAppliesTransportMessageAndDirectPeers(t *testing.T) {
 	if got.Message != "udp direct" {
 		t.Fatalf("message=%q", got.Message)
 	}
+	if got.TransportMode != client.TransportModeUDPDirect {
+		t.Fatalf("transport mode=%q", got.TransportMode)
+	}
 	if !slices.Equal(got.DirectPeerIPs, []string{"172.16.1.11"}) {
 		t.Fatalf("direct peers=%v", got.DirectPeerIPs)
 	}
