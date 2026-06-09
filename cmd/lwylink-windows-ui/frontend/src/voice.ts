@@ -203,51 +203,11 @@ export async function listVoiceDevices() {
   };
 }
 
-export async function runVoiceLocalTest(settings: VoiceSettings) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId: settings.inputDeviceID ? { exact: settings.inputDeviceID } : undefined,
-      echoCancellation: settings.echoCancellation,
-      noiseSuppression: settings.noiseSuppression,
-      autoGainControl: settings.autoGainControl,
-      channelCount: 1,
-    },
-    video: false,
-  });
-  try {
-    const recorder = new MediaRecorder(stream);
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    recorder.start();
-    await delay(1400);
-    recorder.stop();
-    await new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-    });
-    const audio = new Audio(URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || "audio/webm" })));
-    audio.volume = clampNumber(settings.outputVolume, 0.05, 1, 1);
-    if (settings.outputDeviceID && "setSinkId" in audio) {
-      await (audio as HTMLAudioElement & { setSinkId: (sinkId: string) => Promise<void> }).setSinkId(settings.outputDeviceID).catch(() => undefined);
-    }
-    await audio.play();
-  } finally {
-    stream.getTracks().forEach((track) => track.stop());
-  }
-}
-
 function viewDevice(device: MediaDeviceInfo) {
   return {
     deviceID: device.deviceId,
     label: device.label || "默认设备",
   };
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 type DecodedVoiceFrame = {
