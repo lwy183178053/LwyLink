@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LwyV-Labs/LwyLink/internal/client"
+	"github.com/LwyV-Labs/LwyLink/internal/overlay"
 )
 
 func TestSmokeRegisterUsesAdminEndpointWhenTokenConfigured(t *testing.T) {
@@ -51,5 +52,18 @@ func TestSmokeRegisterUsesAdminEndpointWhenTokenConfigured(t *testing.T) {
 	}
 	if len(cleaner.userIDs) != 1 || cleaner.userIDs[0] != 7 {
 		t.Fatalf("tracked users=%v", cleaner.userIDs)
+	}
+}
+
+func TestUDPCandidateSummaryIncludesCandidateCounts(t *testing.T) {
+	got := udpCandidateSummary(overlay.UDPPeerCandidate{
+		VirtualIP:          "172.16.1.11",
+		Endpoint:           "203.0.113.10:30001",
+		LANEndpoints:       []string{"192.168.1.10:30001"},
+		ReflexiveEndpoints: []string{"198.51.100.10:30001", "198.51.100.11:30001"},
+	})
+	want := "ip=172.16.1.11 observed=1 lan=1 srflx=2"
+	if got != want {
+		t.Fatalf("summary=%q, want %q", got, want)
 	}
 }

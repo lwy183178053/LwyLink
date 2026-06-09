@@ -489,17 +489,29 @@ func verifyUDPRendezvous(ctx context.Context, overlayAddr string, roomID, ownerI
 
 	ownerPeer := waitUDPPeer(ctx, owner, player.lease.IP)
 	playerPeer := waitUDPPeer(ctx, player, owner.lease.IP)
-	log.Printf("udp rendezvous candidates ok ownerPeerLAN=%d playerPeerLAN=%d", len(ownerPeer.LANEndpoints), len(playerPeer.LANEndpoints))
+	log.Printf("udp rendezvous candidates ok ownerPeer=%s playerPeer=%s", udpCandidateSummary(ownerPeer), udpCandidateSummary(playerPeer))
 
 	publicOK := tryUDPDirectPair(ctx, "public", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, []string{ownerPeer.Endpoint}, []string{playerPeer.Endpoint})
+	reflexiveOK := false
+	if len(ownerPeer.ReflexiveEndpoints) > 0 && len(playerPeer.ReflexiveEndpoints) > 0 {
+		reflexiveOK = tryUDPDirectPair(ctx, "srflx", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, ownerPeer.ReflexiveEndpoints, playerPeer.ReflexiveEndpoints)
+	}
 	lanOK := false
 	if len(ownerPeer.LANEndpoints) > 0 && len(playerPeer.LANEndpoints) > 0 {
 		lanOK = tryUDPDirectPair(ctx, "lan", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, ownerPeer.LANEndpoints, playerPeer.LANEndpoints)
 	}
-	if !publicOK && !lanOK {
-		failf("udp direct probes failed for public and lan candidates")
+	if !publicOK && !reflexiveOK && !lanOK {
+		failf("udp direct probes failed ownerPeer=%s playerPeer=%s", udpCandidateSummary(ownerPeer), udpCandidateSummary(playerPeer))
 	}
-	log.Printf("udp direct probe ok public=%v lan=%v", publicOK, lanOK)
+	log.Printf("udp direct probe ok public=%v srflx=%v lan=%v", publicOK, reflexiveOK, lanOK)
+}
+
+func udpCandidateSummary(peer overlay.UDPPeerCandidate) string {
+	observed := 0
+	if strings.TrimSpace(peer.Endpoint) != "" {
+		observed = 1
+	}
+	return fmt.Sprintf("ip=%s observed=%d lan=%d srflx=%d", peer.VirtualIP, observed, len(peer.LANEndpoints), len(peer.ReflexiveEndpoints))
 }
 
 func waitUDPConfig(ctx context.Context, client *overlaySmokeClient) overlay.UDPControl {
