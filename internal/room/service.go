@@ -278,14 +278,8 @@ func (s *Service) SendChat(ctx context.Context, userID, roomID int64, message st
 	if err != nil {
 		return ChatMessage{}, err
 	}
-	var sender MemberView
-	for _, member := range members {
-		if member.UserID == userID {
-			sender = member
-			break
-		}
-	}
-	if sender.UserID == 0 {
+	sender, ok := memberByUserID(members, userID)
+	if !ok {
 		return ChatMessage{}, fmt.Errorf("user is not a room member")
 	}
 	chat := ChatMessage{
@@ -784,23 +778,31 @@ func (s *Service) roomUserIDs(ctx context.Context, roomID int64) []int64 {
 	return ids
 }
 
+func memberByUserID(members []MemberView, userID int64) (MemberView, bool) {
+	for _, member := range members {
+		if member.UserID == userID {
+			return member, true
+		}
+	}
+	return MemberView{}, false
+}
+
 func (s *Service) voiceParticipantForUser(ctx context.Context, roomID, userID int64) (VoiceParticipant, error) {
 	members, err := s.repo.ListMembers(ctx, roomID)
 	if err != nil {
 		return VoiceParticipant{}, err
 	}
-	for _, member := range members {
-		if member.UserID == userID {
-			return VoiceParticipant{
-				RoomID:      roomID,
-				UserID:      userID,
-				Username:    member.Username,
-				DisplayName: member.DisplayName,
-				Muted:       true,
-			}, nil
-		}
+	member, ok := memberByUserID(members, userID)
+	if !ok {
+		return VoiceParticipant{}, fmt.Errorf("user is not a room member")
 	}
-	return VoiceParticipant{}, fmt.Errorf("user is not a room member")
+	return VoiceParticipant{
+		RoomID:      roomID,
+		UserID:      userID,
+		Username:    member.Username,
+		DisplayName: member.DisplayName,
+		Muted:       true,
+	}, nil
 }
 
 func (s *Service) voiceStateForRoom(room Room) VoiceState {
