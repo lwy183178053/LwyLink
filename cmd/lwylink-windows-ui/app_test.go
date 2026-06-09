@@ -40,7 +40,7 @@ func TestUpdateConnectionAppliesTransportMessageAndDirectPeers(t *testing.T) {
 	}
 }
 
-func TestAcceptVoicePacketDropsDuplicateAndOlderSeq(t *testing.T) {
+func TestAcceptVoicePacketDropsDuplicateAndAllowsReorderedSeq(t *testing.T) {
 	app := NewApp()
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -51,8 +51,8 @@ func TestAcceptVoicePacketDropsDuplicateAndOlderSeq(t *testing.T) {
 	if app.acceptVoicePacketLocked(10, 2, now.Add(time.Millisecond)) {
 		t.Fatalf("duplicate voice packet was accepted")
 	}
-	if app.acceptVoicePacketLocked(10, 1, now.Add(2*time.Millisecond)) {
-		t.Fatalf("older voice packet was accepted")
+	if !app.acceptVoicePacketLocked(10, 1, now.Add(2*time.Millisecond)) {
+		t.Fatalf("reordered voice packet was rejected")
 	}
 	if !app.acceptVoicePacketLocked(10, 3, now.Add(3*time.Millisecond)) {
 		t.Fatalf("newer voice packet was rejected")

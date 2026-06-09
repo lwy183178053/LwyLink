@@ -22,7 +22,6 @@ type VoicePreferences struct {
 	OutputDeviceID   string  `json:"outputDeviceID"`
 	MicVolume        float64 `json:"micVolume"`
 	OutputVolume     float64 `json:"outputVolume"`
-	SilenceThreshold float64 `json:"silenceThreshold"`
 	AutoGainControl  bool    `json:"autoGainControl"`
 	NoiseSuppression bool    `json:"noiseSuppression"`
 	EchoCancellation bool    `json:"echoCancellation"`
@@ -37,9 +36,8 @@ func defaultClientPreferences() clientPreferences {
 
 func defaultVoicePreferences() VoicePreferences {
 	return VoicePreferences{
-		MicVolume:        1,
+		MicVolume:        1.15,
 		OutputVolume:     1,
-		SilenceThreshold: 0.012,
 		AutoGainControl:  true,
 		NoiseSuppression: true,
 		EchoCancellation: true,
@@ -94,9 +92,6 @@ func normalizeVoicePreferences(input VoicePreferences) VoicePreferences {
 	}
 	if input.OutputVolume <= 0 || input.OutputVolume > 2 {
 		input.OutputVolume = defaults.OutputVolume
-	}
-	if input.SilenceThreshold < 0 || input.SilenceThreshold > 0.2 {
-		input.SilenceThreshold = defaults.SilenceThreshold
 	}
 	input.AutoGainControl = true
 	input.NoiseSuppression = true

@@ -103,7 +103,6 @@ export type VoiceSettings = {
   outputDeviceID: string;
   micVolume: number;
   outputVolume: number;
-  silenceThreshold: number;
   autoGainControl: boolean;
   noiseSuppression: boolean;
   echoCancellation: boolean;
@@ -134,9 +133,8 @@ export const emptyState: AppState = {
   voiceSettings: {
     inputDeviceID: "",
     outputDeviceID: "",
-    micVolume: 1,
+    micVolume: 1.15,
     outputVolume: 1,
-    silenceThreshold: 0.012,
     autoGainControl: true,
     noiseSuppression: true,
     echoCancellation: true,
@@ -166,7 +164,7 @@ export const emptyState: AppState = {
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.2.2",
+    currentVersion: "0.2.3",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",

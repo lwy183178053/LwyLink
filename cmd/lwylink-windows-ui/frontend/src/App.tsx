@@ -244,10 +244,14 @@ export default function App() {
     void refreshVoiceDevices(false);
   }, [page]);
 
+  useEffect(() => {
+    voiceSessionRef.current?.updateSettings(settingsForm.voiceSettings);
+  }, [settingsForm.voiceSettings]);
+
   function applyState(next: AppState) {
     const normalized = normalizeAppState(next);
     setState(normalized);
-    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${normalized.p2pEnabled}`;
+    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${normalized.p2pEnabled}|${JSON.stringify(normalized.voiceSettings)}`;
     if (settingsSignature.current !== nextSettingsSignature) {
       settingsSignature.current = nextSettingsSignature;
       setSettingsForm({
@@ -1105,11 +1109,6 @@ export default function App() {
                 <span>播放音量</span>
                 <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
                 <strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong>
-              </div>
-              <div className="voice-slider-row">
-                <span>静音门限</span>
-                <Slider min={0} max={0.08} step={0.002} value={settingsForm.voiceSettings.silenceThreshold} onChange={(_, data) => updateVoiceSettings({ silenceThreshold: data.value })} />
-                <strong>{settingsForm.voiceSettings.silenceThreshold.toFixed(3)}</strong>
               </div>
             </div>
           </form>

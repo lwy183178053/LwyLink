@@ -1,4 +1,8 @@
 import { SendVoiceAudioFrame } from "../wailsjs/go/main/App";
+import { RnnoiseWorkletNode, loadRnnoise } from "@sapphi-red/web-noise-suppressor";
+import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
+import rnnoiseSIMDWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
 import type { Room } from "./types";
 import type { VoiceSettings } from "./types";
 
@@ -30,9 +34,104 @@ const targetSampleRate = 48000;
 const pcmFallbackSampleRate = 16000;
 const frameDurationMS = 20;
 const frameSamples = (targetSampleRate * frameDurationMS) / 1000;
-const opusBitrate = 24000;
-const playoutDelaySeconds = 0.08;
-const maxBufferedSeconds = 0.45;
+const opusBitrate = 48000;
+const jitterBufferDelayMS = 800;
+const maxJitterFrames = 24;
+const targetRMS = 0.075;
+const autoGainMax = 1.8;
+const softLimiterDrive = 1.15;
+const smoothingBlend = 0.18;
+const gainAttack = 0.28;
+const gainRelease = 0.08;
+const hangoverFrameCount = 14;
+const speechHoldRMS = 0.006;
+const speechFloorRMS = 0.0015;
+const hangoverGainMax = 2.05;
+const hangoverGainRelease = 0.025;
+const voicePlaybackWorkletSource = `
+class LwyLinkVoicePlaybackProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.volume = 1;
+    this.users = new Map();
+    this.port.onmessage = (event) => this.handleMessage(event.data || {});
+  }
+
+  handleMessage(message) {
+    if (message.type === "setVolume") {
+      const volume = Number(message.volume);
+      this.volume = Number.isFinite(volume) ? Math.max(0.05, Math.min(2, volume)) : 1;
+      return;
+    }
+    if (message.type === "resetAll") {
+      this.users.clear();
+      return;
+    }
+    if (message.type === "resetUser") {
+      this.users.delete(Number(message.userID));
+      return;
+    }
+    if (message.type === "pushFrame") {
+      const userID = Number(message.userID);
+      const samples = message.samples;
+      if (!Number.isFinite(userID) || !(samples instanceof Float32Array) || samples.length === 0) {
+        return;
+      }
+      let queue = this.users.get(userID);
+      if (!queue) {
+        queue = [];
+        this.users.set(userID, queue);
+      }
+      queue.push(samples);
+      let queuedSamples = 0;
+      for (let i = queue.length - 1; i >= 0; i--) {
+        queuedSamples += queue[i].length;
+        if (queuedSamples > sampleRate * 0.7) {
+          queue.splice(0, i);
+          break;
+        }
+      }
+    }
+  }
+
+  process(_inputs, outputs) {
+    const output = outputs[0]?.[0];
+    if (!output) {
+      return true;
+    }
+    output.fill(0);
+    let activeUsers = 0;
+    for (const [userID, queue] of this.users) {
+      if (queue.length === 0) {
+        this.users.delete(userID);
+        continue;
+      }
+      activeUsers++;
+      let offset = 0;
+      while (offset < output.length && queue.length > 0) {
+        const head = queue[0];
+        const take = Math.min(output.length - offset, head.length);
+        for (let i = 0; i < take; i++) {
+          output[offset + i] += head[i];
+        }
+        offset += take;
+        if (take === head.length) {
+          queue.shift();
+        } else {
+          queue[0] = head.subarray(take);
+        }
+      }
+    }
+    const mixScale = activeUsers > 1 ? 1 / Math.sqrt(activeUsers) : 1;
+    for (let i = 0; i < output.length; i++) {
+      output[i] = Math.tanh(output[i] * this.volume * mixScale);
+    }
+    return true;
+  }
+}
+
+registerProcessor("lwylink-voice-playback", LwyLinkVoicePlaybackProcessor);
+`;
 
 export class VoiceSession {
   private room: Room;
@@ -41,20 +140,28 @@ export class VoiceSession {
   private audioContext?: AudioContext;
   private stream?: MediaStream;
   private source?: MediaStreamAudioSourceNode;
+  private noiseSuppressor?: RnnoiseWorkletNode;
   private processor?: ScriptProcessorNode;
   private monitorGain?: GainNode;
+  private playback?: VoicePlaybackEngine;
   private encoder?: VoiceEncoder;
   private decoder?: VoiceDecoder;
   private micBuffer = new Float32Array(0);
   private micEnabled = false;
   private seq = 0;
   private started = false;
-  private playbackAtByUser = new Map<number, number>();
+  private inputProcessor = new VoiceInputProcessor();
+  private playbackByUser = new Map<number, VoicePlayoutBuffer>();
 
   constructor(room: Room, settings: VoiceSettings, callbacks: VoiceSessionCallbacks) {
     this.room = room;
     this.settings = settings;
     this.callbacks = callbacks;
+  }
+
+  updateSettings(settings: VoiceSettings) {
+    this.settings = settings;
+    this.playback?.setVolume(settings.outputVolume);
   }
 
   async start() {
@@ -72,14 +179,21 @@ export class VoiceSession {
       video: false,
     });
     this.audioContext = new AudioContext({ sampleRate: targetSampleRate });
+    this.playback = await VoicePlaybackEngine.create(this.audioContext, this.settings.outputVolume);
     this.encoder = await VoiceEncoder.create((frame) => this.sendEncodedFrame(frame));
     this.decoder = await VoiceDecoder.create((frame) => this.playPCMFrame(frame));
     this.source = this.audioContext.createMediaStreamSource(this.stream);
+    this.noiseSuppressor = await createRnnoiseNode(this.audioContext);
     this.processor = this.audioContext.createScriptProcessor(1024, 1, 1);
     this.monitorGain = this.audioContext.createGain();
     this.monitorGain.gain.value = 0;
     this.processor.onaudioprocess = (event) => this.captureAudio(event.inputBuffer.getChannelData(0));
-    this.source.connect(this.processor);
+    if (this.noiseSuppressor) {
+      this.source.connect(this.noiseSuppressor);
+      this.noiseSuppressor.connect(this.processor);
+    } else {
+      this.source.connect(this.processor);
+    }
     this.processor.connect(this.monitorGain);
     this.monitorGain.connect(this.audioContext.destination);
     this.started = true;
@@ -107,6 +221,7 @@ export class VoiceSession {
     if (frame.codec === "pcm16") {
       this.playPCMFrame({
         fromUserID: frame.fromUserID,
+        timestampMS: frame.timestampMS,
         sampleRate: frame.sampleRate || targetSampleRate,
         samples: pcm16ToFloat(bytes),
       });
@@ -117,21 +232,28 @@ export class VoiceSession {
     this.micEnabled = false;
     this.started = false;
     this.processor?.disconnect();
+    this.noiseSuppressor?.disconnect();
+    this.noiseSuppressor?.destroy();
     this.monitorGain?.disconnect();
     this.source?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.encoder?.close();
     this.decoder?.close();
+    this.playback?.close();
     await this.audioContext?.close().catch(() => undefined);
     this.processor = undefined;
+    this.noiseSuppressor = undefined;
     this.monitorGain = undefined;
     this.source = undefined;
     this.stream = undefined;
     this.audioContext = undefined;
     this.encoder = undefined;
     this.decoder = undefined;
+    this.playback = undefined;
     this.micBuffer = new Float32Array(0);
-    this.playbackAtByUser.clear();
+    this.inputProcessor.reset();
+    this.playbackByUser.forEach((playback) => playback.close());
+    this.playbackByUser.clear();
   }
 
   private captureAudio(input: Float32Array) {
@@ -145,11 +267,8 @@ export class VoiceSession {
       const frame = this.micBuffer.slice(0, frameSamples);
       this.micBuffer = this.micBuffer.slice(frameSamples);
       const gain = clampNumber(this.settings.micVolume, 0.05, 2, 1);
-      const amplified = gain === 1 ? frame : scaleSamples(frame, gain);
-      if (rms(amplified) < clampNumber(this.settings.silenceThreshold, 0, 0.2, 0.012)) {
-        continue;
-      }
-      this.encoder.encode(amplified, Date.now());
+      const processed = this.inputProcessor.process(frame, gain);
+      this.encoder.encode(processed, Date.now());
     }
   }
 
@@ -168,22 +287,28 @@ export class VoiceSession {
     if (!this.audioContext || frame.samples.length === 0) {
       return;
     }
-    const samples = new Float32Array(frame.samples);
-    const buffer = this.audioContext.createBuffer(1, samples.length, frame.sampleRate || targetSampleRate);
-    buffer.copyToChannel(samples, 0);
-    const source = this.audioContext.createBufferSource();
-    const gain = this.audioContext.createGain();
-    gain.gain.value = clampNumber(this.settings.outputVolume, 0.05, 2, 1);
-    source.buffer = buffer;
-    source.connect(gain);
-    gain.connect(this.audioContext.destination);
-    const now = this.audioContext.currentTime;
-    let startAt = this.playbackAtByUser.get(frame.fromUserID) || now + playoutDelaySeconds;
-    if (startAt < now || startAt - now > maxBufferedSeconds) {
-      startAt = now + playoutDelaySeconds;
+    if (!this.playback) {
+      return;
     }
-    source.start(startAt);
-    this.playbackAtByUser.set(frame.fromUserID, startAt + buffer.duration);
+    let buffer = this.playbackByUser.get(frame.fromUserID);
+    if (!buffer) {
+      buffer = new VoicePlayoutBuffer(frame.fromUserID, (ready) => this.playback?.pushFrame(ready));
+      this.playbackByUser.set(frame.fromUserID, buffer);
+    }
+    buffer.push(frame);
+  }
+}
+
+async function createRnnoiseNode(context: AudioContext) {
+  if (!context.audioWorklet) {
+    return undefined;
+  }
+  try {
+    const wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSIMDWasmPath });
+    await context.audioWorklet.addModule(rnnoiseWorkletPath);
+    return new RnnoiseWorkletNode(context, { wasmBinary, maxChannels: 1 });
+  } catch {
+    return undefined;
   }
 }
 
@@ -207,6 +332,7 @@ function viewDevice(device: MediaDeviceInfo) {
 
 type DecodedVoiceFrame = {
   fromUserID: number;
+  timestampMS: number;
   sampleRate: number;
   samples: Float32Array<ArrayBuffer>;
 };
@@ -351,8 +477,127 @@ class VoiceDecoder {
       return;
     }
     const samples = audioDataToFloat32(audio);
-    this.output({ fromUserID, sampleRate: audio.sampleRate || targetSampleRate, samples });
+    this.output({ fromUserID, timestampMS: Math.round(audio.timestamp / 1000), sampleRate: audio.sampleRate || targetSampleRate, samples });
     audio.close();
+  }
+}
+
+class VoicePlayoutBuffer {
+  private readonly fromUserID: number;
+  private readonly output: (frame: DecodedVoiceFrame) => void;
+  private frames: DecodedVoiceFrame[] = [];
+  private timer: number | null = null;
+  private lastTimestampMS = 0;
+
+  constructor(fromUserID: number, output: (frame: DecodedVoiceFrame) => void) {
+    this.fromUserID = fromUserID;
+    this.output = output;
+  }
+
+  push(frame: DecodedVoiceFrame) {
+    if (frame.timestampMS <= this.lastTimestampMS) {
+      return;
+    }
+    this.frames.push(frame);
+    this.frames.sort((left, right) => left.timestampMS - right.timestampMS);
+    if (this.frames.length > maxJitterFrames) {
+      const dropped = this.frames.splice(0, this.frames.length - maxJitterFrames);
+      const newestDropped = dropped[dropped.length - 1];
+      if (newestDropped) {
+        this.lastTimestampMS = Math.max(this.lastTimestampMS, newestDropped.timestampMS);
+      }
+    }
+    if (this.timer === null) {
+      this.timer = window.setTimeout(() => this.flush(), jitterBufferDelayMS);
+    }
+  }
+
+  close() {
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.frames = [];
+    this.lastTimestampMS = 0;
+  }
+
+  private flush() {
+    this.timer = null;
+    const readyBefore = Date.now() - jitterBufferDelayMS;
+    const ready = this.frames.filter((frame) => frame.timestampMS <= readyBefore);
+    this.frames = this.frames.filter((frame) => frame.timestampMS > readyBefore);
+    for (const frame of ready) {
+      this.emit(frame);
+    }
+    if (this.frames.length > 0) {
+      this.timer = window.setTimeout(() => this.flush(), Math.max(8, jitterBufferDelayMS / 3));
+    }
+  }
+
+  private emit(frame: DecodedVoiceFrame) {
+    if (frame.timestampMS <= this.lastTimestampMS) {
+      return;
+    }
+    this.lastTimestampMS = frame.timestampMS;
+    this.output({ ...frame, fromUserID: this.fromUserID });
+  }
+}
+
+class VoicePlaybackEngine {
+  private readonly node: AudioWorkletNode;
+  private readonly moduleURL: string;
+
+  private constructor(node: AudioWorkletNode, moduleURL: string) {
+    this.node = node;
+    this.moduleURL = moduleURL;
+  }
+
+  static async create(context: AudioContext, volume: number) {
+    if (!context.audioWorklet || typeof AudioWorkletNode === "undefined") {
+      throw new Error("当前系统不支持低延迟语音播放引擎");
+    }
+    const moduleURL = URL.createObjectURL(new Blob([voicePlaybackWorkletSource], { type: "text/javascript" }));
+    try {
+      await context.audioWorklet.addModule(moduleURL);
+      const node = new AudioWorkletNode(context, "lwylink-voice-playback", {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      node.connect(context.destination);
+      const engine = new VoicePlaybackEngine(node, moduleURL);
+      engine.setVolume(volume);
+      return engine;
+    } catch (err) {
+      URL.revokeObjectURL(moduleURL);
+      throw err;
+    }
+  }
+
+  pushFrame(frame: DecodedVoiceFrame) {
+    const samples = copyFloat32(frame.samples);
+    this.node.port.postMessage(
+      {
+        type: "pushFrame",
+        userID: frame.fromUserID,
+        timestampMS: frame.timestampMS,
+        samples,
+      },
+      [samples.buffer],
+    );
+  }
+
+  setVolume(volume: number) {
+    this.node.port.postMessage({
+      type: "setVolume",
+      volume: clampNumber(volume, 0.05, 2, 1),
+    });
+  }
+
+  close() {
+    this.node.port.postMessage({ type: "resetAll" });
+    this.node.disconnect();
+    URL.revokeObjectURL(this.moduleURL);
   }
 }
 
@@ -390,6 +635,12 @@ function appendSamples(current: Float32Array, next: Float32Array) {
   const out = new Float32Array(current.length + next.length);
   out.set(current, 0);
   out.set(next, current.length);
+  return out;
+}
+
+function copyFloat32(input: Float32Array) {
+  const out = new Float32Array(input.length);
+  out.set(input);
   return out;
 }
 
@@ -436,10 +687,67 @@ function rms(input: Float32Array) {
   return Math.sqrt(sum / Math.max(1, input.length));
 }
 
+class VoiceInputProcessor {
+  private automaticGain = 1;
+  private lastSmoothedSample = 0;
+  private hangoverFrames = 0;
+
+  process(input: Float32Array, userGain: number) {
+    const level = rms(input);
+    if (level >= speechHoldRMS) {
+      this.hangoverFrames = hangoverFrameCount;
+    } else if (this.hangoverFrames > 0) {
+      this.hangoverFrames--;
+    }
+
+    const holdingVoiceTail = this.hangoverFrames > 0 && level >= speechFloorRMS;
+    const wantedGain = automaticGainForLevel(level, holdingVoiceTail ? hangoverGainMax : autoGainMax);
+    const release = holdingVoiceTail ? hangoverGainRelease : gainRelease;
+    const rate = wantedGain > this.automaticGain ? gainAttack : release;
+    this.automaticGain += (wantedGain - this.automaticGain) * rate;
+    const limited = softLimitSamples(scaleSamples(input, userGain * this.automaticGain));
+    return this.smooth(limited);
+  }
+
+  reset() {
+    this.automaticGain = 1;
+    this.lastSmoothedSample = 0;
+    this.hangoverFrames = 0;
+  }
+
+  private smooth(input: Float32Array) {
+    if (input.length === 0) {
+      return input;
+    }
+    const out = new Float32Array(input.length);
+    let previous = this.lastSmoothedSample;
+    for (let i = 0; i < input.length; i++) {
+      const sample = input[i] * (1 - smoothingBlend) + previous * smoothingBlend;
+      out[i] = sample;
+      previous = sample;
+    }
+    this.lastSmoothedSample = previous;
+    return out;
+  }
+}
+
+function automaticGainForLevel(level: number, maxGain: number) {
+  return level > 0.0001 ? Math.min(maxGain, Math.max(1, targetRMS / level)) : 1;
+}
+
 function scaleSamples(input: Float32Array, gain: number) {
   const out = new Float32Array(input.length);
   for (let i = 0; i < input.length; i++) {
-    out[i] = Math.max(-1, Math.min(1, input[i] * gain));
+    out[i] = input[i] * gain;
+  }
+  return out;
+}
+
+function softLimitSamples(input: Float32Array) {
+  const out = new Float32Array(input.length);
+  const norm = Math.tanh(softLimiterDrive);
+  for (let i = 0; i < input.length; i++) {
+    out[i] = Math.tanh(input[i] * softLimiterDrive) / norm;
   }
   return out;
 }

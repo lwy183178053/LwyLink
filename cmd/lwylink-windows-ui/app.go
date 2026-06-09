@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.2.2"
+var AppVersion = "0.2.3"
 
 type App struct {
 	ctx context.Context
@@ -874,12 +874,7 @@ func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) 
 			// Voice prefers dropping fresh frames over building latency.
 		}
 	}
-	a.mu.Lock()
-	a.voiceMode = "sending"
-	if a.voiceMessage == "" || a.voiceMessage == "语音连接中" {
-		a.voiceMessage = "语音发送中"
-	}
-	return a.commitStateLocked(), nil
+	return a.CurrentState(), nil
 }
 
 func (a *App) DeleteRoom(roomID int64) (AppState, error) {
@@ -1094,10 +1089,16 @@ func (a *App) updateVoiceTransport(seq int64, status client.TransportStatus) {
 		a.mu.Unlock()
 		return
 	}
-	a.voiceMode = status.Mode
+	nextMessage := a.voiceMessage
 	if strings.TrimSpace(status.Message) != "" {
-		a.voiceMessage = status.Message
+		nextMessage = status.Message
 	}
+	if a.voiceMode == status.Mode && a.voiceMessage == nextMessage {
+		a.mu.Unlock()
+		return
+	}
+	a.voiceMode = status.Mode
+	a.voiceMessage = nextMessage
 	a.commitStateLocked()
 }
 
@@ -1156,11 +1157,10 @@ func (a *App) acceptVoicePacketLocked(fromUserID int64, seq uint64, now time.Tim
 	if _, ok := a.voiceSeen[key]; ok {
 		return false
 	}
-	if last := a.voiceLastSeq[fromUserID]; last > 0 && seq <= last {
-		return false
+	if seq > a.voiceLastSeq[fromUserID] {
+		a.voiceLastSeq[fromUserID] = seq
 	}
 	a.voiceSeen[key] = now
-	a.voiceLastSeq[fromUserID] = seq
 	return true
 }
 

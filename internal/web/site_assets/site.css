@@ -184,13 +184,20 @@ main {
   letter-spacing: 0;
 }
 
-h1, h2, p { overflow-wrap: anywhere; }
+h1, h2, p { overflow-wrap: break-word; }
 
 h1 {
   margin: 0 0 18px;
   font-size: clamp(42px, 6vw, 74px);
-  line-height: 1.02;
+  line-height: 1.12;
   letter-spacing: 0;
+}
+
+.hero h1 {
+  max-width: 760px;
+  font-size: clamp(42px, 5.6vw, 68px);
+  line-height: 1.16;
+  text-wrap: balance;
 }
 
 h2 {

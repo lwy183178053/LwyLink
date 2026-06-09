@@ -255,7 +255,6 @@ export namespace main {
 	    outputDeviceID: string;
 	    micVolume: number;
 	    outputVolume: number;
-	    silenceThreshold: number;
 	    autoGainControl: boolean;
 	    noiseSuppression: boolean;
 	    echoCancellation: boolean;
@@ -270,7 +269,6 @@ export namespace main {
 	        this.outputDeviceID = source["outputDeviceID"];
 	        this.micVolume = source["micVolume"];
 	        this.outputVolume = source["outputVolume"];
-	        this.silenceThreshold = source["silenceThreshold"];
 	        this.autoGainControl = source["autoGainControl"];
 	        this.noiseSuppression = source["noiseSuppression"];
 	        this.echoCancellation = source["echoCancellation"];
