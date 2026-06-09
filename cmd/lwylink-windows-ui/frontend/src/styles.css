@@ -1381,17 +1381,36 @@ code {
   font-size: 12px;
 }
 
-.member-p2p {
-  margin-top: 4px;
-  color: #167255;
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .member-role {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.member-transport {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid #d8e0dc;
+  border-radius: 999px;
+  color: #596763;
+  background: #f8faf8;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.member-transport.direct {
+  border-color: #bdebd6;
+  color: #167255;
+  background: #effbf5;
+}
+
+.member-transport.probing {
+  border-color: #d8c99b;
+  color: #7a6221;
+  background: #fff9e8;
 }
 
 .role {

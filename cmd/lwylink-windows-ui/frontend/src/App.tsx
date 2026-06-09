@@ -161,13 +161,6 @@ export default function App() {
   const connectionRunning = isConnectionRunning(state.connection.status);
   const networkDisplayIP = state.connection.ip || currentRoom?.networkCIDR || "";
   const directPeerIPSet = useMemo(() => new Set(state.connection.directPeerIPs ?? []), [state.connection.directPeerIPs]);
-  const directPeerNames = useMemo(
-    () =>
-      members
-        .filter((member) => member.virtualIP && directPeerIPSet.has(member.virtualIP))
-        .map((member) => userLabel(member.displayName, member.username)),
-    [members, directPeerIPSet],
-  );
   const showUpdatePrompt =
     state.update.status === "ready" &&
     state.update.latestVersion !== "";
@@ -900,8 +893,8 @@ export default function App() {
           currentUserID={state.user?.id}
           onlineCount={onlineCount}
           connectionRunning={connectionRunning}
-          directPeerNames={directPeerNames}
           directPeerIPSet={directPeerIPSet}
+          connectionMessage={state.connection.message}
           voiceState={state.voice}
           isOwner={isOwner}
           disabled={isBusy}

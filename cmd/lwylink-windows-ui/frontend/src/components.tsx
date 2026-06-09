@@ -94,7 +94,8 @@ export function Rule({ ok, text }: { ok: boolean; text: string }) {
 export function MemberRow({
   member,
   isSelf,
-  p2pLabel,
+  transportLabel,
+  transportTone,
   speaking,
   canManage,
   disabled,
@@ -103,7 +104,8 @@ export function MemberRow({
 }: {
   member: RoomMember;
   isSelf: boolean;
-  p2pLabel?: string;
+  transportLabel?: string;
+  transportTone?: "direct" | "relay" | "probing";
   speaking: boolean;
   canManage: boolean;
   disabled: boolean;
@@ -120,10 +122,10 @@ export function MemberRow({
             {isSelf ? " · 我" : ""}
           </strong>
           <span>{member.virtualIP || member.username}</span>
-          {p2pLabel && <small className="member-p2p">{p2pLabel}</small>}
         </div>
       </div>
       <div className="member-role">
+        {transportLabel && <span className={`member-transport ${transportTone || "relay"}`}>{transportLabel}</span>}
         {speaking && (
           <span className="role speaking">
             <Mic size={13} />
@@ -250,8 +252,8 @@ export function RoomPlayersPanel({
   currentUserID,
   onlineCount,
   connectionRunning,
-  directPeerNames,
   directPeerIPSet,
+  connectionMessage,
   voiceState,
   isOwner,
   disabled,
@@ -262,8 +264,8 @@ export function RoomPlayersPanel({
   currentUserID?: number;
   onlineCount: number;
   connectionRunning: boolean;
-  directPeerNames: string[];
   directPeerIPSet: Set<string>;
+  connectionMessage: string;
   voiceState: VoiceState;
   isOwner: boolean;
   disabled: boolean;
@@ -286,7 +288,8 @@ export function RoomPlayersPanel({
             key={member.userID}
             member={member}
             isSelf={member.userID === currentUserID}
-            p2pLabel={memberP2PLabel(member, currentUserID, connectionRunning, directPeerNames, directPeerIPSet)}
+            transportLabel={memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage)}
+            transportTone={memberTransportTone(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage)}
             speaking={isVoiceSpeaking(voiceState, member.userID)}
             canManage={isOwner && member.userID !== currentUserID}
             disabled={disabled}
@@ -588,17 +591,28 @@ function isVoiceSpeaking(voiceState: VoiceState, userID: number) {
   return (voiceState.participants || []).some((item) => item.userID === userID && item.speaking);
 }
 
-function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerNames: string[], directPeerIPSet: Set<string>) {
+function memberTransportLabel(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, connectionMessage: string) {
   if (!connectionRunning) {
     return undefined;
   }
-  if (member.userID === currentUserID && directPeerNames.length > 0) {
-    return `已与 ${directPeerNames.join("、")} P2P 直连`;
+  if (member.userID === currentUserID) {
+    return connectionMessage.includes("探测") ? "探测中" : directPeerIPSet.size > 0 ? "P2P 直连" : "中继";
   }
   if (member.virtualIP && directPeerIPSet.has(member.virtualIP)) {
-    return "与我 P2P 直连";
+    return "P2P 直连";
   }
-  return undefined;
+  return connectionMessage.includes("探测") ? "探测中" : "中继";
+}
+
+function memberTransportTone(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, connectionMessage: string) {
+  const label = memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, connectionMessage);
+  if (label === "P2P 直连") {
+    return "direct";
+  }
+  if (label === "探测中") {
+    return "probing";
+  }
+  return label ? "relay" : undefined;
 }
 
 function voiceRTCDiagnostic(stats: WebRTCVoiceStats[], voiceState: VoiceState) {
