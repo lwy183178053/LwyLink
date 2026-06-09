@@ -66,14 +66,6 @@ export type VoiceState = {
   updatedAt: string;
 };
 
-export type RoomEvent = {
-  type: string;
-  roomID: number;
-  actorUserID?: number;
-  targetUserID?: number;
-  voice?: VoiceState;
-};
-
 export type ChatMessage = {
   id: string;
   roomID: number;
