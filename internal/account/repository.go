@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -66,8 +67,8 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID int64, passwordH
 
 func (r *Repository) List(ctx context.Context, filter UserFilter) ([]User, error) {
 	where, args := userWhere(filter)
-	limit := normalizeLimit(filter.Limit, 500, 1000)
-	offset := normalizeOffset(filter.Offset)
+	limit := dbutil.Limit(filter.Limit, 500, 1000)
+	offset := dbutil.Offset(filter.Offset)
 	args = append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx,
 		userColumns()+`
@@ -244,20 +245,6 @@ func userWhere(filter UserFilter) (string, []any) {
 		return "", args
 	}
 	return " WHERE " + strings.Join(parts, " AND "), args
-}
-
-func normalizeLimit(v, fallback, max int) int {
-	if v <= 0 {
-		return fallback
-	}
-	return min(v, max)
-}
-
-func normalizeOffset(v int) int {
-	if v < 0 {
-		return 0
-	}
-	return v
 }
 
 type userScanner interface {

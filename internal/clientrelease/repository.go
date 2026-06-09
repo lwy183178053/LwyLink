@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -77,8 +78,8 @@ func (r *Repository) Delete(ctx context.Context, id int64) (Release, error) {
 
 func (r *Repository) List(ctx context.Context, filter Filter) ([]Release, error) {
 	where, args := releaseWhere(filter)
-	limit := normalizeLimit(filter.Limit, 200, 1000)
-	offset := normalizeOffset(filter.Offset)
+	limit := dbutil.Limit(filter.Limit, 200, 1000)
+	offset := dbutil.Offset(filter.Offset)
 	args = append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx,
 		releaseColumns()+`
@@ -179,20 +180,6 @@ func scanReleases(rows *sql.Rows) ([]Release, error) {
 		out = append(out, release)
 	}
 	return out, rows.Err()
-}
-
-func normalizeLimit(v, fallback, max int) int {
-	if v <= 0 {
-		return fallback
-	}
-	return min(v, max)
-}
-
-func normalizeOffset(v int) int {
-	if v < 0 {
-		return 0
-	}
-	return v
 }
 
 func isDuplicateEntry(err error) bool {

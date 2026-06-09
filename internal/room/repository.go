@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 )
 
 var ErrNotFound = errors.New("room not found")
@@ -212,8 +214,8 @@ func (r *Repository) ListMembers(ctx context.Context, roomID int64) ([]MemberVie
 
 func (r *Repository) List(ctx context.Context, filter Filter) ([]Room, error) {
 	where, args := roomWhere(filter)
-	limit := normalizeRoomLimit(filter.Limit, 500, 1000)
-	offset := normalizeRoomOffset(filter.Offset)
+	limit := dbutil.Limit(filter.Limit, 500, 1000)
+	offset := dbutil.Offset(filter.Offset)
 	args = append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx,
 		roomSelect()+where+` ORDER BY r.id DESC LIMIT ? OFFSET ?`,
@@ -424,18 +426,4 @@ func roomWhere(filter Filter) (string, []any) {
 		return "", args
 	}
 	return " WHERE " + strings.Join(parts, " AND "), args
-}
-
-func normalizeRoomLimit(v, fallback, max int) int {
-	if v <= 0 {
-		return fallback
-	}
-	return min(v, max)
-}
-
-func normalizeRoomOffset(v int) int {
-	if v < 0 {
-		return 0
-	}
-	return v
 }
