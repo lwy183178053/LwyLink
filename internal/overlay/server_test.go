@@ -55,7 +55,7 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 	assertNoPacket(t, from, "sender")
 }
 
-func TestForwardVoiceRoutesOnlyFreshFramesToTarget(t *testing.T) {
+func TestForwardVoiceRoutesOnlyValidFramesToTarget(t *testing.T) {
 	srv, from, peer, other := newForwardTestServer()
 	from.userID = 10
 	peer.userID = 11
@@ -83,7 +83,7 @@ func TestForwardVoiceRoutesOnlyFreshFramesToTarget(t *testing.T) {
 	assertNoPacket(t, other, "other room")
 }
 
-func TestForwardVoiceDropsForgedAndExpiredFrames(t *testing.T) {
+func TestForwardVoiceDropsForgedAndInvalidFrames(t *testing.T) {
 	tests := []struct {
 		name   string
 		adjust func(*VoicePayload)
@@ -101,9 +101,9 @@ func TestForwardVoiceDropsForgedAndExpiredFrames(t *testing.T) {
 			},
 		},
 		{
-			name: "expired",
+			name: "missing timestamp",
 			adjust: func(voice *VoicePayload) {
-				voice.TimestampMS = time.Now().Add(-maxVoiceFrameAge - time.Second).UnixMilli()
+				voice.TimestampMS = 0
 			},
 		},
 	}

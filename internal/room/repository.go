@@ -297,51 +297,23 @@ func (r *Repository) NetworkExists(ctx context.Context, cidr string) (bool, erro
 }
 
 func (r *Repository) Delete(ctx context.Context, roomID int64) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM rooms WHERE id = ?`, roomID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return ErrNotFound
-	}
-	return err
+	return requireRoomAffected(r.db.ExecContext(ctx, `DELETE FROM rooms WHERE id = ?`, roomID))
 }
 
 func (r *Repository) RemoveMember(ctx context.Context, roomID, userID int64) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM room_members WHERE room_id = ? AND user_id = ?`, roomID, userID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return ErrNotFound
-	}
-	return err
+	return requireRoomAffected(r.db.ExecContext(ctx, `DELETE FROM room_members WHERE room_id = ? AND user_id = ?`, roomID, userID))
 }
 
 func (r *Repository) SetOwner(ctx context.Context, roomID, ownerUserID int64) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE rooms SET owner_user_id = ? WHERE id = ?`, ownerUserID, roomID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return ErrNotFound
-	}
-	return err
+	return requireRoomAffected(r.db.ExecContext(ctx, `UPDATE rooms SET owner_user_id = ? WHERE id = ?`, ownerUserID, roomID))
 }
 
 func (r *Repository) SetStatus(ctx context.Context, roomID int64, status string) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE rooms SET status = ? WHERE id = ?`, status, roomID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return ErrNotFound
-	}
-	return err
+	return requireRoomAffected(r.db.ExecContext(ctx, `UPDATE rooms SET status = ? WHERE id = ?`, status, roomID))
+}
+
+func requireRoomAffected(res sql.Result, err error) error {
+	return dbutil.RequireAffectedAs(ErrNotFound, res, err)
 }
 
 type roomScanner interface {

@@ -33,3 +33,10 @@ func TestRequireAffected(t *testing.T) {
 		t.Fatal("RequireAffected did not return RowsAffected error")
 	}
 }
+
+func TestRequireAffectedAs(t *testing.T) {
+	notFound := errors.New("not found")
+	if err := RequireAffectedAs(notFound, fakeResult{}, nil); !errors.Is(err, notFound) {
+		t.Fatalf("RequireAffectedAs zero rows = %v, want custom not found", err)
+	}
+}

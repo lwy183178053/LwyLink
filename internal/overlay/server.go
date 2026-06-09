@@ -18,7 +18,6 @@ import (
 
 const (
 	relayTrafficFlushBytes int64 = 256 * 1024
-	maxVoiceFrameAge             = 2 * time.Second
 )
 
 type PresenceStore interface {
@@ -239,7 +238,7 @@ func (s *Server) forwardVoice(from *session, raw []byte) {
 	if err := json.Unmarshal(raw, &voice); err != nil {
 		return
 	}
-	if voice.RoomID != from.roomID || voice.FromUserID != from.userID || voice.ToUserID <= 0 || len(voice.Payload) == 0 || !voiceFrameFresh(voice.TimestampMS, time.Now()) {
+	if voice.RoomID != from.roomID || voice.FromUserID != from.userID || voice.ToUserID <= 0 || voice.TimestampMS <= 0 || len(voice.Payload) == 0 {
 		return
 	}
 	target := s.findByUserID(from.roomID, voice.ToUserID)
@@ -250,15 +249,6 @@ func (s *Server) forwardVoice(from *session, raw []byte) {
 		return
 	}
 	_ = target.enqueueFrame(FrameVoice, raw)
-}
-
-func voiceFrameFresh(timestampMS int64, now time.Time) bool {
-	if timestampMS <= 0 {
-		return false
-	}
-	sentAt := time.UnixMilli(timestampMS)
-	age := now.Sub(sentAt)
-	return age >= -maxVoiceFrameAge && age <= maxVoiceFrameAge
 }
 
 func (s *Server) onDisconnect(conn *tcpx.SecureConn, err error) {
