@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Field, Input, Select, Slider, Spinner, Switch, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Spinner, Textarea } from "@fluentui/react-components";
 import {
   Copy,
   Gamepad2,
   KeyRound,
   LogIn,
   LogOut,
-  Megaphone,
   Minus,
   Network,
   PlugZap,
@@ -15,9 +14,7 @@ import {
   RefreshCw,
   Send,
   Settings,
-  SlidersHorizontal,
   Square,
-  Volume2,
   UserCircle,
   UserPlus,
   X,
@@ -77,14 +74,14 @@ import {
   trafficPeriodLabel,
   trafficUsedPercent,
   updateStatusText,
-  updateStatusTone,
   type LoginForm,
   type PageKey,
   type RoomForm,
   type SettingsForm,
+  type VoiceDevice,
   userLabel,
 } from "./client-ui";
-import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
+import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule, SettingsPage } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { WebRTCVoiceSession, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
@@ -95,11 +92,6 @@ type PendingChat = {
   id: string;
   message: string;
 };
-type VoiceDevice = {
-  deviceID: string;
-  label: string;
-};
-
 export default function App() {
   const [page, setPage] = useState<PageKey>("account");
   const [state, setState] = useState<AppState>(emptyState);
@@ -183,7 +175,6 @@ export default function App() {
         .map((member) => userLabel(member.displayName, member.username)),
     [members, directPeerIPSet],
   );
-  const updateTone = updateStatusTone(state.update.status);
   const showUpdatePrompt =
     state.update.status === "ready" &&
     state.update.latestVersion !== "";
@@ -1096,130 +1087,20 @@ export default function App() {
 
   function renderSettingsPage() {
     return (
-      <section className="settings-grid">
-        <div className="settings-column">
-          <form className="surface settings-panel" onSubmit={handleSaveSettings}>
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">客户端</span>
-                <h2>连接偏好</h2>
-              </div>
-              <SlidersHorizontal size={18} />
-            </div>
-            <div className="form-stack">
-              <Field label="接口地址">
-                <Input
-                  className="pretty-input"
-                  value={settingsForm.apiBaseURL}
-                  onChange={(_, data) => setSettingsForm((current) => ({ ...current, apiBaseURL: data.value }))}
-                />
-              </Field>
-              <Switch
-                label="启用 P2P 直连"
-                checked={settingsForm.p2pEnabled}
-                onChange={(_, data) => setSettingsForm((current) => ({ ...current, p2pEnabled: data.checked }))}
-              />
-              <div className="command-actions">
-                <Button appearance="primary" type="submit" disabled={isBusy}>
-                  保存
-                </Button>
-              </div>
-            </div>
-          </form>
-
-          <form className="surface voice-settings-panel" onSubmit={handleSaveSettings}>
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">Voice</span>
-                <h2>语音设置</h2>
-              </div>
-              <Volume2 size={18} />
-            </div>
-            <div className="voice-settings-form">
-              <Field label="输入设备">
-                <Select className="pretty-input" value={settingsForm.voiceSettings.inputDeviceID} onChange={(event) => updateVoiceSettings({ inputDeviceID: event.target.value })}>
-                  <option value="">默认麦克风</option>
-                  {voiceDevices.inputs.map((device) => (
-                    <option key={device.deviceID} value={device.deviceID}>
-                      {device.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="输出设备">
-                <Select className="pretty-input" value={settingsForm.voiceSettings.outputDeviceID} onChange={(event) => updateVoiceSettings({ outputDeviceID: event.target.value })}>
-                  <option value="">默认扬声器</option>
-                  {voiceDevices.outputs.map((device) => (
-                    <option key={device.deviceID} value={device.deviceID}>
-                      {device.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="voice-slider-row">
-                <span>麦克风音量</span>
-                <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.micVolume} onChange={(_, data) => updateVoiceSettings({ micVolume: data.value })} />
-                <strong>{Math.round(settingsForm.voiceSettings.micVolume * 100)}%</strong>
-              </div>
-              <div className="voice-slider-row">
-                <span>播放音量</span>
-                <Slider min={0.2} max={2} step={0.05} value={settingsForm.voiceSettings.outputVolume} onChange={(_, data) => updateVoiceSettings({ outputVolume: data.value })} />
-                <strong>{Math.round(settingsForm.voiceSettings.outputVolume * 100)}%</strong>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <div className="settings-column">
-          <div className="surface update-panel">
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">更新</span>
-                <h2>客户端版本</h2>
-              </div>
-              <span className={`status-pill ${updateTone}`}>{updateStatusText(state.update.status)}</span>
-            </div>
-            <div className="data-grid">
-              <Metric label="当前版本" value={state.update.currentVersion || "-"} />
-              <Metric label="最新版本" value={state.update.latestVersion || "-"} />
-              <Metric label="平台" value={state.update.platform || "windows-amd64"} />
-              <Metric label="大小" value={state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : "-"} />
-              <Metric label="状态" value={state.update.message || updateStatusText(state.update.status)} wide />
-            </div>
-            <div className="settings-actions">
-              <Button icon={<RefreshCw size={16} />} disabled={isBusy || state.update.status === "downloading"} onClick={handleCheckUpdates}>
-                检查更新
-              </Button>
-              <Button
-                appearance="primary"
-                icon={<Power size={16} />}
-                disabled={isBusy || state.update.status !== "ready"}
-                onClick={() => run("启动更新", InstallPreparedUpdate)}
-              >
-                重启更新
-              </Button>
-            </div>
-          </div>
-
-          <div className="surface announcement-panel">
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">公告</span>
-                <h2>官方信息</h2>
-              </div>
-              <Megaphone size={18} />
-            </div>
-            <div className="announcement-body">
-              <p>{state.announcement || "官方 QQ 群：715516422"}</p>
-            </div>
-            <div className="settings-actions">
-              <Button icon={<Copy size={16} />} onClick={() => copyText(state.announcement || "官方 QQ 群：715516422", "公告")}>
-                复制
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
+      <SettingsPage
+        form={settingsForm}
+        update={state.update}
+        announcement={state.announcement}
+        voiceDevices={voiceDevices}
+        disabled={isBusy}
+        onSubmit={handleSaveSettings}
+        onAPIBaseURLChange={(value) => setSettingsForm((current) => ({ ...current, apiBaseURL: value }))}
+        onP2PEnabledChange={(value) => setSettingsForm((current) => ({ ...current, p2pEnabled: value }))}
+        onVoiceSettingsChange={updateVoiceSettings}
+        onCheckUpdates={handleCheckUpdates}
+        onInstallUpdate={() => run("启动更新", InstallPreparedUpdate)}
+        onCopyAnnouncement={() => copyText(state.announcement || "官方 QQ 群：715516422", "公告")}
+      />
     );
   }
 

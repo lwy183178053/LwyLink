@@ -32,6 +32,11 @@ export type SettingsForm = {
   voiceSettings: VoiceSettings;
 };
 
+export type VoiceDevice = {
+  deviceID: string;
+  label: string;
+};
+
 const pageTitles: Record<PageKey, string> = {
   account: "账号中心",
   room: "房间",

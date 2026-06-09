@@ -1,5 +1,5 @@
-import type { CSSProperties, ReactNode, RefObject } from "react";
-import { Button, Input, Spinner } from "@fluentui/react-components";
+import type { CSSProperties, FormEvent, ReactNode, RefObject } from "react";
+import { Button, Field, Input, Select, Slider, Spinner, Switch } from "@fluentui/react-components";
 import {
   CircleCheck,
   CircleX,
@@ -10,16 +10,21 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  Megaphone,
   Network,
+  Power,
   PlugZap,
   Radio,
+  RefreshCw,
   Send,
+  SlidersHorizontal,
   Trash2,
   UserMinus,
+  Volume2,
 } from "lucide-react";
-import { formatTime, initials, statusText, statusTone, userLabel } from "./client-ui";
+import { formatBytes, formatTime, initials, statusText, statusTone, updateStatusText, updateStatusTone, userLabel, type SettingsForm, type VoiceDevice } from "./client-ui";
 import type { WebRTCVoiceStats } from "./webrtcVoice";
-import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, VoiceState } from "./types";
+import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, UpdateState, VoiceSettings, VoiceState } from "./types";
 
 type VoiceLevelStyle = CSSProperties & {
   "--voice-level": string;
@@ -479,5 +484,148 @@ export function RoomCommsPanel({
         </Button>
       </div>
     </aside>
+  );
+}
+
+export function SettingsPage({
+  form,
+  update,
+  announcement,
+  voiceDevices,
+  disabled,
+  onSubmit,
+  onAPIBaseURLChange,
+  onP2PEnabledChange,
+  onVoiceSettingsChange,
+  onCheckUpdates,
+  onInstallUpdate,
+  onCopyAnnouncement,
+}: {
+  form: SettingsForm;
+  update: UpdateState;
+  announcement: string;
+  voiceDevices: { inputs: VoiceDevice[]; outputs: VoiceDevice[] };
+  disabled: boolean;
+  onSubmit: (event: FormEvent) => void;
+  onAPIBaseURLChange: (value: string) => void;
+  onP2PEnabledChange: (value: boolean) => void;
+  onVoiceSettingsChange: (patch: Partial<VoiceSettings>) => void;
+  onCheckUpdates: () => void;
+  onInstallUpdate: () => void;
+  onCopyAnnouncement: () => void;
+}) {
+  const updateTone = updateStatusTone(update.status);
+  return (
+    <section className="settings-grid">
+      <div className="settings-column">
+        <form className="surface settings-panel" onSubmit={onSubmit}>
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">客户端</span>
+              <h2>连接偏好</h2>
+            </div>
+            <SlidersHorizontal size={18} />
+          </div>
+          <div className="form-stack">
+            <Field label="接口地址">
+              <Input className="pretty-input" value={form.apiBaseURL} onChange={(_, data) => onAPIBaseURLChange(data.value)} />
+            </Field>
+            <Switch label="启用 P2P 直连" checked={form.p2pEnabled} onChange={(_, data) => onP2PEnabledChange(data.checked)} />
+            <div className="command-actions">
+              <Button appearance="primary" type="submit" disabled={disabled}>
+                保存
+              </Button>
+            </div>
+          </div>
+        </form>
+
+        <form className="surface voice-settings-panel" onSubmit={onSubmit}>
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">Voice</span>
+              <h2>语音设置</h2>
+            </div>
+            <Volume2 size={18} />
+          </div>
+          <div className="voice-settings-form">
+            <Field label="输入设备">
+              <Select className="pretty-input" value={form.voiceSettings.inputDeviceID} onChange={(event) => onVoiceSettingsChange({ inputDeviceID: event.target.value })}>
+                <option value="">默认麦克风</option>
+                {voiceDevices.inputs.map((device) => (
+                  <option key={device.deviceID} value={device.deviceID}>
+                    {device.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="输出设备">
+              <Select className="pretty-input" value={form.voiceSettings.outputDeviceID} onChange={(event) => onVoiceSettingsChange({ outputDeviceID: event.target.value })}>
+                <option value="">默认扬声器</option>
+                {voiceDevices.outputs.map((device) => (
+                  <option key={device.deviceID} value={device.deviceID}>
+                    {device.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="voice-slider-row">
+              <span>麦克风音量</span>
+              <Slider min={0.2} max={2} step={0.05} value={form.voiceSettings.micVolume} onChange={(_, data) => onVoiceSettingsChange({ micVolume: data.value })} />
+              <strong>{Math.round(form.voiceSettings.micVolume * 100)}%</strong>
+            </div>
+            <div className="voice-slider-row">
+              <span>播放音量</span>
+              <Slider min={0.2} max={2} step={0.05} value={form.voiceSettings.outputVolume} onChange={(_, data) => onVoiceSettingsChange({ outputVolume: data.value })} />
+              <strong>{Math.round(form.voiceSettings.outputVolume * 100)}%</strong>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div className="settings-column">
+        <div className="surface update-panel">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">更新</span>
+              <h2>客户端版本</h2>
+            </div>
+            <span className={`status-pill ${updateTone}`}>{updateStatusText(update.status)}</span>
+          </div>
+          <div className="data-grid">
+            <Metric label="当前版本" value={update.currentVersion || "-"} />
+            <Metric label="最新版本" value={update.latestVersion || "-"} />
+            <Metric label="平台" value={update.platform || "windows-amd64"} />
+            <Metric label="大小" value={update.sizeBytes ? formatBytes(update.sizeBytes) : "-"} />
+            <Metric label="状态" value={update.message || updateStatusText(update.status)} wide />
+          </div>
+          <div className="settings-actions">
+            <Button icon={<RefreshCw size={16} />} disabled={disabled || update.status === "downloading"} onClick={onCheckUpdates}>
+              检查更新
+            </Button>
+            <Button appearance="primary" icon={<Power size={16} />} disabled={disabled || update.status !== "ready"} onClick={onInstallUpdate}>
+              重启更新
+            </Button>
+          </div>
+        </div>
+
+        <div className="surface announcement-panel">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">公告</span>
+              <h2>官方信息</h2>
+            </div>
+            <Megaphone size={18} />
+          </div>
+          <div className="announcement-body">
+            <p>{announcement || "官方 QQ 群：715516422"}</p>
+          </div>
+          <div className="settings-actions">
+            <Button icon={<Copy size={16} />} onClick={onCopyAnnouncement}>
+              复制
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
