@@ -30,20 +30,30 @@ type outputWriter struct {
 }
 
 type netEvent struct {
-	Type             string `json:"type"`
-	Message          string `json:"message,omitempty"`
-	RoomID           int64  `json:"roomID,omitempty"`
-	RoomName         string `json:"roomName,omitempty"`
-	NetworkCIDR      string `json:"networkCIDR,omitempty"`
-	OverlayAddr      string `json:"overlayAddr,omitempty"`
-	UDPOverlayAddr   string `json:"udpOverlayAddr,omitempty"`
-	IP               string `json:"ip,omitempty"`
-	Gateway          string `json:"gateway,omitempty"`
-	MTU              int    `json:"mtu,omitempty"`
-	TransportMode    string `json:"transportMode,omitempty"`
-	TransportMessage string `json:"transportMessage,omitempty"`
-	DirectPeers      int    `json:"directPeers,omitempty"`
-	Time             string `json:"time"`
+	Type             string                `json:"type"`
+	Message          string                `json:"message,omitempty"`
+	RoomID           int64                 `json:"roomID,omitempty"`
+	RoomName         string                `json:"roomName,omitempty"`
+	NetworkCIDR      string                `json:"networkCIDR,omitempty"`
+	OverlayAddr      string                `json:"overlayAddr,omitempty"`
+	UDPOverlayAddr   string                `json:"udpOverlayAddr,omitempty"`
+	IP               string                `json:"ip,omitempty"`
+	Gateway          string                `json:"gateway,omitempty"`
+	MTU              int                   `json:"mtu,omitempty"`
+	TransportMode    string                `json:"transportMode,omitempty"`
+	TransportMessage string                `json:"transportMessage,omitempty"`
+	DirectPeers      int                   `json:"directPeers,omitempty"`
+	Diagnostics      []transportDiagnostic `json:"transportDiagnostics,omitempty"`
+	Time             string                `json:"time"`
+}
+
+type transportDiagnostic struct {
+	VirtualIP          string `json:"virtualIP"`
+	CandidateCount     int    `json:"candidateCount"`
+	SelectedType       string `json:"selectedType"`
+	LastProbeAt        string `json:"lastProbeAt,omitempty"`
+	FailedProbes       int    `json:"failedProbes"`
+	LastObservedPeerAt string `json:"lastObservedPeerAt,omitempty"`
 }
 
 type connectConfig struct {
@@ -149,6 +159,7 @@ func runConnect(args []string, writer *outputWriter) error {
 				TransportMode:    status.Mode,
 				TransportMessage: status.Message,
 				DirectPeers:      len(status.DirectIPs),
+				Diagnostics:      viewTransportDiagnostics(status.Diagnostics),
 			})
 		},
 	})
@@ -264,6 +275,31 @@ func (w *outputWriter) emit(event netEvent) {
 	defer w.mu.Unlock()
 	event.Time = time.Now().Format(time.RFC3339)
 	_ = json.NewEncoder(os.Stdout).Encode(event)
+}
+
+func viewTransportDiagnostics(items []client.TransportPeerDiagnostic) []transportDiagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]transportDiagnostic, 0, len(items))
+	for _, item := range items {
+		out = append(out, transportDiagnostic{
+			VirtualIP:          item.VirtualIP,
+			CandidateCount:     item.CandidateCount,
+			SelectedType:       item.SelectedType,
+			LastProbeAt:        formatOptionalTime(item.LastProbeAt),
+			FailedProbes:       item.FailedProbes,
+			LastObservedPeerAt: formatOptionalTime(item.LastObservedPeerAt),
+		})
+	}
+	return out
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func envString(key, fallback string) string {

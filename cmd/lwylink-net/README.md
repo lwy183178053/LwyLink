@@ -54,11 +54,11 @@ $env:LWYLINK_TOKEN = "<login-token>"
 ```json
 {"type":"connecting","message":"正在连接虚拟网络","roomID":123}
 {"type":"connected","message":"虚拟网络已连接","ip":"172.16.1.2","gateway":"172.16.1.254","mtu":1400}
-{"type":"transport","transportMode":"udp-direct","transportMessage":"P2P 直连 · 1 条隧道","directPeers":1}
+{"type":"transport","transportMode":"udp-direct","transportMessage":"P2P 直连 · 1 条隧道","directPeers":1,"transportDiagnostics":[{"virtualIP":"172.16.1.3","candidateCount":3,"selectedType":"srflx-stun","failedProbes":0}]}
 {"type":"disconnected","message":"虚拟网络已断开"}
 ```
 
-调用方可以按行读取 stdout 来更新 UI。
+调用方可以按行读取 stdout 来更新 UI。普通 UI 只需要 `transportMode`、`transportMessage`、`directPeers`；`transportDiagnostics` 用于日志、smoke 和开发诊断。
 
 ## 清理
 
