@@ -98,8 +98,7 @@ LwyLink 的虚拟局域网核心目标仍然是：
 
 ### 保留范围
 
-- 继续使用 `FrameVoice / UDPTypeVoice`。
-- 保留底层传输 smoke 和未来协议实验。
+- `FrameVoice / UDPTypeVoice` 仅保留为底层传输 smoke 和未来协议实验能力。
 - 不再作为 Windows 客户端产品媒体路径。
 
 ### 如果未来重新启用，必须补的媒体层能力

@@ -117,9 +117,9 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 对 LwyLink 的启发：
 
-- 当前 AudioWorklet 连续播放是正确方向，但还远远不是 NetEQ。
-- 固定 800ms jitter 能掩盖很多网络抖动，但代价是语音通话延迟偏大，不像 QQ/微信电话。
-- 如果目标是“优质通话”，成熟 WebRTC 媒体通道天然占优。
+- 原生语音实验里的连续播放队列证明了“按固定播放节奏消费音频”是必要方向，但离 NetEQ 还很远。
+- 固定大 jitter 能掩盖很多网络抖动，但代价是语音通话延迟偏大，不像 QQ/微信电话。
+- 如果目标是“优质通话”，当前应继续走成熟 WebRTC 媒体通道，而不是维护第二套客户端音频栈。
 
 ### Mumble
 
@@ -168,7 +168,7 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 ### 误区三：自研语音栈工作量被低估
 
-我们现在已经处理了 RNNoise、Opus、AudioWorklet、tail hangover，但这只是入口。真正难的是：
+原生语音实验已经验证过 RNNoise、Opus、连续播放队列和尾音保持等方向，但这只是入口。真正难的是：
 
 - 音频时钟和网络时钟不一致。
 - 乱序和迟到包如何处理。
