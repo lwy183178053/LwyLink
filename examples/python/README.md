@@ -1,6 +1,8 @@
 # Python 调用 lwylink-net 示例
 
-这个目录演示 Python 如何接入 LwyLink 房间系统和独立虚拟组网引擎。
+这个目录演示 Python 如何接入 LwyLink 房间系统和独立虚拟组网引擎，适合游戏 mod、启动器或自动化工具嵌入组网能力。
+
+这里不包含房间语音或 WebRTC 示例。语音是官方 Windows 客户端能力；Python 示例只负责房间、事件和虚拟组网进程控制。
 
 ## 文件
 
