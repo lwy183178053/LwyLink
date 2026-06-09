@@ -54,6 +54,7 @@ import {
   canCreateRoomSize,
   defaultRoomMemberLimit,
   defaultRoomName,
+  emailCodeInputValue,
   errorText,
   formatBytes,
   isConnectionRunning,
@@ -763,7 +764,7 @@ export default function App() {
                         inputMode="numeric"
                         maxLength={6}
                         value={loginForm.resetCode}
-                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
+                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: emailCodeInputValue(data.value) }))}
                       />
                     </Field>
                     <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("password_reset")}>
@@ -801,7 +802,7 @@ export default function App() {
                       inputMode="numeric"
                       maxLength={6}
                       value={loginForm.emailCode}
-                      onChange={(_, data) => setLoginForm((current) => ({ ...current, emailCode: data.value.replace(/\D/g, "").slice(0, 6) }))}
+                      onChange={(_, data) => setLoginForm((current) => ({ ...current, emailCode: emailCodeInputValue(data.value) }))}
                     />
                   </Field>
                   <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("register")}>

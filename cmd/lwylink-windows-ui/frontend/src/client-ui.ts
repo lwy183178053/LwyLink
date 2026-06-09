@@ -83,6 +83,10 @@ export function authRuleState(email: string, password: string) {
   };
 }
 
+export function emailCodeInputValue(value: string) {
+  return value.replace(/\D/g, "").slice(0, 6);
+}
+
 export function pageTitle(page: PageKey) {
   return pageTitles[page];
 }
