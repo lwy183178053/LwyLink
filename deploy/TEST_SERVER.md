@@ -65,6 +65,8 @@ ss -ltnup | grep -E '(127\.0\.0\.1:8080|:443|:35768) '
 | `35768/tcp` | `lwylink-node` 控制/中继 |
 | `35768/udp` | `lwylink-node` UDP 打洞协商 |
 | `443/tcp` | HTTPS 反向代理，域名 `www.lwylink.xyz` / `lwylink.xyz` |
+| `3478/udp` | 可选 coturn，WebRTC 语音 TURN 兜底 |
+| `49160-49200/udp` | 可选 coturn relay 媒体端口池 |
 
 ## 一键发布
 
@@ -98,6 +100,17 @@ $env:LWYLINK_DEPLOY_SSH_PASSWORD = "这里填测试服务器 SSH 密码"
 ```powershell
 .\deploy\upload-deploy.ps1 -UploadConfigs
 ```
+
+配置 TURN 语音兜底时：
+
+```powershell
+Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
+.\deploy\setup-turn.ps1 -ValidateOnly
+.\deploy\setup-turn.ps1 -UpdateLocalControlConfig
+.\deploy\upload-deploy.ps1 -UploadConfigs -SkipSmoke
+```
+
+真实 TURN secret 只写入 `configs/turn.local.json` 和 `configs/control.prod.json`，不要提交。
 
 快速重启部署，不跑 smoke：
 

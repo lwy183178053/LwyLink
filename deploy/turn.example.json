@@ -1,0 +1,14 @@
+{
+  "realm": "lwylink.xyz",
+  "publicHost": "www.lwylink.xyz",
+  "listeningPort": 3478,
+  "tlsListeningPort": 5349,
+  "minPort": 49160,
+  "maxPort": 49200,
+  "staticAuthSecret": "CHANGE_ME_TURN_REST_SECRET",
+  "usernamePrefix": "lwylink",
+  "ttlSeconds": 3600,
+  "enableTLS": false,
+  "certPath": "",
+  "pkeyPath": ""
+}

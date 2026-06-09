@@ -10,6 +10,8 @@
 | `check.ps1` | 日常开发自检入口：Go 测试、前端构建、发布脚本自测和空白检查 |
 | `build-all.ps1` | 本机一键全编译 |
 | `upload-deploy.ps1` | 上传已有构建产物、安装 systemd、重启并可选 smoke 验证 |
+| `setup-turn.ps1` | 安装/配置 coturn，为 WebRTC 语音提供 TURN 兜底 |
+| `turn.example.json` | TURN 本机配置模板，复制到 `configs/turn.local.json` 后填写密钥 |
 | `test-release.ps1` | 发布脚本自测，检查版本同步幂等和后台占位符不被误改 |
 | `docker-compose.prod.yml` | 生产版 MySQL 和 Redis，只绑定 `127.0.0.1` |
 | `lwylink-control.service` | 控制中心 systemd 服务 |
@@ -40,6 +42,8 @@
 | `35768/tcp` | `lwylink-node` | Overlay TCP 控制/中继 |
 | `35768/udp` | `lwylink-node` | UDP 打洞协商 |
 | `443/tcp` | HTTPS 反向代理 | `www.lwylink.xyz` / `lwylink.xyz`，反代到控制端 `8080` |
+| `3478/udp` | coturn | WebRTC 语音 TURN 中继兜底，直连失败时使用 |
+| `49160-49200/udp` | coturn | TURN relay 媒体端口池，可按规模扩大 |
 
 ## 日常一键发布
 
@@ -182,6 +186,55 @@ $env:LWYLINK_API_URL = "https://www.lwylink.xyz"
 ```
 
 命令行参数优先级最高，其次环境变量，最后读取 `configs/deploy.local.json`。临时切换服务器时直接传 `-HostName` / `-Password`，不需要改本地配置文件。
+
+## TURN 语音兜底
+
+WebRTC 语音在普通 NAT 下会优先走 P2P；遇到严格 NAT、企业网络或 UDP 映射异常时，需要 TURN 中继兜底。控制端支持 TURN REST 短期凭据，长效 `staticAuthSecret` 只保存在 coturn 和控制端配置中，客户端只拿短期用户名和密码。
+
+首次准备本机 TURN 配置：
+
+```powershell
+Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
+```
+
+填写 `configs/turn.local.json`：
+
+- `realm`：通常用 `lwylink.xyz`。
+- `publicHost`：客户端可访问的 TURN 域名，例如 `www.lwylink.xyz` 或单独的 `turn.lwylink.xyz`。
+- `staticAuthSecret`：随机长密钥，必须和 coturn/control 配置一致。
+- `listeningPort`：默认 `3478`。
+- `minPort` / `maxPort`：TURN relay UDP 端口池，测试服可先用 `49160-49200`，用户变多后扩大。
+
+预检：
+
+```powershell
+.\deploy\setup-turn.ps1 -ValidateOnly
+```
+
+安装并配置 coturn，同时更新本机 `configs/control.prod.json` 的 `voiceTURNCredential`：
+
+```powershell
+.\deploy\setup-turn.ps1 -UpdateLocalControlConfig
+```
+
+只更新本机控制端配置、不连接服务器：
+
+```powershell
+.\deploy\setup-turn.ps1 -UpdateLocalControlConfig -LocalConfigOnly
+```
+
+然后把控制端配置同步到服务器并重启控制端：
+
+```powershell
+.\deploy\upload-deploy.ps1 -UploadConfigs -SkipSmoke
+```
+
+安全注意：
+
+- 不要提交 `configs/turn.local.json`、`configs/control.prod.json` 或真实 `staticAuthSecret`。
+- 云安全组/防火墙需要允许 `3478/udp` 和 relay 端口池 UDP 入站。
+- 没有 TLS TURN 时优先使用 `turn:域名:3478?transport=udp`；`turns:` 需要证书路径和 `-EnableTLS`。
+- TURN 会消耗服务器带宽，后续可把 TURN 流量统计接入账号流量额度。
 
 ## 新增房间节点
 

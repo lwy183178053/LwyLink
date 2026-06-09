@@ -219,6 +219,17 @@ $env:LWYLINK_VOICE_TURN_SECRET='CHANGE_ME_TURN_REST_SECRET'
 真实 TURN secret 不要提交到 Git。`voiceICEServers` 仍可用于普通 STUN 或临时静态 ICE server，但生产 TURN 优先使用 `voiceTURNCredential`。
 客户端只有登录后才会请求 WebRTC ICE 配置，避免未授权访问者批量获取 TURN 临时凭据。
 
+仓库提供 `deploy/setup-turn.ps1` 和 `deploy/turn.example.json` 辅助部署 coturn：
+
+```powershell
+Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
+.\deploy\setup-turn.ps1 -ValidateOnly
+.\deploy\setup-turn.ps1 -UpdateLocalControlConfig
+.\deploy\upload-deploy.ps1 -UploadConfigs -SkipSmoke
+```
+
+云安全组需要放行 `3478/udp` 和 TURN relay 端口池 UDP；测试服默认模板使用 `49160-49200/udp`。
+
 ## 关键概念
 
 - 房间公钥是加入房间和连接房间的授权凭证，不是节点传输密钥。
