@@ -326,22 +326,6 @@ export function RoomEntryPage({
 }) {
   return (
     <section className="room-entry">
-      <div className="room-entry-brief">
-        <div className="room-entry-mark">
-          <Network size={24} />
-        </div>
-        <div>
-          <span className="eyebrow">LwyLink Rooms</span>
-          <h2>一间房，把组网和语音放到一起</h2>
-          <p>创建房间后复制密钥邀请成员；客户端会先保证中继可用，再自动尝试加速路径。</p>
-        </div>
-        <div className="room-entry-points">
-          <span>自动加速</span>
-          <span>高清语音</span>
-          <span>TCP 保底</span>
-        </div>
-      </div>
-
       <form className="surface command-panel room-create-panel" onSubmit={onCreateRoom}>
         <div className="surface-head">
           <div>
@@ -862,6 +846,24 @@ export function SettingsPage({
   return (
     <section className="settings-grid">
       <div className="settings-column">
+        <div className="surface announcement-panel">
+          <div className="surface-head">
+            <div>
+              <span className="eyebrow">公告</span>
+              <h2>官方信息</h2>
+            </div>
+            <Megaphone size={18} />
+          </div>
+          <div className="announcement-body">
+            <p>{announcement || "官方 QQ 群：715516422"}</p>
+          </div>
+          <div className="settings-actions">
+            <Button icon={<Copy size={16} />} onClick={onCopyAnnouncement}>
+              复制
+            </Button>
+          </div>
+        </div>
+
         <form className="surface voice-settings-panel" onSubmit={onSubmit}>
           <div className="surface-head">
             <div>
@@ -927,24 +929,6 @@ export function SettingsPage({
             </Button>
             <Button appearance="primary" icon={<Power size={16} />} disabled={disabled || update.status !== "ready"} onClick={onInstallUpdate}>
               重启更新
-            </Button>
-          </div>
-        </div>
-
-        <div className="surface announcement-panel">
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">公告</span>
-              <h2>官方信息</h2>
-            </div>
-            <Megaphone size={18} />
-          </div>
-          <div className="announcement-body">
-            <p>{announcement || "官方 QQ 群：715516422"}</p>
-          </div>
-          <div className="settings-actions">
-            <Button icon={<Copy size={16} />} onClick={onCopyAnnouncement}>
-              复制
             </Button>
           </div>
         </div>
