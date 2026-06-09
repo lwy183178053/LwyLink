@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
-	"github.com/go-sql-driver/mysql"
 )
 
 var (
@@ -34,7 +33,7 @@ func (r *Repository) Create(ctx context.Context, release Release) (Release, erro
 		release.FileName, release.StoredFileName, release.ContentType, release.SizeBytes, release.SHA256,
 	)
 	if err != nil {
-		if isDuplicateEntry(err) {
+		if dbutil.DuplicateEntry(err) {
 			return Release{}, ErrVersionConflict
 		}
 		return Release{}, err
@@ -180,9 +179,4 @@ func scanReleases(rows *sql.Rows) ([]Release, error) {
 		out = append(out, release)
 	}
 	return out, rows.Err()
-}
-
-func isDuplicateEntry(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }

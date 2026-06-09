@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
-	"github.com/go-sql-driver/mysql"
 )
 
 type Repository struct {
@@ -27,7 +26,7 @@ func (r *Repository) Create(ctx context.Context, username, passwordHash, display
 		username, passwordHash, displayName,
 	)
 	if err != nil {
-		if isDuplicateEntry(err) {
+		if dbutil.DuplicateEntry(err) {
 			return User{}, ErrUsernameUsed
 		}
 		return User{}, err
@@ -279,9 +278,4 @@ func currentRelayTrafficPeriod() string {
 
 func relayTrafficPeriodSQL() string {
 	return `DATE_FORMAT(CURRENT_DATE(), '%Y-%m')`
-}
-
-func isDuplicateEntry(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }
