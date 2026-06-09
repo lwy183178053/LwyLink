@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -385,6 +386,50 @@ func (s *Service) SetVoiceSpeaking(ctx context.Context, userID, roomID int64, sp
 
 	s.publishVoiceState(ctx, state, userID)
 	return state, nil
+}
+
+func (s *Service) SendVoiceSignal(ctx context.Context, fromUserID, roomID, toUserID int64, signalType string, payload []byte) (VoiceSignal, error) {
+	if fromUserID <= 0 || toUserID <= 0 || fromUserID == toUserID {
+		return VoiceSignal{}, fmt.Errorf("invalid voice signal target")
+	}
+	signalType = strings.TrimSpace(strings.ToLower(signalType))
+	if !validVoiceSignalType(signalType) {
+		return VoiceSignal{}, fmt.Errorf("invalid voice signal type")
+	}
+	if len(payload) == 0 {
+		payload = []byte("{}")
+	}
+	if !json.Valid(payload) {
+		return VoiceSignal{}, fmt.Errorf("voice signal payload must be valid JSON")
+	}
+	if _, err := s.EnsureMember(ctx, roomID, fromUserID); err != nil {
+		return VoiceSignal{}, err
+	}
+	if _, err := s.EnsureMember(ctx, roomID, toUserID); err != nil {
+		return VoiceSignal{}, fmt.Errorf("target user is not a room member")
+	}
+	if !s.voiceParticipantExists(roomID, fromUserID) {
+		return VoiceSignal{}, fmt.Errorf("请先加入语音房")
+	}
+	if !s.voiceParticipantExists(roomID, toUserID) {
+		return VoiceSignal{}, fmt.Errorf("target user has not joined voice")
+	}
+	signal := VoiceSignal{
+		RoomID:     roomID,
+		FromUserID: fromUserID,
+		ToUserID:   toUserID,
+		Type:       signalType,
+		Payload:    append([]byte(nil), payload...),
+	}
+	s.publishRoomEvent(ctx, RoomEvent{
+		Type:         RoomEventVoiceSignal,
+		RoomID:       roomID,
+		ActorUserID:  fromUserID,
+		TargetUserID: toUserID,
+		UserIDs:      []int64{toUserID},
+		VoiceSignal:  &signal,
+	})
+	return signal, nil
 }
 
 func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
@@ -849,6 +894,14 @@ func (s *Service) voiceSpeakerCountLocked(roomID int64) int {
 	return count
 }
 
+func (s *Service) voiceParticipantExists(roomID, userID int64) bool {
+	s.voiceMu.Lock()
+	defer s.voiceMu.Unlock()
+	participants := s.voiceRooms[roomID]
+	_, ok := participants[userID]
+	return ok
+}
+
 func (s *Service) removeVoiceParticipant(room Room, userID int64) (VoiceState, bool) {
 	s.voiceMu.Lock()
 	defer s.voiceMu.Unlock()
@@ -896,6 +949,15 @@ func uniquePositiveUserIDs(ids []int64) []int64 {
 		out = append(out, id)
 	}
 	return out
+}
+
+func validVoiceSignalType(signalType string) bool {
+	switch signalType {
+	case "offer", "answer", "ice", "hangup":
+		return true
+	default:
+		return false
+	}
 }
 
 func randomChatID() string {

@@ -86,6 +86,10 @@ export function SendVoiceAudioFrame(arg1) {
   return window['go']['main']['App']['SendVoiceAudioFrame'](arg1);
 }
 
+export function SendVoiceWebRTCSignal(arg1) {
+  return window['go']['main']['App']['SendVoiceWebRTCSignal'](arg1);
+}
+
 export function SetRoomVoiceMic(arg1, arg2) {
   return window['go']['main']['App']['SetRoomVoiceMic'](arg1, arg2);
 }

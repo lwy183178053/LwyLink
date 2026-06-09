@@ -526,6 +526,25 @@ export namespace main {
 	        this.payload = source["payload"];
 	    }
 	}
+	
+	export class VoiceWebRTCSignalInput {
+	    roomID: number;
+	    toUserID: number;
+	    type: string;
+	    payload: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceWebRTCSignalInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.roomID = source["roomID"];
+	        this.toUserID = source["toUserID"];
+	        this.type = source["type"];
+	        this.payload = source["payload"];
+	    }
+	}
 
 }
 

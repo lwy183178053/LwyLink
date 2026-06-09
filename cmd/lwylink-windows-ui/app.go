@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.2.3"
+var AppVersion = "0.2.4"
 
 type App struct {
 	ctx context.Context
@@ -129,6 +129,13 @@ type VoiceAudioFrameInput struct {
 	Codec       string `json:"codec"`
 	SampleRate  int    `json:"sampleRate"`
 	Payload     []byte `json:"payload"`
+}
+
+type VoiceWebRTCSignalInput struct {
+	RoomID   int64           `json:"roomID"`
+	ToUserID int64           `json:"toUserID"`
+	Type     string          `json:"type"`
+	Payload  json.RawMessage `json:"payload"`
 }
 
 type MemberActionInput struct {
@@ -877,6 +884,24 @@ func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) 
 	return a.CurrentState(), nil
 }
 
+func (a *App) SendVoiceWebRTCSignal(input VoiceWebRTCSignalInput) (AppState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	a.mu.Lock()
+	api := a.api.Clone()
+	apiBaseURL := a.apiBaseURL
+	a.mu.Unlock()
+	if _, err := api.SendRoomVoiceWebRTCSignal(ctx, input.RoomID, input.ToUserID, input.Type, input.Payload); err != nil {
+		return a.CurrentState(), err
+	}
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL {
+		a.mu.Unlock()
+		return a.CurrentState(), nil
+	}
+	return a.commitStateLocked(), nil
+}
+
 func (a *App) DeleteRoom(roomID int64) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -1225,6 +1250,16 @@ func (a *App) runRoomEvents(seq int64, ctx context.Context, api *client.API) {
 
 func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 	if event.Type == "" {
+		return
+	}
+	if event.Type == room.RoomEventVoiceSignal && event.VoiceSignal != nil {
+		a.mu.Lock()
+		ready := a.roomEventsSeq == seq && a.user != nil
+		ctx := a.ctx
+		a.mu.Unlock()
+		if ready && ctx != nil {
+			wailsRuntime.EventsEmit(ctx, "voice-webrtc-signal", event.VoiceSignal)
+		}
 		return
 	}
 	if event.Type == room.RoomEventVoiceState && event.Voice != nil {

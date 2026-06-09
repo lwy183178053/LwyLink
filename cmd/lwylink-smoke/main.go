@@ -134,6 +134,7 @@ func run() (code int) {
 
 	verifyDiscoveryFanout(ctx, playerOverlay, ownerOverlay)
 	verifyVoiceRelay(ctx, roomInfo.ID, owner.User.ID, player.User.ID, ownerOverlay, playerOverlay)
+	verifyVoiceWebRTCSignal(ctx, roomInfo.ID, owner.User.ID, player.User.ID, ownerAPI, playerAPI)
 	if *voiceQAFrames > 0 && *voiceQARuns > 0 {
 		for runIndex := 1; runIndex <= *voiceQARuns; runIndex++ {
 			verifyVoiceQuality(ctx, voiceQACase{
@@ -475,6 +476,58 @@ func verifyVoiceRelay(ctx context.Context, roomID, fromUserID, toUserID int64, f
 		failf("voice relay was not forwarded")
 	case <-ctx.Done():
 		failf("voice relay: %v", ctx.Err())
+	}
+}
+
+func verifyVoiceWebRTCSignal(ctx context.Context, roomID, ownerUserID, playerUserID int64, ownerAPI, playerAPI *client.API) {
+	eventsCtx, cancelEvents := context.WithCancel(ctx)
+	defer cancelEvents()
+	events := make(chan room.RoomEvent, 8)
+	go func() {
+		_ = playerAPI.SubscribeRoomEvents(eventsCtx, func(event room.RoomEvent) {
+			if event.Type == room.RoomEventVoiceSignal {
+				select {
+				case events <- event:
+				default:
+				}
+			}
+		})
+	}()
+	if _, err := ownerAPI.JoinRoomVoice(ctx, roomID); err != nil {
+		failf("owner join voice for webrtc signal: %v", err)
+	}
+	if _, err := playerAPI.JoinRoomVoice(ctx, roomID); err != nil {
+		failf("player join voice for webrtc signal: %v", err)
+	}
+	defer func() {
+		_, _ = ownerAPI.LeaveRoomVoice(context.Background(), roomID)
+		_, _ = playerAPI.LeaveRoomVoice(context.Background(), roomID)
+	}()
+	payload := json.RawMessage(`{"sdp":"smoke-offer","type":"offer"}`)
+	signal, err := ownerAPI.SendRoomVoiceWebRTCSignal(ctx, roomID, playerUserID, "offer", payload)
+	if err != nil {
+		failf("send webrtc voice signal: %v", err)
+	}
+	if signal.FromUserID != ownerUserID || signal.ToUserID != playerUserID || signal.Type != "offer" || !bytes.Equal(signal.Payload, payload) {
+		failf("webrtc signal response mismatch from=%d to=%d type=%s payload=%s", signal.FromUserID, signal.ToUserID, signal.Type, string(signal.Payload))
+	}
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.VoiceSignal == nil {
+				continue
+			}
+			got := event.VoiceSignal
+			if got.RoomID == roomID && got.FromUserID == ownerUserID && got.ToUserID == playerUserID && got.Type == "offer" && bytes.Equal(got.Payload, payload) {
+				log.Printf("webrtc voice signal ok from=%d to=%d", ownerUserID, playerUserID)
+				return
+			}
+		case <-deadline:
+			failf("webrtc voice signal event was not delivered")
+		case <-ctx.Done():
+			failf("webrtc voice signal: %v", ctx.Err())
+		}
 	}
 }
 

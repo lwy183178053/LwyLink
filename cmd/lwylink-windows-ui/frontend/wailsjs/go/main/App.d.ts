@@ -44,6 +44,8 @@ export function SendRoomChat(arg1:main.SendChatInput):Promise<main.AppState>;
 
 export function SendVoiceAudioFrame(arg1:main.VoiceAudioFrameInput):Promise<main.AppState>;
 
+export function SendVoiceWebRTCSignal(arg1:main.VoiceWebRTCSignalInput):Promise<main.AppState>;
+
 export function SetRoomVoiceMic(arg1:number,arg2:boolean):Promise<main.AppState>;
 
 export function SetSettings(arg1:main.SettingsInput):Promise<main.AppState>;

@@ -86,6 +86,7 @@ import {
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { VoiceSession, listVoiceDevices, type IncomingVoiceFrame } from "./voice";
+import { WebRTCVoiceExperiment, type WebRTCVoiceSignal } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
@@ -133,6 +134,7 @@ export default function App() {
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const voiceSessionRef = useRef<VoiceSession | null>(null);
+  const webrtcVoiceRef = useRef<WebRTCVoiceExperiment | null>(null);
 
   useEffect(() => {
     CurrentState()
@@ -142,12 +144,18 @@ export default function App() {
     const offVoice = EventsOn("voice-audio", (frame: IncomingVoiceFrame) => {
       voiceSessionRef.current?.playFrame(frame);
     });
+    const offWebRTCVoice = EventsOn("voice-webrtc-signal", (signal: WebRTCVoiceSignal) => {
+      void webrtcVoiceRef.current?.handleSignal(signal);
+    });
     return () => {
       if (typeof off === "function") {
         off();
       }
       if (typeof offVoice === "function") {
         offVoice();
+      }
+      if (typeof offWebRTCVoice === "function") {
+        offWebRTCVoice();
       }
     };
   }, []);
@@ -246,6 +254,7 @@ export default function App() {
 
   useEffect(() => {
     voiceSessionRef.current?.updateSettings(settingsForm.voiceSettings);
+    webrtcVoiceRef.current?.updateSettings(settingsForm.voiceSettings);
   }, [settingsForm.voiceSettings]);
 
   function applyState(next: AppState) {
@@ -405,20 +414,53 @@ export default function App() {
     if (!currentRoom || !state.user) {
       return;
     }
-    const session = new VoiceSession(currentRoom, state.voiceSettings, {
-      onError: (message) => showNotice(message, "error"),
-    });
+    const voiceBackend = preferredVoiceBackend();
+    const useNativeVoice = voiceBackend === "native" || voiceBackend === "dual";
+    let joinedServerVoice = false;
     try {
-      await session.start();
-      voiceSessionRef.current = session;
+      let session: VoiceSession | null = null;
+      if (useNativeVoice) {
+        session = new VoiceSession(currentRoom, state.voiceSettings, {
+          onError: (message) => showNotice(message, "error"),
+        });
+        await session.start();
+        voiceSessionRef.current = session;
+      }
       const next = await JoinRoomVoice(currentRoom.id);
+      joinedServerVoice = true;
       applyState(next);
       setVoiceActive(true);
       setVoiceMicActive(false);
-      showNotice("已加入房间语音", "success");
+      if (voiceBackend === "webrtc" || voiceBackend === "dual") {
+        try {
+          await startWebRTCVoice(next);
+        } catch (err) {
+          if (voiceBackend !== "webrtc") {
+            throw err;
+          }
+          showNotice(`高清语音启动失败，已切换到兼容语音：${errorText(err)}`, "info");
+          session = new VoiceSession(currentRoom, state.voiceSettings, {
+            onError: (message) => showNotice(message, "error"),
+          });
+          await session.start();
+          voiceSessionRef.current = session;
+        }
+      }
+      showNotice(voiceSessionRef.current ? "已加入房间语音" : "已加入高清语音", "success");
     } catch (err) {
-      await session.close();
+      await voiceSessionRef.current?.close();
       voiceSessionRef.current = null;
+      await stopWebRTCVoice();
+      setVoiceActive(false);
+      setVoiceMicActive(false);
+      if (joinedServerVoice && currentRoom) {
+        try {
+          const next = await LeaveRoomVoice(currentRoom.id);
+          applyState(next);
+        } catch {
+          // The original startup error is more useful to the user than cleanup noise.
+        }
+      }
       showNotice(errorText(err), "error");
     }
   }
@@ -445,6 +487,7 @@ export default function App() {
     setVoiceActive(false);
     setVoiceMicActive(false);
     await session?.close();
+    await stopWebRTCVoice();
     if (notifyServer && roomID) {
       try {
         const next = await LeaveRoomVoice(roomID);
@@ -455,15 +498,45 @@ export default function App() {
     }
   }
 
+  async function startWebRTCVoice(nextState: AppState) {
+    if (!currentRoom || !state.user) {
+      return;
+    }
+    const experiment = new WebRTCVoiceExperiment(currentRoom, state.user.id, state.voiceSettings, {
+      onError: (message) => showNotice(message, "error"),
+      onStats: (stats) => {
+        if (stats.length > 0) {
+          (globalThis as any).__lwylinkWebRTCVoiceStats = stats;
+          console.debug("LwyLink WebRTC voice stats", stats);
+        }
+      },
+    });
+    try {
+      webrtcVoiceRef.current = experiment;
+      await experiment.start(nextState.members ?? members);
+    } catch (err) {
+      webrtcVoiceRef.current = null;
+      await experiment.close();
+      throw err;
+    }
+  }
+
+  async function stopWebRTCVoice() {
+    const experiment = webrtcVoiceRef.current;
+    webrtcVoiceRef.current = null;
+    await experiment?.close();
+  }
+
   async function handleToggleVoiceMic() {
-    if (!currentRoom || !voiceSessionRef.current) {
+    if (!currentRoom || (!voiceSessionRef.current && !webrtcVoiceRef.current)) {
       showNotice("请先加入语音", "error");
       return;
     }
     const nextSpeaking = !voiceMicActive;
     try {
       const next = await SetRoomVoiceMic(currentRoom.id, nextSpeaking);
-      voiceSessionRef.current.setMicEnabled(nextSpeaking);
+      voiceSessionRef.current?.setMicEnabled(nextSpeaking);
+      webrtcVoiceRef.current?.setMicEnabled(nextSpeaking);
       setVoiceMicActive(nextSpeaking);
       applyState(next);
     } catch (err) {
@@ -1226,6 +1299,17 @@ function normalizeAppState(next: AppState): AppState {
     voiceMessage: next.voiceMessage || emptyState.voiceMessage,
     announcement: next.announcement || emptyState.announcement,
   };
+}
+
+function preferredVoiceBackend() {
+  const value = window.localStorage.getItem("lwylink.voiceBackend");
+  if (value === "native" || value === "webrtc" || value === "dual") {
+    return value;
+  }
+  if (window.localStorage.getItem("lwylink.webrtcVoiceExperiment") === "1") {
+    return "dual";
+  }
+  return "webrtc";
 }
 
 function visibleConnectionMessage(message: string) {

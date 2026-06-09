@@ -2,6 +2,7 @@ package room
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const (
 	RoomEventChatMessage      = "chat_message"
 	RoomEventAccountUpdated   = "account_updated"
 	RoomEventVoiceState       = "voice_state"
+	RoomEventVoiceSignal      = "voice_webrtc_signal"
 )
 
 type ChatMessage struct {
@@ -39,7 +41,16 @@ type RoomEvent struct {
 	UserIDs      []int64      `json:"userIDs,omitempty"`
 	Chat         *ChatMessage `json:"chat,omitempty"`
 	Voice        *VoiceState  `json:"voice,omitempty"`
+	VoiceSignal  *VoiceSignal `json:"voiceSignal,omitempty"`
 	CreatedAt    time.Time    `json:"createdAt"`
+}
+
+type VoiceSignal struct {
+	RoomID     int64           `json:"roomID"`
+	FromUserID int64           `json:"fromUserID"`
+	ToUserID   int64           `json:"toUserID"`
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload"`
 }
 
 type VoiceParticipant struct {

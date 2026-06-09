@@ -171,6 +171,17 @@ func (a *API) SetRoomVoiceMic(ctx context.Context, roomID int64, speaking bool) 
 	return out, err
 }
 
+func (a *API) SendRoomVoiceWebRTCSignal(ctx context.Context, roomID, toUserID int64, signalType string, payload json.RawMessage) (room.VoiceSignal, error) {
+	var out room.VoiceSignal
+	err := a.request(ctx, http.MethodPost, "/api/rooms/voice/webrtc/signal", map[string]any{
+		"roomID":   roomID,
+		"toUserID": toUserID,
+		"type":     signalType,
+		"payload":  payload,
+	}, &out)
+	return out, err
+}
+
 func (a *API) DeleteRoom(ctx context.Context, roomID int64) error {
 	return a.request(ctx, http.MethodPost, "/api/rooms/delete", map[string]int64{"roomID": roomID}, nil)
 }

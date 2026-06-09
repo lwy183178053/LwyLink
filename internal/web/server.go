@@ -74,6 +74,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/voice/join", s.handleJoinRoomVoice)
 	mux.HandleFunc("/api/rooms/voice/leave", s.handleLeaveRoomVoice)
 	mux.HandleFunc("/api/rooms/voice/mic", s.handleRoomVoiceMic)
+	mux.HandleFunc("/api/rooms/voice/webrtc/signal", s.handleRoomVoiceWebRTCSignal)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
@@ -547,6 +548,37 @@ func (s *Server) handleRoomVoiceMic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleRoomVoiceWebRTCSignal(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID   int64           `json:"roomID"`
+		ToUserID int64           `json:"toUserID"`
+		Type     string          `json:"type"`
+		Payload  json.RawMessage `json:"payload"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Payload) > 64*1024 {
+		writeError(w, http.StatusBadRequest, "voice signal payload is too large")
+		return
+	}
+	signal, err := s.rooms.SendVoiceSignal(r.Context(), user.ID, req.RoomID, req.ToUserID, req.Type, req.Payload)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, signal)
 }
 
 func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {
