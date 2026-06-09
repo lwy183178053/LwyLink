@@ -64,6 +64,7 @@ Room Node
 - [deploy/README.md](deploy/README.md)：生产部署、发布脚本、扩容节点和安全注意。
 - [deploy/TEST_SERVER.md](deploy/TEST_SERVER.md)：测试服务器、端口、远端路径和自动部署速查。
 - [MANUAL_UPDATE.md](MANUAL_UPDATE.md)：手动构建、上传、发布和回滚流程。
+- [docs/RELEASE_CANDIDATE_CHECKLIST.md](docs/RELEASE_CANDIDATE_CHECKLIST.md)：稳定候选版自动检查、真实网络矩阵和验收规则。
 - [examples/README.md](examples/README.md)：Python / Java 调用示例。
 
 ## 线上入口
