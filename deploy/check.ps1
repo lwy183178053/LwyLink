@@ -41,6 +41,37 @@ function Remove-ExampleGeneratedFiles {
   Remove-Item -Path (Join-Path $examplesRoot "java\*.class") -Force -ErrorAction SilentlyContinue
 }
 
+function Test-TrackedReleaseHygiene {
+  $tracked = & git ls-files
+  if ($LASTEXITCODE -ne 0) {
+    throw "无法读取 Git 跟踪文件列表。"
+  }
+
+  $bad = @()
+  foreach ($path in $tracked) {
+    $normalized = $path -replace "\\", "/"
+    if ($normalized -eq "internal/tun/assets/wintun-amd64.dll") {
+      continue
+    }
+    if ($normalized -match "^(build|deploy/dist)/") {
+      $bad += $path
+      continue
+    }
+    if ($normalized -match "^configs/.*\.(local|prod)\.json$") {
+      $bad += $path
+      continue
+    }
+    if ($normalized -match "\.(exe|dll|class|log)$") {
+      $bad += $path
+    }
+  }
+
+  if ($bad.Count -gt 0) {
+    $list = ($bad | Sort-Object | Select-Object -First 20) -join "`n"
+    throw "发现不应提交的产物或本地配置：`n$list"
+  }
+}
+
 Set-Location $repoRoot
 
 Invoke-Step "Go 测试" {
@@ -113,6 +144,10 @@ if (-not $SkipReleaseScript) {
   Invoke-Step "发布脚本自测" {
     Invoke-Native "发布脚本自测" "PowerShell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\deploy\test-release.ps1")
   }
+}
+
+Invoke-Step "发布文件卫生检查" {
+  Test-TrackedReleaseHygiene
 }
 
 Invoke-Step "Git 空白检查" {
