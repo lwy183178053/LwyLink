@@ -389,24 +389,16 @@ func emitVoiceTransport(opts ConnectOptions, status TransportStatus) {
 }
 
 func sendLatestUDPConfig(ch chan overlay.UDPControl, control overlay.UDPControl) {
-	select {
-	case ch <- control:
-		return
-	default:
-	}
-	select {
-	case <-ch:
-	default:
-	}
-	select {
-	case ch <- control:
-	default:
-	}
+	sendLatest(ch, control)
 }
 
 func sendLatestUDPPeer(ch chan overlay.UDPPeerCandidate, peer overlay.UDPPeerCandidate) {
+	sendLatest(ch, peer)
+}
+
+func sendLatest[T any](ch chan T, value T) {
 	select {
-	case ch <- peer:
+	case ch <- value:
 		return
 	default:
 	}
@@ -415,7 +407,7 @@ func sendLatestUDPPeer(ch chan overlay.UDPPeerCandidate, peer overlay.UDPPeerCan
 	default:
 	}
 	select {
-	case ch <- peer:
+	case ch <- value:
 	default:
 	}
 }
