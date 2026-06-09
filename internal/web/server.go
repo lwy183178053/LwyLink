@@ -17,6 +17,7 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/appsettings"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 	"github.com/LwyV-Labs/LwyLink/internal/mail"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
@@ -1313,7 +1314,7 @@ type adminListRequest struct {
 }
 
 func (r adminListRequest) Offset() int {
-	return (r.Page - 1) * r.PerPage
+	return dbutil.Offset((r.Page - 1) * r.PerPage)
 }
 
 type adminNavItem struct {
@@ -1638,12 +1639,7 @@ func adminPagination(pageValue, perPageValue string) (int, int) {
 		page = 1
 	}
 	perPage, _ := strconv.Atoi(perPageValue)
-	if perPage <= 0 {
-		perPage = defaultAdminPerPage
-	}
-	if perPage > maxAdminPerPage {
-		perPage = maxAdminPerPage
-	}
+	perPage = dbutil.Limit(perPage, defaultAdminPerPage, maxAdminPerPage)
 	return page, perPage
 }
 

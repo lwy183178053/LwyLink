@@ -37,6 +37,20 @@ func TestParseTrafficGrantBytesRejectsInvalidValue(t *testing.T) {
 	}
 }
 
+func TestAdminPaginationBounds(t *testing.T) {
+	page, perPage := adminPagination("-3", "999")
+	if page != 1 || perPage != maxAdminPerPage {
+		t.Fatalf("adminPagination bounds = %d/%d, want 1/%d", page, perPage, maxAdminPerPage)
+	}
+	page, perPage = adminPagination("2", "0")
+	if page != 2 || perPage != defaultAdminPerPage {
+		t.Fatalf("adminPagination defaults = %d/%d, want 2/%d", page, perPage, defaultAdminPerPage)
+	}
+	if got := (adminListRequest{Page: 0, PerPage: 50}).Offset(); got != 0 {
+		t.Fatalf("adminListRequest.Offset() = %d, want 0", got)
+	}
+}
+
 func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data := adminPageData{
 		Active:       "overview",
