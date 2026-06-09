@@ -229,17 +229,6 @@ type ViewVoiceState struct {
 	UpdatedAt        string                 `json:"updatedAt"`
 }
 
-type ViewRoomEvent struct {
-	Type         string           `json:"type"`
-	RoomID       int64            `json:"roomID"`
-	ActorUserID  int64            `json:"actorUserID,omitempty"`
-	TargetUserID int64            `json:"targetUserID,omitempty"`
-	UserIDs      []int64          `json:"userIDs,omitempty"`
-	Chat         *ViewChatMessage `json:"chat,omitempty"`
-	Voice        *ViewVoiceState  `json:"voice,omitempty"`
-	CreatedAt    string           `json:"createdAt"`
-}
-
 type ConnectionState struct {
 	Status        string   `json:"status"`
 	Message       string   `json:"message"`
@@ -1227,7 +1216,6 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 		}
 		a.voiceState = *event.Voice
 		a.commitStateLocked()
-		a.emitRoomEvent(event)
 		return
 	}
 	if event.Type == room.RoomEventChatMessage && event.Chat != nil {
@@ -1238,7 +1226,6 @@ func (a *App) refreshAfterRoomEvent(seq int64, event room.RoomEvent) {
 		}
 		a.appendChatMessageLocked(*event.Chat)
 		a.commitStateLocked()
-		a.emitRoomEvent(event)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -1423,12 +1410,6 @@ func (a *App) emitState(state AppState) {
 	}
 }
 
-func (a *App) emitRoomEvent(event room.RoomEvent) {
-	if ctx := a.currentContext(); ctx != nil {
-		wailsRuntime.EventsEmit(ctx, "room-event", viewRoomEvent(event))
-	}
-}
-
 func viewUser(user account.PublicUser) ViewUser {
 	return ViewUser{
 		ID:                         user.ID,
@@ -1516,29 +1497,6 @@ func viewVoiceState(state room.VoiceState) ViewVoiceState {
 		SpeakerCount:     state.SpeakerCount,
 		Participants:     participants,
 		UpdatedAt:        formatViewTime(state.UpdatedAt),
-	}
-}
-
-func viewRoomEvent(event room.RoomEvent) ViewRoomEvent {
-	var chat *ViewChatMessage
-	if event.Chat != nil {
-		cp := viewChatMessage(*event.Chat)
-		chat = &cp
-	}
-	var voice *ViewVoiceState
-	if event.Voice != nil {
-		cp := viewVoiceState(*event.Voice)
-		voice = &cp
-	}
-	return ViewRoomEvent{
-		Type:         event.Type,
-		RoomID:       event.RoomID,
-		ActorUserID:  event.ActorUserID,
-		TargetUserID: event.TargetUserID,
-		UserIDs:      append([]int64(nil), event.UserIDs...),
-		Chat:         chat,
-		Voice:        voice,
-		CreatedAt:    formatViewTime(event.CreatedAt),
 	}
 }
 
