@@ -85,7 +85,7 @@ import {
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { VoiceSession, listVoiceDevices, type IncomingVoiceFrame } from "./voice";
-import type { AppState, RoomEvent, VoiceSettings } from "./types";
+import type { AppState, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
 type NoticeTone = "info" | "success" | "error";
@@ -138,20 +138,12 @@ export default function App() {
       .then((next: AppState) => applyState(next))
       .catch((err: unknown) => showNotice(errorText(err), "error"));
     const off = EventsOn("state-changed", (next: AppState) => applyState(next));
-    const offRoom = EventsOn("room-event", (event: RoomEvent) => {
-      if (event.type === "voice_state" && event.voice) {
-        void voiceSessionRef.current?.applyState(event.voice);
-      }
-    });
     const offVoice = EventsOn("voice-audio", (frame: IncomingVoiceFrame) => {
       voiceSessionRef.current?.playFrame(frame);
     });
     return () => {
       if (typeof off === "function") {
         off();
-      }
-      if (typeof offRoom === "function") {
-        offRoom();
       }
       if (typeof offVoice === "function") {
         offVoice();
@@ -217,7 +209,6 @@ export default function App() {
   }, [currentRoom?.id]);
 
   useEffect(() => {
-    void voiceSessionRef.current?.applyState(state.voice);
     const selfInVoice = !!state.user && state.voice.participants.some((item) => item.userID === state.user?.id);
     if ((!selfInVoice || !connectionRunning) && voiceActive) {
       void stopLocalVoice(connectionRunning === false && selfInVoice);
@@ -409,7 +400,7 @@ export default function App() {
     if (!currentRoom || !state.user) {
       return;
     }
-    const session = new VoiceSession(currentRoom, state.user.id, state.voiceSettings, {
+    const session = new VoiceSession(currentRoom, state.voiceSettings, {
       onError: (message) => showNotice(message, "error"),
     });
     try {
@@ -417,7 +408,6 @@ export default function App() {
       voiceSessionRef.current = session;
       const next = await JoinRoomVoice(currentRoom.id);
       applyState(next);
-      await session.applyState(next.voice);
       setVoiceActive(true);
       setVoiceMicActive(false);
       showNotice("已加入房间语音", "success");

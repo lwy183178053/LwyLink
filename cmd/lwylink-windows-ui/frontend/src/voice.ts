@@ -1,5 +1,5 @@
 import { SendVoiceAudioFrame } from "../wailsjs/go/main/App";
-import type { Room, VoiceState } from "./types";
+import type { Room } from "./types";
 import type { VoiceSettings } from "./types";
 
 type VoiceSessionCallbacks = {
@@ -52,7 +52,7 @@ export class VoiceSession {
   private started = false;
   private playbackAtByUser = new Map<number, number>();
 
-  constructor(room: Room, _userID: number, settings: VoiceSettings, callbacks: VoiceSessionCallbacks) {
+  constructor(room: Room, settings: VoiceSettings, callbacks: VoiceSessionCallbacks) {
     this.room = room;
     this.settings = settings;
     this.callbacks = callbacks;
@@ -91,10 +91,6 @@ export class VoiceSession {
     if (!enabled) {
       this.micBuffer = new Float32Array(0);
     }
-  }
-
-  async applyState(_state: VoiceState) {
-    return;
   }
 
   playFrame(frame: IncomingVoiceFrame) {
