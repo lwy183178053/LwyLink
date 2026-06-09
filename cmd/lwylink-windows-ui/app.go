@@ -268,15 +268,6 @@ func newConnectionState(status, message string) ConnectionState {
 	}
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func newRoomConnectionState(status, message string, selected room.Room) ConnectionState {
 	state := newConnectionState(status, message)
 	state.RoomID = selected.ID
