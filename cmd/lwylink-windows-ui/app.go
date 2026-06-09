@@ -848,6 +848,10 @@ func (a *App) ReportVoiceWebRTCTraffic(input VoiceWebRTCTrafficInput) (AppState,
 	a.mu.Unlock()
 
 	if err := api.ReportRoomVoiceWebRTCTraffic(ctx, input.RoomID, input.Bytes); err != nil {
+		var httpErr client.HTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == 402 {
+			return a.CurrentState(), fmt.Errorf("语音中继流量额度已用尽")
+		}
 		return a.CurrentState(), err
 	}
 	user, err := api.Me(ctx)

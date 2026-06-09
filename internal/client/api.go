@@ -22,6 +22,18 @@ type API struct {
 	client  *http.Client
 }
 
+type HTTPError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e HTTPError) Error() string {
+	if strings.TrimSpace(e.Message) != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("http %d", e.StatusCode)
+}
+
 type VoiceICEServer struct {
 	URLs       []string `json:"urls"`
 	Username   string   `json:"username,omitempty"`
@@ -295,9 +307,9 @@ func (a *API) request(ctx context.Context, method, path string, body any, out an
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e map[string]string
 		if json.Unmarshal(data, &e) == nil && e["error"] != "" {
-			return fmt.Errorf("%s", e["error"])
+			return HTTPError{StatusCode: resp.StatusCode, Message: e["error"]}
 		}
-		return fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return HTTPError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(data))}
 	}
 	if out == nil {
 		return nil

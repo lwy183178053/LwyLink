@@ -526,14 +526,25 @@ export default function App() {
       const next = await ReportVoiceWebRTCTraffic({ roomID, bytes });
       applyState(next);
     } catch (err) {
-      voiceRelayTrafficPending.current += bytes;
-      showNotice(errorText(err), "error");
+      const text = errorText(err);
+      if (isPermanentVoiceRelayTrafficError(text)) {
+        voiceRelayTrafficPending.current = 0;
+        showNotice(text, "error");
+        await stopLocalVoice(true);
+      } else {
+        voiceRelayTrafficPending.current += bytes;
+        showNotice(text, "error");
+      }
     } finally {
       voiceRelayTrafficReporting.current = false;
       if (voiceRelayTrafficPending.current > 0 && voiceActive) {
         scheduleVoiceRelayTrafficReport(5000);
       }
     }
+  }
+
+  function isPermanentVoiceRelayTrafficError(message: string) {
+    return message.includes("语音中继流量额度已用尽") || message.includes("请先加入语音房") || message.includes("missing bearer token") || message.includes("token");
   }
 
   async function handleToggleVoiceMic() {

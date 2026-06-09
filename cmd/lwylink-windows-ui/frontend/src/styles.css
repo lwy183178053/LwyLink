@@ -1009,11 +1009,11 @@ code {
 
 .room-workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 0.82fr) minmax(430px, 1.18fr);
+  grid-template-columns: minmax(310px, 0.76fr) minmax(480px, 1.24fr);
   grid-template-areas:
     "control comms"
     "players players";
-  grid-template-rows: minmax(360px, 0.72fr) minmax(220px, 0.28fr);
+  grid-template-rows: minmax(340px, 0.66fr) minmax(230px, 0.34fr);
   gap: 16px;
   align-items: stretch;
   height: calc(100vh - 162px);
@@ -1026,7 +1026,7 @@ code {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 14px;
+  padding: 13px;
 }
 
 .room-players-panel {
@@ -1053,7 +1053,7 @@ code {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 9px;
 }
 
 .room-title-block h2 {
@@ -1068,12 +1068,12 @@ code {
 
 .connection-card {
   display: grid;
-  gap: 7px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 7px;
   border: 1px solid #d8e0dc;
   border-radius: 8px;
   background: #f8faf8;
-  padding: 9px 10px;
+  padding: 8px 10px;
 }
 
 .connection-card-head,
@@ -1201,15 +1201,35 @@ code {
   box-shadow: 0 8px 18px rgba(22, 52, 45, 0.1);
 }
 
+.comms-title {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.comms-title .eyebrow {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.comms-title small {
+  color: #73817c;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .voice-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 6px 10px;
+  gap: 5px 9px;
   align-items: center;
   border-top: 1px solid #e1e9e5;
   border-bottom: 1px solid #e1e9e5;
   background: #fbfcfb;
-  padding: 8px 12px 7px;
+  padding: 7px 12px;
 }
 
 .voice-dock-title {
@@ -1230,7 +1250,7 @@ code {
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
-  min-height: 28px;
+  min-height: 27px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1278,9 +1298,9 @@ code {
 
 .voice-actions button {
   --voice-level: 0;
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
+  width: 29px;
+  height: 29px;
+  min-height: 29px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1333,8 +1353,8 @@ code {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  min-height: 56px;
-  padding: 9px 13px;
+  min-height: 54px;
+  padding: 8px 13px;
   background: #ffffff;
 }
 
@@ -1390,7 +1410,7 @@ code {
 .member-transport {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 23px;
   padding: 3px 8px;
   border: 1px solid #d8e0dc;
   border-radius: 999px;
@@ -1442,20 +1462,23 @@ code {
 .chat-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   min-height: 0;
-  padding: 10px 12px;
+  padding: 12px;
   overflow: auto;
-  background: #f3f6f4;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0)) 0 0 / 100% 72px no-repeat,
+    #f3f6f4;
 }
 
 .chat-bubble {
   width: fit-content;
-  max-width: 76%;
-  padding: 10px 12px;
+  max-width: 78%;
+  padding: 8px 10px;
   border: 1px solid #d8e0dc;
   border-radius: 8px;
   background: #ffffff;
+  box-shadow: 0 6px 16px rgba(25, 38, 34, 0.05);
 }
 
 .chat-bubble.mine {
@@ -1496,8 +1519,8 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 5px;
-  font-size: 12px;
+  margin-bottom: 4px;
+  font-size: 11px;
 }
 
 .chat-meta span {
@@ -1512,27 +1535,27 @@ code {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.42;
+  line-height: 1.45;
   font-size: 13px;
 }
 
 .chat-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 9px;
   align-items: center;
-  padding: 7px 10px;
+  padding: 9px 12px;
   border-top: 1px solid #d8e0dc;
   background: #ffffff;
 }
 
 .chat-input {
-  min-height: 36px;
-  max-height: 36px;
+  min-height: 34px;
+  max-height: 34px;
 }
 
 .chat-form button {
-  min-height: 36px;
+  min-height: 34px;
 }
 
 .settings-grid {

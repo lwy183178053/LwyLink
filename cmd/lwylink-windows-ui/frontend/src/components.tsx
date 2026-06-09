@@ -597,20 +597,20 @@ function memberTransportLabel(member: RoomMember, currentUserID: number | undefi
   }
   const probing = transportMode === "udp-probing";
   if (member.userID === currentUserID) {
-    return probing ? "探测中" : directPeerIPSet.size > 0 ? "P2P 直连" : "中继";
+    return probing ? "加速检测" : directPeerIPSet.size > 0 ? "支持加速" : "自动中继";
   }
   if (member.virtualIP && directPeerIPSet.has(member.virtualIP)) {
-    return "P2P 直连";
+    return "支持加速";
   }
-  return probing ? "探测中" : "中继";
+  return probing ? "加速检测" : "自动中继";
 }
 
 function memberTransportTone(member: RoomMember, currentUserID: number | undefined, connectionRunning: boolean, directPeerIPSet: Set<string>, transportMode: string) {
   const label = memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, transportMode);
-  if (label === "P2P 直连") {
+  if (label === "支持加速") {
     return "direct";
   }
-  if (label === "探测中") {
+  if (label === "加速检测") {
     return "probing";
   }
   return label ? "relay" : undefined;
@@ -765,9 +765,10 @@ export function RoomCommsPanel({
   return (
     <aside className="surface chat-panel comms-panel">
       <div className="surface-head">
-        <div>
+        <div className="comms-title">
           <span className="eyebrow">Comms</span>
-          <h2>交流</h2>
+          <h2>通信</h2>
+          <small>语音与文字</small>
         </div>
         <MessageSquare size={18} />
       </div>
@@ -800,6 +801,7 @@ export function RoomCommsPanel({
       <div className="chat-form">
         <Input
           className="pretty-input chat-input"
+          placeholder="输入消息，按 Enter 发送"
           maxLength={500}
           value={chatText}
           onChange={(_, data) => onChatTextChange(data.value)}
