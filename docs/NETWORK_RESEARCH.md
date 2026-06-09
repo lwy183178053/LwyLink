@@ -304,6 +304,4 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 ## 暂定方向
 
-在没有 A/B 数据前，不继续发布语音体验版本。
-
-优先做一个 WebRTC 语音最小实验分支，同时保留当前 0.2.3 原生语音。实验结果如果明显好，就把语音主路线切到 WebRTC；如果 WebRTC 引入的问题比收益大，再回到原生 Overlay 语音并按 RTP/NetEQ 思路重做接收端。
+WebRTC 语音听感已经通过本地实测，Windows 客户端主路线切到 WebRTC。后续不再继续维护两套客户端媒体引擎；重点转向 TURN 兜底、路径可观测性、账号流量统计和代码瘦身。

@@ -191,17 +191,9 @@ LwyLink 现在能做 LAN/public candidate 和 UDP rendezvous，但还缺：
    - relay 流量。
 5. 选择主路线后再大改代码。
 
-## 实验停止条件
+## 实验结论
 
-### 可以停止继续调研，开始写实验代码的条件
-
-- 已经明确 WebRTC 实验的最小服务端接口。
-- 已经明确前端 `RTCPeerConnection` 集成位置。
-- 已经明确使用现有 SSE 作为第一版 signaling transport。
-- 已经明确和当前原生 Overlay 语音的 A/B 指标。
-- 已经明确不发布、不强制更新、不删除原生语音。
-
-目前这些条件已经基本满足，因此下一步可以开 `experiment/webrtc-voice` 分支写最小闭环。
+WebRTC 语音已成为 Windows 客户端主路线；原生 Overlay 语音前端 fallback 已删除。以下内容保留为当时的决策依据，不再代表下一步执行计划。
 
 ### WebRTC 胜出的条件
 
@@ -220,4 +212,4 @@ LwyLink 现在能做 LAN/public candidate 和 UDP rendezvous，但还缺：
 
 ## 当前建议
 
-先做 WebRTC 语音最小实验，作为“成熟方案基准线”。如果 WebRTC 实验明显更好，就把房间语音主路线迁移到 WebRTC，并让 LwyLink Overlay 专注虚拟局域网和游戏/应用流量。如果 WebRTC 在 Wails/WebView2 或 TURN 计费上带来明显不可接受的问题，再回头按 RTP-like 方向重做原生 Overlay 语音。
+继续完善 WebRTC 产品路线：部署 TURN 兜底、改进路径可观测性、把 TURN 流量纳入账号额度，并持续删除已经被 WebRTC 替代的客户端旧实验代码。LwyLink Overlay 专注虚拟局域网和应用流量；底层 voice frame 只保留为传输 smoke/实验能力。

@@ -112,7 +112,7 @@ Responsibilities:
 - Render remote audio through regular `HTMLAudioElement` or Web Audio graph.
 - Periodically call `getStats()`.
 
-Do not remove the current native voice module during the experiment.
+The experiment phase is over for the Windows client. The native voice frontend module has been removed; keep this document as rationale and historical context.
 
 ## ICE Servers
 
@@ -144,7 +144,7 @@ For each peer connection:
 
 These stats should be shown in dev logs or a hidden diagnostic panel before they become user-facing UI.
 
-## A/B Test Matrix
+## Original A/B Test Matrix
 
 | Scenario | Native Overlay Voice | WebRTC Voice |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ These stats should be shown in dev logs or a hidden diagnostic panel before they
 | two speakers | required | required |
 | small voice / tail | required | required |
 
-## Pass Criteria
+## Original Pass Criteria
 
 WebRTC becomes the likely main voice route if it proves:
 
@@ -167,7 +167,7 @@ WebRTC becomes the likely main voice route if it proves:
 - Acceptable TURN traffic cost.
 - No unacceptable Wails/WebView2 compatibility issue.
 
-Native overlay voice stays the likely main route if:
+Native overlay voice would have stayed the likely main route if:
 
 - WebRTC is blocked or unstable in Wails/WebView2.
 - TURN deployment/cost is unacceptable.
@@ -180,24 +180,6 @@ Native overlay voice stays the likely main route if:
 - TURN cost may be higher than TCP relay for the same usage.
 - Maintaining native voice and WebRTC voice together can increase complexity.
 - WebRTC permissions and device switching need careful UI handling.
-
-## Recommended Branch Strategy
-
-Use an experiment branch:
-
-```powershell
-git switch -c experiment/webrtc-voice
-```
-
-Keep commits small:
-
-1. Server signaling API and room event type.
-2. Frontend WebRTC voice module with fake/manual signaling tests.
-3. Client integration behind a local feature flag.
-4. Stats panel.
-5. A/B test artifacts.
-
-Do not publish a forced update from this branch until the experiment clearly wins.
 
 ## Current Product Status After 0.2.4
 
