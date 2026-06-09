@@ -109,6 +109,7 @@
   <div class="monitor-card">
     <strong>{{.Metrics.DownloadsLastHour}}</strong>
     <span>近 1 小时下载</span>
+    <small>近 24 小时 {{.Metrics.DownloadsLastDay}} 次</small>
   </div>
   <div class="monitor-card">
     {{if .Metrics.LatestWindowsRelease}}
@@ -134,7 +135,7 @@
     <div class="status-list">
       <div><span>Overlay 在线连接</span><strong>{{.Metrics.OverlayConnections}}</strong></div>
       <div><span>语音使用</span><strong>{{.Metrics.VoiceParticipants}} 人 / {{.Metrics.VoiceSpeakers}} 麦</strong></div>
-      <div><span>近 1 小时下载</span><strong>{{.Metrics.DownloadsLastHour}}</strong></div>
+      <div><span>下载趋势</span><strong>{{.Metrics.DownloadsLastHour}} / {{.Metrics.DownloadsLastDay}}</strong></div>
       <div><span>节点异常</span><strong>{{len .Metrics.RecentErrors}}</strong></div>
     </div>
   </div>

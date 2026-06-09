@@ -1524,6 +1524,7 @@ type adminMetrics struct {
 	VoiceSpeakers         int                    `json:"voiceSpeakers"`
 	RelayTrafficUsedBytes int64                  `json:"relayTrafficUsedBytes"`
 	DownloadsLastHour     int                    `json:"downloadsLastHour"`
+	DownloadsLastDay      int                    `json:"downloadsLastDay"`
 	Releases              int                    `json:"releases"`
 	LatestWindowsRelease  *clientrelease.Release `json:"latestWindowsRelease,omitempty"`
 	Nodes                 []node.Node            `json:"nodes,omitempty"`
@@ -1612,6 +1613,11 @@ func (s *Server) adminMetrics(ctx context.Context) (adminMetrics, error) {
 			return metrics, err
 		}
 		metrics.DownloadsLastHour = downloadCount
+		downloadDayCount, err := s.releases.DownloadCountSince(ctx, time.Now().Add(-24*time.Hour))
+		if err != nil {
+			return metrics, err
+		}
+		metrics.DownloadsLastDay = downloadDayCount
 		latest, err := s.releases.Latest(ctx, "windows-amd64")
 		if err == nil {
 			metrics.LatestWindowsRelease = &latest
