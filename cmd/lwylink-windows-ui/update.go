@@ -61,7 +61,7 @@ func (a *App) InstallPreparedUpdate() (AppState, error) {
 		return AppState{}, fmt.Errorf("更新包尚未准备好")
 	}
 	updatePath := a.preparedUpdatePath
-	installArgs := a.updateInstallArgsLocked()
+	installArgs := strings.TrimSpace(a.update.InstallArgs)
 	a.update.Status = updateStatusInstalling
 	a.update.Message = "正在启动更新程序"
 	state := a.commitStateLocked()
@@ -174,10 +174,6 @@ func (a *App) applyUpdateState(seq int64, update UpdateState, preparedPath strin
 	a.update = update
 	a.preparedUpdatePath = preparedPath
 	a.commitStateLocked()
-}
-
-func (a *App) updateInstallArgsLocked() string {
-	return strings.TrimSpace(a.update.InstallArgs)
 }
 
 func runUpdaterFromArgs(args []string) (bool, error) {
