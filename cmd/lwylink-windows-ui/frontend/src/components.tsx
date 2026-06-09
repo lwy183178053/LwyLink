@@ -331,8 +331,6 @@ function VoiceDock({
   voiceState,
   voiceActive,
   voiceMicActive,
-  voiceMode,
-  voiceMessage,
   voiceRTCStats,
   voiceInputLevel,
   disabled,
@@ -344,8 +342,6 @@ function VoiceDock({
   voiceState: VoiceState;
   voiceActive: boolean;
   voiceMicActive: boolean;
-  voiceMode: string;
-  voiceMessage: string;
   voiceRTCStats: WebRTCVoiceStats[];
   voiceInputLevel: number;
   disabled: boolean;
@@ -356,8 +352,8 @@ function VoiceDock({
   const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
   const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
   const diagnostic = voiceRTCDiagnostic(voiceRTCStats);
-  const transportText = voiceActive ? diagnostic.label : voiceMessage || "未加入语音";
-  const transportClass = diagnostic.tone || (voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "");
+  const transportText = voiceActive ? diagnostic.label : "未加入语音";
+  const transportClass = voiceActive ? diagnostic.tone : "";
   return (
     <div className="voice-dock">
       <div className="voice-dock-title">
@@ -396,8 +392,6 @@ export function RoomCommsPanel({
   voiceState,
   voiceActive,
   voiceMicActive,
-  voiceMode,
-  voiceMessage,
   voiceRTCStats,
   voiceInputLevel,
   disabled,
@@ -417,8 +411,6 @@ export function RoomCommsPanel({
   voiceState: VoiceState;
   voiceActive: boolean;
   voiceMicActive: boolean;
-  voiceMode: string;
-  voiceMessage: string;
   voiceRTCStats: WebRTCVoiceStats[];
   voiceInputLevel: number;
   disabled: boolean;
@@ -448,8 +440,6 @@ export function RoomCommsPanel({
         voiceState={voiceState}
         voiceActive={voiceActive}
         voiceMicActive={voiceMicActive}
-        voiceMode={voiceMode}
-        voiceMessage={voiceMessage}
         voiceRTCStats={voiceRTCStats}
         voiceInputLevel={voiceInputLevel}
         disabled={disabled}

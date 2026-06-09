@@ -53,8 +53,6 @@ type App struct {
 	connectSeq    int64
 	connectCancel context.CancelFunc
 	connection    ConnectionState
-	voiceMode     string
-	voiceMessage  string
 
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
@@ -146,8 +144,6 @@ type AppState struct {
 	Members       []ViewMember      `json:"members"`
 	ChatMessages  []ViewChatMessage `json:"chatMessages"`
 	Voice         ViewVoiceState    `json:"voice"`
-	VoiceMode     string            `json:"voiceMode"`
-	VoiceMessage  string            `json:"voiceMessage"`
 	Connection    ConnectionState   `json:"connection"`
 	Update        UpdateState       `json:"update"`
 	Announcement  string            `json:"announcement"`
@@ -256,8 +252,6 @@ func NewApp() *App {
 		voicePrefs:   prefs.VoiceSettings,
 		announcement: appsettings.DefaultAnnouncement,
 		connection:   newConnectionState(statusDisconnected, "未连接"),
-		voiceMode:    "idle",
-		voiceMessage: "未加入语音",
 		update:       UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
@@ -727,8 +721,6 @@ func (a *App) JoinRoomVoice(roomID int64) (AppState, error) {
 		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
 	}
 	a.voiceState = voiceState
-	a.voiceMode = "connecting"
-	a.voiceMessage = "语音连接中"
 	return a.commitStateLocked(), nil
 }
 
@@ -758,8 +750,6 @@ func (a *App) LeaveRoomVoice(roomID int64) (AppState, error) {
 		return AppState{}, fmt.Errorf("服务器状态已变化，请重试")
 	}
 	a.voiceState = voiceState
-	a.voiceMode = "idle"
-	a.voiceMessage = "未加入语音"
 	return a.commitStateLocked(), nil
 }
 
@@ -976,7 +966,7 @@ func (a *App) startRoomConnectionLocked(selected room.Room, message string) erro
 func (a *App) Disconnect() (AppState, error) {
 	a.mu.Lock()
 	if a.connectCancel == nil {
-		a.resetVoiceLocked("未加入语音")
+		a.resetVoiceLocked()
 		a.connection = newConnectionState(statusDisconnected, "未连接")
 		return a.commitStateLocked(), nil
 	}
@@ -1006,9 +996,6 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 				applyTransportStatus(state, status)
 			})
 		},
-		OnVoiceTransport: func(status client.TransportStatus) {
-			a.updateVoiceTransport(seq, status)
-		},
 	})
 
 	a.mu.Lock()
@@ -1023,7 +1010,7 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 	} else {
 		a.connection = newConnectionState(statusDisconnected, "已断开")
 	}
-	a.resetVoiceLocked("未加入语音")
+	a.resetVoiceLocked()
 	a.commitStateLocked()
 }
 
@@ -1034,25 +1021,6 @@ func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) {
 		return
 	}
 	apply(&a.connection)
-	a.commitStateLocked()
-}
-
-func (a *App) updateVoiceTransport(seq int64, status client.TransportStatus) {
-	a.mu.Lock()
-	if a.connectSeq != seq {
-		a.mu.Unlock()
-		return
-	}
-	nextMessage := a.voiceMessage
-	if strings.TrimSpace(status.Message) != "" {
-		nextMessage = status.Message
-	}
-	if a.voiceMode == status.Mode && a.voiceMessage == nextMessage {
-		a.mu.Unlock()
-		return
-	}
-	a.voiceMode = status.Mode
-	a.voiceMessage = nextMessage
 	a.commitStateLocked()
 }
 
@@ -1068,7 +1036,7 @@ func (a *App) cancelConnectionLocked() {
 		a.connectCancel()
 		a.connectCancel = nil
 	}
-	a.resetVoiceLocked("未加入语音")
+	a.resetVoiceLocked()
 }
 
 func (a *App) startRoomEventsLocked() {
@@ -1206,7 +1174,7 @@ func (a *App) clearRoomStateLocked() {
 	a.currentRoom = nil
 	a.members = nil
 	a.chatMessages = nil
-	a.resetVoiceLocked("未加入语音")
+	a.resetVoiceLocked()
 }
 
 func (a *App) applyRoomStateLocked(next fetchedRoomState) {
@@ -1221,7 +1189,7 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.members = nil
 	if next.currentRoom == nil {
 		a.chatMessages = nil
-		a.resetVoiceLocked("未加入语音")
+		a.resetVoiceLocked()
 		if activeRoomID > 0 {
 			a.cancelConnectionLocked()
 			a.connection = newConnectionState(statusDisconnected, "已离开房间，虚拟网卡已断开")
@@ -1232,7 +1200,7 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.currentRoom = &current
 	if previousRoomID > 0 && previousRoomID != current.ID {
 		a.chatMessages = nil
-		a.resetVoiceLocked("未加入语音")
+		a.resetVoiceLocked()
 	}
 	if activeRoomID > 0 && activeRoomID != current.ID {
 		a.cancelConnectionLocked()
@@ -1242,13 +1210,8 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 	a.voiceState = next.voice
 }
 
-func (a *App) resetVoiceLocked(message string) {
+func (a *App) resetVoiceLocked() {
 	a.voiceState = room.VoiceState{}
-	a.voiceMode = "idle"
-	if strings.TrimSpace(message) == "" {
-		message = "未加入语音"
-	}
-	a.voiceMessage = message
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {
@@ -1303,8 +1266,6 @@ func (a *App) stateLocked() AppState {
 		Members:       members,
 		ChatMessages:  chatMessages,
 		Voice:         viewVoiceState(a.voiceState),
-		VoiceMode:     a.voiceMode,
-		VoiceMessage:  a.voiceMessage,
 		Connection:    a.connection,
 		Update:        a.update,
 		Announcement:  a.announcement,

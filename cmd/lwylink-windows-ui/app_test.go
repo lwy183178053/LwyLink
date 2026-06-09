@@ -49,8 +49,6 @@ func TestCancelConnectionResetsVoiceStateAndQueue(t *testing.T) {
 			{UserID: 10, Speaking: true},
 		},
 	}
-	app.voiceMode = "sending"
-	app.voiceMessage = "语音发送中"
 	app.cancelConnectionLocked()
 	app.mu.Unlock()
 
@@ -62,8 +60,5 @@ func TestCancelConnectionResetsVoiceStateAndQueue(t *testing.T) {
 	got := app.CurrentState()
 	if got.Voice.RoomID != 0 || len(got.Voice.Participants) != 0 {
 		t.Fatalf("voice state was not reset: %+v", got.Voice)
-	}
-	if got.VoiceMode != "idle" || got.VoiceMessage != "未加入语音" {
-		t.Fatalf("voice mode/message=%q/%q", got.VoiceMode, got.VoiceMessage)
 	}
 }

@@ -30,7 +30,6 @@ type ConnectOptions struct {
 	OnConnected      func(overlay.DHCPResponse)
 	OnTransportState func(TransportStatus)
 	OnVoicePayload   func([]byte)
-	OnVoiceTransport func(TransportStatus)
 }
 
 type VoicePacket struct {
@@ -364,31 +363,13 @@ func voiceToOverlay(ctx context.Context, transport *tcpx.Client, runtimeState *c
 			if !runtimeState.isSecureReady() || pkt.PeerVirtualIP == "" || len(pkt.Payload) == 0 {
 				continue
 			}
-			udpSent := false
 			if manager := runtimeState.udpManager(); manager != nil {
-				switch manager.SendPayloadToPeer(pkt.PeerVirtualIP, overlay.UDPTypeVoice, pkt.Payload) {
-				case udpSendDirect:
-					udpSent = true
-					emitVoiceTransport(opts, TransportStatus{Mode: TransportModeUDPDirect, Message: "P2P 语音 · Relay 兜底"})
-				case udpSendMirror:
-					udpSent = true
-					emitVoiceTransport(opts, TransportStatus{Mode: TransportModeUDPDirect, Message: "P2P 语音 · Relay 兜底"})
-				case udpSendRelay:
-				}
-			}
-			if !udpSent {
-				emitVoiceTransport(opts, TransportStatus{Mode: TransportModeTCPRelay, Message: "Relay 语音"})
+				_ = manager.SendPayloadToPeer(pkt.PeerVirtualIP, overlay.UDPTypeVoice, pkt.Payload)
 			}
 			if err := transport.Write(overlay.PackFrame(overlay.FrameVoice, pkt.Payload)); err != nil {
 				return
 			}
 		}
-	}
-}
-
-func emitVoiceTransport(opts ConnectOptions, status TransportStatus) {
-	if opts.OnVoiceTransport != nil {
-		opts.OnVoiceTransport(status)
 	}
 }
 

@@ -35,7 +35,7 @@ const defaultICEServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302
 const reconnectDelayMS = 2500;
 const disconnectGraceMS = 5000;
 
-export class WebRTCVoiceExperiment {
+export class WebRTCVoiceSession {
   private readonly room: Room;
   private readonly selfUserID: number;
   private settings: VoiceSettings;

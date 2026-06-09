@@ -119,8 +119,6 @@ export type AppState = {
   members: RoomMember[];
   chatMessages: ChatMessage[];
   voice: VoiceState;
-  voiceMode: string;
-  voiceMessage: string;
   connection: ConnectionState;
   update: UpdateState;
   announcement: string;
@@ -151,8 +149,6 @@ export const emptyState: AppState = {
     participants: [],
     updatedAt: "",
   },
-  voiceMode: "idle",
-  voiceMessage: "未加入语音",
   announcement: "官方 QQ 群：715516422",
   connection: {
     status: "disconnected",

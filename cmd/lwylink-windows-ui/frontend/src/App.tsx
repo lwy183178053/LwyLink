@@ -86,7 +86,7 @@ import {
 } from "./client-ui";
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
-import { WebRTCVoiceExperiment, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
+import { WebRTCVoiceSession, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
@@ -135,7 +135,7 @@ export default function App() {
   const settingsSignature = useRef("");
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
-  const webrtcVoiceRef = useRef<WebRTCVoiceExperiment | null>(null);
+  const webrtcVoiceRef = useRef<WebRTCVoiceSession | null>(null);
 
   useEffect(() => {
     CurrentState()
@@ -482,7 +482,7 @@ export default function App() {
     } catch (err) {
       showNotice(`获取语音网络配置失败，已使用默认配置：${errorText(err)}`, "info");
     }
-    const experiment = new WebRTCVoiceExperiment(currentRoom, state.user.id, state.voiceSettings, iceServers, {
+    const experiment = new WebRTCVoiceSession(currentRoom, state.user.id, state.voiceSettings, iceServers, {
       onError: (message) => showNotice(message, "error"),
       onStats: (stats) => {
         setVoiceRTCStats(stats);
@@ -1063,8 +1063,6 @@ export default function App() {
           voiceState={state.voice}
           voiceActive={voiceActive}
           voiceMicActive={voiceMicActive}
-          voiceMode={state.voiceMode}
-          voiceMessage={state.voiceMessage}
           voiceRTCStats={voiceRTCStats}
           voiceInputLevel={voiceInputLevel}
           disabled={isBusy}
@@ -1281,8 +1279,6 @@ function normalizeAppState(next: AppState): AppState {
       ...emptyState.update,
       ...(next.update ?? emptyState.update),
     },
-    voiceMode: next.voiceMode || emptyState.voiceMode,
-    voiceMessage: next.voiceMessage || emptyState.voiceMessage,
     announcement: next.announcement || emptyState.announcement,
   };
 }
