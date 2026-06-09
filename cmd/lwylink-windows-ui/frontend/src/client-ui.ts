@@ -188,13 +188,6 @@ export function initials(user?: PublicUser) {
   return name.slice(0, 2).toUpperCase();
 }
 
-export function formatDate(value?: string) {
-  if (!value) {
-    return "-";
-  }
-  return new Date(value).toLocaleString();
-}
-
 export function formatTime(value?: string) {
   if (!value) {
     return "";
