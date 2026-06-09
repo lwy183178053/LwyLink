@@ -1,4 +1,4 @@
-import type { PublicUser } from "./types";
+import type { PublicUser, VoiceSettings } from "./types";
 
 export const emailMinLength = 6;
 export const emailMaxLength = 254;
@@ -29,16 +29,7 @@ export type RoomForm = {
 export type SettingsForm = {
   apiBaseURL: string;
   p2pEnabled: boolean;
-  voiceSettings: {
-    inputDeviceID: string;
-    outputDeviceID: string;
-    micVolume: number;
-    outputVolume: number;
-    silenceThreshold: number;
-    autoGainControl: boolean;
-    noiseSuppression: boolean;
-    echoCancellation: boolean;
-  };
+  voiceSettings: VoiceSettings;
 };
 
 const pageTitles: Record<PageKey, string> = {
@@ -127,11 +118,11 @@ export const roomMemberOptions = [2, 4, 8, 16, 32, 64];
 export const freeRoomMemberLimit = 4;
 export const defaultRoomMemberLimit = freeRoomMemberLimit;
 
-export function isAdmin(user?: PublicUser) {
+function isAdmin(user?: PublicUser) {
   return user?.role === "admin";
 }
 
-export function isVIP(user?: PublicUser) {
+function isVIP(user?: PublicUser) {
   return user?.membership === "vip";
 }
 
