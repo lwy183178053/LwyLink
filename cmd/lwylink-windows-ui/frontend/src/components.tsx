@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, ReactNode, RefObject } from "react";
-import { Button, Field, Input, Select, Slider, Spinner, Switch } from "@fluentui/react-components";
+import { Button, Field, Input, Select, Slider, Spinner, Switch, Textarea } from "@fluentui/react-components";
 import {
   CircleCheck,
   CircleX,
@@ -7,6 +7,7 @@ import {
   Crown,
   DoorOpen,
   Headphones,
+  KeyRound,
   MessageSquare,
   Mic,
   MicOff,
@@ -14,15 +15,17 @@ import {
   Network,
   Power,
   PlugZap,
+  Plus,
   Radio,
   RefreshCw,
   Send,
   SlidersHorizontal,
   Trash2,
   UserMinus,
+  UserPlus,
   Volume2,
 } from "lucide-react";
-import { formatBytes, formatTime, initials, statusText, statusTone, updateStatusText, updateStatusTone, userLabel, type SettingsForm, type VoiceDevice } from "./client-ui";
+import { formatBytes, formatTime, initials, statusText, statusTone, updateStatusText, updateStatusTone, userLabel, type RoomForm, type SettingsForm, type VoiceDevice } from "./client-ui";
 import type { WebRTCVoiceStats } from "./webrtcVoice";
 import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, UpdateState, VoiceSettings, VoiceState } from "./types";
 
@@ -266,6 +269,72 @@ export function RoomPlayersPanel({
           />
         ))}
       </div>
+    </section>
+  );
+}
+
+export function RoomEntryPage({
+  form,
+  defaultName,
+  roomSizePicker,
+  roomSizeAllowed,
+  capacityLimit,
+  disabled,
+  onCreateRoom,
+  onJoinRoom,
+  onRoomNameChange,
+  onJoinKeyChange,
+}: {
+  form: RoomForm;
+  defaultName: string;
+  roomSizePicker: ReactNode;
+  roomSizeAllowed: boolean;
+  capacityLimit: number;
+  disabled: boolean;
+  onCreateRoom: (event: FormEvent) => void;
+  onJoinRoom: (event: FormEvent) => void;
+  onRoomNameChange: (value: string) => void;
+  onJoinKeyChange: (value: string) => void;
+}) {
+  return (
+    <section className="room-entry">
+      <form className="surface command-panel" onSubmit={onCreateRoom}>
+        <div className="surface-head">
+          <div>
+            <span className="eyebrow">房主</span>
+            <h2>创建房间</h2>
+          </div>
+          <Plus size={18} />
+        </div>
+        <div className="form-stack">
+          <Field label="房间名">
+            <Input className="pretty-input" placeholder={defaultName} value={form.name} onChange={(_, data) => onRoomNameChange(data.value)} />
+          </Field>
+          <Field label="人数上限">{roomSizePicker}</Field>
+          {!roomSizeAllowed && <span className="form-hint">当前账号最多可创建 {capacityLimit} 人房间。</span>}
+          <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={disabled || form.name.trim() === "" || !roomSizeAllowed}>
+            创建
+          </Button>
+        </div>
+      </form>
+
+      <form className="surface command-panel" onSubmit={onJoinRoom}>
+        <div className="surface-head">
+          <div>
+            <span className="eyebrow">成员</span>
+            <h2>加入房间</h2>
+          </div>
+          <KeyRound size={18} />
+        </div>
+        <div className="form-stack">
+          <Field label="房间密钥">
+            <Textarea className="pretty-textarea" rows={8} value={form.joinKey} onChange={(_, data) => onJoinKeyChange(data.value)} />
+          </Field>
+          <Button appearance="primary" icon={<UserPlus size={16} />} type="submit" disabled={disabled || form.joinKey.trim() === ""}>
+            加入
+          </Button>
+        </div>
+      </form>
     </section>
   );
 }

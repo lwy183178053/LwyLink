@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Field, Input, Spinner, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Spinner } from "@fluentui/react-components";
 import {
   Copy,
   Gamepad2,
@@ -9,14 +9,12 @@ import {
   Minus,
   Network,
   PlugZap,
-  Plus,
   Power,
   RefreshCw,
   Send,
   Settings,
   Square,
   UserCircle,
-  UserPlus,
   X,
 } from "lucide-react";
 import {
@@ -81,7 +79,7 @@ import {
   type VoiceDevice,
   userLabel,
 } from "./client-ui";
-import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule, SettingsPage } from "./components";
+import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomEntryPage, RoomPlayersPanel, Rule, SettingsPage } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { WebRTCVoiceSession, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
@@ -981,57 +979,18 @@ export default function App() {
 
     if (!currentRoom) {
       return (
-        <section className="room-entry">
-          <form className="surface command-panel" onSubmit={handleCreateRoom}>
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">房主</span>
-                <h2>创建房间</h2>
-              </div>
-              <Plus size={18} />
-            </div>
-            <div className="form-stack">
-              <Field label="房间名">
-                <Input
-                  className="pretty-input"
-                  placeholder={state.user ? defaultRoomName(state.user) : "玩家的房间"}
-                  value={roomForm.name}
-                  onChange={(_, data) => setRoomForm((current) => ({ ...current, name: data.value }))}
-                />
-              </Field>
-              <Field label="人数上限">
-                {renderRoomSizePicker()}
-              </Field>
-              {!roomSizeAllowed && <span className="form-hint">当前账号最多可创建 {roomCapacityLimit(state.user)} 人房间。</span>}
-              <Button appearance="primary" icon={<Plus size={16} />} type="submit" disabled={isBusy || roomForm.name.trim() === "" || !roomSizeAllowed}>
-                创建
-              </Button>
-            </div>
-          </form>
-
-          <form className="surface command-panel" onSubmit={handleJoinRoom}>
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">成员</span>
-                <h2>加入房间</h2>
-              </div>
-              <KeyRound size={18} />
-            </div>
-            <div className="form-stack">
-              <Field label="房间密钥">
-                <Textarea
-                  className="pretty-textarea"
-                  rows={8}
-                  value={roomForm.joinKey}
-                  onChange={(_, data) => setRoomForm((current) => ({ ...current, joinKey: data.value }))}
-                />
-              </Field>
-              <Button appearance="primary" icon={<UserPlus size={16} />} type="submit" disabled={isBusy || roomForm.joinKey.trim() === ""}>
-                加入
-              </Button>
-            </div>
-          </form>
-        </section>
+        <RoomEntryPage
+          form={roomForm}
+          defaultName={state.user ? defaultRoomName(state.user) : "玩家的房间"}
+          roomSizePicker={renderRoomSizePicker()}
+          roomSizeAllowed={roomSizeAllowed}
+          capacityLimit={roomCapacityLimit(state.user)}
+          disabled={isBusy}
+          onCreateRoom={handleCreateRoom}
+          onJoinRoom={handleJoinRoom}
+          onRoomNameChange={(value) => setRoomForm((current) => ({ ...current, name: value }))}
+          onJoinKeyChange={(value) => setRoomForm((current) => ({ ...current, joinKey: value }))}
+        />
       );
     }
 
