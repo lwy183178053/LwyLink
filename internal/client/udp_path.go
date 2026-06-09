@@ -475,9 +475,10 @@ func (m *udpManager) markInactive(sessionID string) {
 	var shouldProbe bool
 	m.mu.Lock()
 	if path := m.pathsByID[sessionID]; path != nil {
+		now := time.Now()
 		resetInactiveUDPPath(path)
-		m.recordFailureLocked(time.Now())
-		probe, shouldProbe = m.startProbeTargetLocked(path, time.Now())
+		m.recordFailureLocked(now)
+		probe, shouldProbe = m.startProbeTargetLocked(path, now)
 		m.emitStatusLocked()
 	}
 	m.mu.Unlock()
