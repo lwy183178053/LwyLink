@@ -57,7 +57,7 @@ const pageEyebrows: Record<PageKey, string> = {
 
 const statusTexts: Record<string, string> = {
   connected: "已连接",
-  connecting: "未连接",
+  connecting: "自动连接",
   disconnecting: "未连接",
   error: "未连接",
 };

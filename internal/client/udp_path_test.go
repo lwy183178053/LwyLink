@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -337,6 +338,42 @@ func TestUDPProbeRetryDelayCaps(t *testing.T) {
 	}
 }
 
+func TestUDPTransportStatusMessagesAreProductSafe(t *testing.T) {
+	recorder := &udpStatusRecorder{}
+	m := newTestUDPManager()
+	m.cfg.OnStatus = recorder.add
+
+	m.emitStatusLocked()
+	waitUntil(t, time.Second, func() bool {
+		status, ok := recorder.last()
+		return ok && status.Mode == TransportModeTCPRelay && status.Message == "中继连接"
+	})
+
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(testUDPAddr(t, "127.0.0.1:30001")), "pair-1", testUDPKey(1))
+	path.probing = true
+	m.emitStatusLocked()
+	waitUntil(t, time.Second, func() bool {
+		status, ok := recorder.last()
+		return ok && status.Mode == TransportModeUDPProbing && status.Message == "正在探测更优路径"
+	})
+
+	path.probing = false
+	path.active = true
+	path.lastSeen = time.Now()
+	m.emitStatusLocked()
+	waitUntil(t, time.Second, func() bool {
+		status, ok := recorder.last()
+		return ok && status.Mode == TransportModeUDPDirect && strings.HasPrefix(status.Message, "P2P 直连")
+	})
+
+	m.disabled = true
+	m.emitStatusLocked()
+	waitUntil(t, time.Second, func() bool {
+		status, ok := recorder.last()
+		return ok && status.Mode == TransportModeUDPDisabled && status.Message == "中继连接"
+	})
+}
+
 func TestUDPPathFallsBackBeforeItExpires(t *testing.T) {
 	now := time.Unix(100, 0)
 	path := &udpPeerPath{
@@ -541,6 +578,15 @@ func (r *udpStatusRecorder) modes() []string {
 		out = append(out, status.Mode)
 	}
 	return out
+}
+
+func (r *udpStatusRecorder) last() (TransportStatus, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.statuses) == 0 {
+		return TransportStatus{}, false
+	}
+	return r.statuses[len(r.statuses)-1], true
 }
 
 func waitUntil(t *testing.T, timeout time.Duration, ok func() bool) {
