@@ -32,7 +32,7 @@ Existing code already provides most of the non-media foundation:
 - Windows frontend audio settings UI.
 - P2P/relay state concepts in the client.
 
-This means the WebRTC experiment does not need a new product surface. It mainly needs signaling and peer connection management.
+This meant the WebRTC experiment did not need a new product surface. It mainly needed signaling and peer connection management.
 
 ## Minimal Architecture
 
@@ -87,7 +87,7 @@ Delivery:
 - Add a room event type such as `voice-webrtc-signal`.
 - Push it to the target user's existing SSE subscription.
 
-Why SSE is acceptable for the experiment:
+Why SSE was acceptable for the experiment:
 
 - Signaling is sparse.
 - Media does not flow through SSE.
@@ -120,7 +120,7 @@ The experiment phase is over for the Windows client. The native voice frontend m
 
 Development started with:
 
-- Public STUN for quick experiment.
+- Public STUN for quick validation.
 - Configurable STUN/TURN list from server config.
 
 Production still needs:
@@ -160,7 +160,7 @@ These stats should be shown in dev logs or a hidden diagnostic panel before they
 
 ## Original Pass Criteria
 
-WebRTC becomes the likely main voice route if it proves:
+WebRTC was promoted to the main voice route because it proved:
 
 - Lower perceived delay than native fixed-buffer voice.
 - Better small voice and tail handling.
@@ -169,7 +169,7 @@ WebRTC becomes the likely main voice route if it proves:
 - Acceptable TURN traffic cost.
 - No unacceptable Wails/WebView2 compatibility issue.
 
-Native overlay voice would have stayed the likely main route if:
+Native overlay voice would have stayed the likely main route only if:
 
 - WebRTC is blocked or unstable in Wails/WebView2.
 - TURN deployment/cost is unacceptable.

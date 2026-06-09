@@ -482,7 +482,7 @@ export default function App() {
     } catch (err) {
       showNotice(`获取语音网络配置失败，已使用默认配置：${errorText(err)}`, "info");
     }
-    const experiment = new WebRTCVoiceSession(currentRoom, state.user.id, state.voiceSettings, iceServers, {
+    const session = new WebRTCVoiceSession(currentRoom, state.user.id, state.voiceSettings, iceServers, {
       onError: (message) => showNotice(message, "error"),
       onStats: (stats) => {
         setVoiceRTCStats(stats);
@@ -494,19 +494,19 @@ export default function App() {
       onInputLevel: setVoiceInputLevel,
     });
     try {
-      webrtcVoiceRef.current = experiment;
-      await experiment.start(nextState.voice.participants ?? []);
+      webrtcVoiceRef.current = session;
+      await session.start(nextState.voice.participants ?? []);
     } catch (err) {
       webrtcVoiceRef.current = null;
-      await experiment.close();
+      await session.close();
       throw err;
     }
   }
 
   async function stopWebRTCVoice() {
-    const experiment = webrtcVoiceRef.current;
+    const session = webrtcVoiceRef.current;
     webrtcVoiceRef.current = null;
-    await experiment?.close();
+    await session?.close();
   }
 
   async function handleToggleVoiceMic() {

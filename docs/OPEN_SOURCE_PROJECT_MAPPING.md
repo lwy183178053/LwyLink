@@ -150,9 +150,9 @@ The WebRTC experiment is complete enough for the Windows product path. Continue 
 - `getStats()` does not provide enough path/quality visibility in Wails.
 - Latency or audio quality regresses below the removed native overlay prototype.
 
-Keep native overlay voice out of the Windows product path if:
+Keep native overlay voice out of the Windows product path because:
 
-- WebRTC experiment clearly beats it in voice quality and latency.
+- WebRTC clearly beats the removed prototype in voice quality and latency.
 - Implementing PLC/adaptive jitter starts duplicating too much WebRTC/NetEQ functionality.
 - TCP relay head-of-line blocking dominates and would require a new media relay anyway.
 
