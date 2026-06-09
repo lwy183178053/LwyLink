@@ -488,7 +488,6 @@ export default function App() {
         setVoiceRTCStats(stats);
         if (stats.length > 0) {
           (globalThis as any).__lwylinkWebRTCVoiceStats = stats;
-          console.debug("LwyLink WebRTC voice stats", stats);
         }
       },
       onInputLevel: setVoiceInputLevel,
