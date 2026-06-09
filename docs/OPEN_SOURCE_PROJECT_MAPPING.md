@@ -139,7 +139,7 @@ Current Windows voice should be treated as:
 - LwyLink room membership, mic limits, and signaling around WebRTC.
 - TURN still required before calling the voice path complete for restrictive NATs.
 
-The native overlay voice frontend prototype has been removed from the Windows UI to avoid carrying two media engines. Low-level overlay voice frames may remain for transport smoke tests and future protocol experiments.
+The native overlay voice frontend prototype and low-level overlay voice frame path have been removed to avoid carrying two media engines. The overlay product boundary is now virtual LAN IP traffic; room voice belongs to WebRTC.
 
 ## Voice Route Decision
 
