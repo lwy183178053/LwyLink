@@ -29,6 +29,21 @@ type ControlConfig struct {
 	RoomNetworkBase                string `json:"roomNetworkBase"`
 	RoomSubnetPrefix               int    `json:"roomSubnetPrefix"`
 	MailConfigPath                 string `json:"mailConfigPath"`
+	VoiceICEServers                []ICEServerConfig `json:"voiceICEServers"`
+	VoiceTURNCredential            TURNCredentialConfig `json:"voiceTURNCredential"`
+}
+
+type ICEServerConfig struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
+type TURNCredentialConfig struct {
+	URLs             []string `json:"urls"`
+	StaticAuthSecret string   `json:"staticAuthSecret"`
+	TTLSeconds       int      `json:"ttlSeconds"`
+	UsernamePrefix   string   `json:"usernamePrefix,omitempty"`
 }
 
 type MailConfig struct {
@@ -223,6 +238,12 @@ func applyControlDefaults(cfg *ControlConfig) {
 	if cfg.MailConfigPath == "" {
 		cfg.MailConfigPath = "configs/mail.local.json"
 	}
+	if len(cfg.VoiceICEServers) == 0 {
+		cfg.VoiceICEServers = []ICEServerConfig{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	}
+	if cfg.VoiceTURNCredential.TTLSeconds <= 0 {
+		cfg.VoiceTURNCredential.TTLSeconds = 3600
+	}
 }
 
 func applyMailDefaults(cfg *MailConfig) {
@@ -275,6 +296,19 @@ func applyControlEnvOverrides(cfg *ControlConfig) {
 	if v := os.Getenv(envName("MAIL_CONFIG")); v != "" {
 		cfg.MailConfigPath = v
 	}
+	if v := os.Getenv(envName("VOICE_ICE_SERVERS")); v != "" {
+		cfg.VoiceICEServers = parseICEServers(v)
+	}
+	if v := os.Getenv(envName("VOICE_TURN_URLS")); v != "" {
+		cfg.VoiceTURNCredential.URLs = splitCSV(v)
+	}
+	if v := os.Getenv(envName("VOICE_TURN_SECRET")); v != "" {
+		cfg.VoiceTURNCredential.StaticAuthSecret = v
+	}
+	if v := os.Getenv(envName("VOICE_TURN_USERNAME_PREFIX")); v != "" {
+		cfg.VoiceTURNCredential.UsernamePrefix = v
+	}
+	applyEnvInt(envName("VOICE_TURN_TTL_SECONDS"), &cfg.VoiceTURNCredential.TTLSeconds)
 	applyEnvInt(envName("NODE_HEALTH_INTERVAL_SECONDS"), &cfg.NodeHealthCheckIntervalSeconds)
 	applyEnvInt(envName("ROOM_CLEANUP_INTERVAL_SECONDS"), &cfg.RoomCleanupIntervalSeconds)
 	applyEnvInt(envName("ROOM_EMPTY_GRACE_SECONDS"), &cfg.RoomEmptyGraceSeconds)
@@ -379,4 +413,37 @@ func splitCSV(value string) []string {
 		}
 	}
 	return items
+}
+
+func parseICEServers(value string) []ICEServerConfig {
+	items := splitCSV(value)
+	servers := make([]ICEServerConfig, 0, len(items))
+	for _, item := range items {
+		parts := strings.Split(item, "|")
+		urls := splitList(parts[0], ";")
+		if len(urls) == 0 {
+			continue
+		}
+		server := ICEServerConfig{URLs: urls}
+		if len(parts) > 1 {
+			server.Username = strings.TrimSpace(parts[1])
+		}
+		if len(parts) > 2 {
+			server.Credential = strings.TrimSpace(parts[2])
+		}
+		servers = append(servers, server)
+	}
+	return servers
+}
+
+func splitList(value, sep string) []string {
+	parts := strings.Split(value, sep)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

@@ -1,5 +1,31 @@
 # LwyLink NAT Traversal Backlog
 
+## 2026-06-09 Updated Priority
+
+Research from Tailscale, NetBird, ZeroTier, Nebula, libp2p, WebRTC, and TURN points to the same product lesson: NAT traversal should be treated as a candidate system with reliable fallback, not as a one-shot punch success/failure flag.
+
+For LwyLink, the next best work is:
+
+1. Keep the current overlay relay-first behavior stable.
+2. Add path diagnostics before adding more aggressive punching.
+3. Add STUN server-reflexive candidates to the native UDP overlay.
+4. Add TURN for WebRTC voice, because WebRTC without TURN is not a complete voice product.
+5. Only then consider UPnP/NAT-PMP/PCP, multi-relay selection, or QUIC/UDP relay.
+
+Do not optimize for a higher direct percentage if the result causes path flapping. The user-facing win is “stable and explainable,” then “direct when possible.”
+
+## TURN Deployment Note
+
+For WebRTC voice, use coturn REST credentials instead of static client passwords:
+
+- coturn enables `use-auth-secret`.
+- coturn and LwyLink share the same `static-auth-secret`.
+- LwyLink exposes only short-lived `username/credential` pairs through `/api/rooms/voice/webrtc/ice`.
+- `voiceTURNCredential.urls` should include the public `turn:` and optionally `turns:` addresses.
+- The static auth secret must stay in ignored production config or environment variables.
+
+This keeps the long-lived TURN secret out of the Windows client package and reduces abuse risk if users inspect app traffic.
+
 This backlog turns the research notes into implementation candidates. It focuses on improving the existing LwyLink overlay rather than replacing it.
 
 ## Current Model

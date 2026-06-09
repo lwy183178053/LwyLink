@@ -8,6 +8,7 @@ import type { VoiceSettings } from "./types";
 
 type VoiceSessionCallbacks = {
   onError: (message: string) => void;
+  onInputLevel?: (level: number) => void;
 };
 
 type EncodedVoiceFrame = {
@@ -252,6 +253,7 @@ export class VoiceSession {
     this.playback = undefined;
     this.micBuffer = new Float32Array(0);
     this.inputProcessor.reset();
+    this.callbacks.onInputLevel?.(0);
     this.playbackByUser.forEach((playback) => playback.close());
     this.playbackByUser.clear();
   }
@@ -268,6 +270,7 @@ export class VoiceSession {
       this.micBuffer = this.micBuffer.slice(frameSamples);
       const gain = clampNumber(this.settings.micVolume, 0.05, 2, 1);
       const processed = this.inputProcessor.process(frame, gain);
+      this.callbacks.onInputLevel?.(voiceLevel(processed));
       this.encoder.encode(processed, Date.now());
     }
   }
@@ -685,6 +688,10 @@ function rms(input: Float32Array) {
     sum += input[i] * input[i];
   }
   return Math.sqrt(sum / Math.max(1, input.length));
+}
+
+function voiceLevel(input: Float32Array) {
+  return clampNumber(rms(input) / 0.12, 0, 1, 0);
 }
 
 class VoiceInputProcessor {

@@ -1255,6 +1255,18 @@ code {
   color: #8c5d13;
 }
 
+.voice-quality {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  justify-self: end;
+  min-width: 0;
+  color: #73817c;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .voice-actions {
   grid-column: 3;
   grid-row: 1;
@@ -1265,6 +1277,7 @@ code {
 }
 
 .voice-actions button {
+  --voice-level: 0;
   width: 30px;
   height: 30px;
   min-height: 30px;
@@ -1290,8 +1303,11 @@ code {
 
 .voice-actions button.mic-on {
   border-color: #9ed5c2;
-  background: #155d55;
+  background:
+    radial-gradient(circle at center, rgba(78, 214, 145, calc(0.16 + var(--voice-level) * 0.55)) 0%, rgba(78, 214, 145, calc(var(--voice-level) * 0.42)) calc(28% + var(--voice-level) * 34%), transparent calc(42% + var(--voice-level) * 36%)),
+    #155d55;
   color: #f6fffb;
+  box-shadow: 0 0 calc(6px + var(--voice-level) * 18px) rgba(24, 154, 98, calc(0.18 + var(--voice-level) * 0.34));
 }
 
 .voice-actions button:not(:disabled):hover {

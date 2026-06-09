@@ -59,9 +59,8 @@ LwyLink 的虚拟局域网核心目标仍然是：
 
 ### 需要新增的服务端能力
 
-- `POST /api/rooms/{id}/voice/webrtc/offer`
-- `POST /api/rooms/{id}/voice/webrtc/answer`
-- `POST /api/rooms/{id}/voice/webrtc/ice`
+- `POST /api/rooms/voice/webrtc/signal`
+- `GET /api/rooms/voice/webrtc/ice`
 - 房间事件流推送 offer/answer/ice。
 - 信令消息只允许同房间、已加入语音的用户互发。
 - 信令过期清理，避免堆积。

@@ -46,6 +46,7 @@ import {
   SetRoomVoiceMic,
   ChangePassword,
   TransferOwner,
+  VoiceWebRTCICE,
 } from "../wailsjs/go/main/App";
 import { main as goModels } from "../wailsjs/go/models";
 import { EventsOn, WindowMinimise, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
@@ -86,7 +87,7 @@ import {
 import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomPlayersPanel, Rule } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { VoiceSession, listVoiceDevices, type IncomingVoiceFrame } from "./voice";
-import { WebRTCVoiceExperiment, type WebRTCVoiceSignal } from "./webrtcVoice";
+import { WebRTCVoiceExperiment, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
@@ -112,6 +113,8 @@ export default function App() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceMicActive, setVoiceMicActive] = useState(false);
   const [voiceConnectPrompt, setVoiceConnectPrompt] = useState(false);
+  const [voiceRTCStats, setVoiceRTCStats] = useState<WebRTCVoiceStats[]>([]);
+  const [voiceInputLevel, setVoiceInputLevel] = useState(0);
   const [voiceDevices, setVoiceDevices] = useState<{ inputs: VoiceDevice[]; outputs: VoiceDevice[] }>({ inputs: [], outputs: [] });
   const [loginForm, setLoginForm] = useState<LoginForm>({
     email: "",
@@ -256,6 +259,13 @@ export default function App() {
     voiceSessionRef.current?.updateSettings(settingsForm.voiceSettings);
     webrtcVoiceRef.current?.updateSettings(settingsForm.voiceSettings);
   }, [settingsForm.voiceSettings]);
+
+  useEffect(() => {
+    if (!voiceActive) {
+      return;
+    }
+    void webrtcVoiceRef.current?.syncMembers(state.voice.participants);
+  }, [state.voice.updatedAt, state.voice.participantCount, voiceActive]);
 
   function applyState(next: AppState) {
     const normalized = normalizeAppState(next);
@@ -422,6 +432,7 @@ export default function App() {
       if (useNativeVoice) {
         session = new VoiceSession(currentRoom, state.voiceSettings, {
           onError: (message) => showNotice(message, "error"),
+          onInputLevel: setVoiceInputLevel,
         });
         await session.start();
         voiceSessionRef.current = session;
@@ -441,6 +452,7 @@ export default function App() {
           showNotice(`高清语音启动失败，已切换到兼容语音：${errorText(err)}`, "info");
           session = new VoiceSession(currentRoom, state.voiceSettings, {
             onError: (message) => showNotice(message, "error"),
+            onInputLevel: setVoiceInputLevel,
           });
           await session.start();
           voiceSessionRef.current = session;
@@ -486,6 +498,8 @@ export default function App() {
     voiceSessionRef.current = null;
     setVoiceActive(false);
     setVoiceMicActive(false);
+    setVoiceRTCStats([]);
+    setVoiceInputLevel(0);
     await session?.close();
     await stopWebRTCVoice();
     if (notifyServer && roomID) {
@@ -502,18 +516,26 @@ export default function App() {
     if (!currentRoom || !state.user) {
       return;
     }
-    const experiment = new WebRTCVoiceExperiment(currentRoom, state.user.id, state.voiceSettings, {
+    let iceServers: RTCIceServer[] = [];
+    try {
+      iceServers = await VoiceWebRTCICE();
+    } catch (err) {
+      showNotice(`获取语音网络配置失败，已使用默认配置：${errorText(err)}`, "info");
+    }
+    const experiment = new WebRTCVoiceExperiment(currentRoom, state.user.id, state.voiceSettings, iceServers, {
       onError: (message) => showNotice(message, "error"),
       onStats: (stats) => {
+        setVoiceRTCStats(stats);
         if (stats.length > 0) {
           (globalThis as any).__lwylinkWebRTCVoiceStats = stats;
           console.debug("LwyLink WebRTC voice stats", stats);
         }
       },
+      onInputLevel: setVoiceInputLevel,
     });
     try {
       webrtcVoiceRef.current = experiment;
-      await experiment.start(nextState.members ?? members);
+      await experiment.start(nextState.voice.participants ?? []);
     } catch (err) {
       webrtcVoiceRef.current = null;
       await experiment.close();
@@ -538,6 +560,9 @@ export default function App() {
       voiceSessionRef.current?.setMicEnabled(nextSpeaking);
       webrtcVoiceRef.current?.setMicEnabled(nextSpeaking);
       setVoiceMicActive(nextSpeaking);
+      if (!nextSpeaking) {
+        setVoiceInputLevel(0);
+      }
       applyState(next);
     } catch (err) {
       showNotice(errorText(err), "error");
@@ -1081,6 +1106,8 @@ export default function App() {
           voiceMicActive={voiceMicActive}
           voiceMode={state.voiceMode}
           voiceMessage={state.voiceMessage}
+          voiceRTCStats={voiceRTCStats}
+          voiceInputLevel={voiceInputLevel}
           disabled={isBusy}
           onJoinVoice={handleJoinVoice}
           onToggleVoiceMic={handleToggleVoiceMic}

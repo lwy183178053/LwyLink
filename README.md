@@ -188,6 +188,37 @@ Copy-Item .\configs\mail.example.json .\configs\mail.local.json
 
 启用邮件后，注册和找回密码都会要求 6 位邮箱验证码；未启用邮件时，本地开发和 smoke 注册仍可直接通过。真实的 `mail.local.json` 含 SMTP 密码，已被 `.gitignore` 忽略。
 
+### WebRTC 语音网络配置
+
+控制中心通过 `voiceICEServers` 下发 WebRTC 语音使用的 ICE servers。默认只包含公共 STUN：
+
+```json
+"voiceICEServers": [
+  { "urls": ["stun:stun.l.google.com:19302"] }
+]
+```
+
+后续部署 TURN 时，推荐使用 coturn 的 REST 短期凭据模式：coturn 配置 `use-auth-secret` 和 `static-auth-secret`，控制中心只保存同一个 secret，并给客户端签发短期用户名和密码。
+
+```json
+"voiceTURNCredential": {
+  "urls": ["turn:turn.example.com:3478", "turns:turn.example.com:5349"],
+  "staticAuthSecret": "CHANGE_ME_TURN_REST_SECRET",
+  "ttlSeconds": 3600,
+  "usernamePrefix": "lwylink"
+}
+```
+
+也可以用环境变量配置：
+
+```powershell
+$env:LWYLINK_VOICE_TURN_URLS='turn:turn.example.com:3478,turns:turn.example.com:5349'
+$env:LWYLINK_VOICE_TURN_SECRET='CHANGE_ME_TURN_REST_SECRET'
+```
+
+真实 TURN secret 不要提交到 Git。`voiceICEServers` 仍可用于普通 STUN 或临时静态 ICE server，但生产 TURN 优先使用 `voiceTURNCredential`。
+客户端只有登录后才会请求 WebRTC ICE 配置，避免未授权访问者批量获取 TURN 临时凭据。
+
 ## 关键概念
 
 - 房间公钥是加入房间和连接房间的授权凭证，不是节点传输密钥。

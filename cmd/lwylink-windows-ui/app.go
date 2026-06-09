@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.2.4"
+var AppVersion = "0.2.5"
 
 type App struct {
 	ctx context.Context
@@ -136,6 +136,12 @@ type VoiceWebRTCSignalInput struct {
 	ToUserID int64           `json:"toUserID"`
 	Type     string          `json:"type"`
 	Payload  json.RawMessage `json:"payload"`
+}
+
+type VoiceICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
 }
 
 type MemberActionInput struct {
@@ -809,6 +815,27 @@ func (a *App) SetRoomVoiceMic(roomID int64, speaking bool) (AppState, error) {
 	}
 	a.voiceState = voiceState
 	return a.commitStateLocked(), nil
+}
+
+func (a *App) VoiceWebRTCICE() ([]VoiceICEServer, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	a.mu.Lock()
+	api := a.api.Clone()
+	a.mu.Unlock()
+	servers, err := api.RoomVoiceWebRTCICE(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VoiceICEServer, 0, len(servers))
+	for _, server := range servers {
+		out = append(out, VoiceICEServer{
+			URLs:       append([]string(nil), server.URLs...),
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
+	}
+	return out, nil
 }
 
 func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) {

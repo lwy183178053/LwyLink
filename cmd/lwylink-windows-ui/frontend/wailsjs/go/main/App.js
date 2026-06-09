@@ -101,3 +101,7 @@ export function SetSettings(arg1) {
 export function TransferOwner(arg1) {
   return window['go']['main']['App']['TransferOwner'](arg1);
 }
+
+export function VoiceWebRTCICE() {
+  return window['go']['main']['App']['VoiceWebRTCICE']();
+}

@@ -22,6 +22,12 @@ type API struct {
 	client  *http.Client
 }
 
+type VoiceICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
 func NewAPI(baseURL string) *API {
 	return &API{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -169,6 +175,14 @@ func (a *API) SetRoomVoiceMic(ctx context.Context, roomID int64, speaking bool) 
 	var out room.VoiceState
 	err := a.request(ctx, http.MethodPost, "/api/rooms/voice/mic", map[string]any{"roomID": roomID, "speaking": speaking}, &out)
 	return out, err
+}
+
+func (a *API) RoomVoiceWebRTCICE(ctx context.Context) ([]VoiceICEServer, error) {
+	var out struct {
+		ICEServers []VoiceICEServer `json:"iceServers"`
+	}
+	err := a.request(ctx, http.MethodGet, "/api/rooms/voice/webrtc/ice", nil, &out)
+	return out.ICEServers, err
 }
 
 func (a *API) SendRoomVoiceWebRTCSignal(ctx context.Context, roomID, toUserID int64, signalType string, payload json.RawMessage) (room.VoiceSignal, error) {

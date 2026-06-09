@@ -10,11 +10,12 @@ import (
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/config"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func TestDownloadTicketRoundTripAndExpiry(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 	ticket := srv.signDownloadTicket("client.exe", 42, "203.0.113.8", time.Now().Add(time.Minute))
 	userID, err := srv.verifyDownloadTicket(ticket, "client.exe", "203.0.113.8")
 	if err != nil {
@@ -64,7 +65,7 @@ func TestClientReleaseTicketRejectsBadJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil, nil, config.TURNCredentialConfig{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/client/releases/ticket", strings.NewReader(`{"platform":`))
 	req.Header.Set("Authorization", "Bearer "+token.Token)
@@ -87,7 +88,7 @@ func TestClientReleaseTicketRejectsTrailingJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", accounts, nil, nil, nil, releases, nil, nil, config.TURNCredentialConfig{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/client/releases/ticket", strings.NewReader(`{} {}`))
 	req.Header.Set("Authorization", "Bearer "+token.Token)
@@ -100,7 +101,7 @@ func TestClientReleaseTicketRejectsTrailingJSON(t *testing.T) {
 
 func TestAuthorizeClientDownload(t *testing.T) {
 	release := clientrelease.Release{StoredFileName: "client.exe"}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/downloads/client/client.exe", nil)
 	if _, err := srv.authorizeClientDownload(req, release); err == nil {
@@ -175,7 +176,7 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 		StoredFileName: "windows-amd64-0.1.17.exe",
 		SHA256:         "abc",
 	}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest?platform=windows-amd64", nil)
 
 	public := srv.publicClientRelease(req, release)
@@ -189,7 +190,7 @@ func TestPublicReleaseDownloadURLDoesNotIncludeCompatibilityTicket(t *testing.T)
 
 func TestClientReleaseDownloadURLHonorsForwardedHeaders(t *testing.T) {
 	release := clientrelease.Release{StoredFileName: "client.exe"}
-	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/client/releases/latest", nil)
 	req.Host = "127.0.0.1:8080"

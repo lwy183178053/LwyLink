@@ -199,27 +199,33 @@ Keep commits small:
 
 Do not publish a forced update from this branch until the experiment clearly wins.
 
-## Current Local Experiment Status
+## Current Product Status After 0.2.4
 
-The first backend skeleton has been drafted locally:
+The first backend skeleton has shipped:
 
 - `RoomEventVoiceSignal`
 - `VoiceSignal`
 - `Service.SendVoiceSignal`
 - `POST /api/rooms/voice/webrtc/signal`
 
-The skeleton only authenticates and forwards signaling through the existing room event bus. It does not change the current native overlay voice path and does not carry media.
+The skeleton authenticates and forwards signaling through the existing room event bus. It does not carry media itself.
 
-The first frontend skeleton has also been drafted locally:
+The frontend now includes:
 
 - `webrtcVoice.ts`
 - Wails binding `SendVoiceWebRTCSignal`
 - Wails event `voice-webrtc-signal`
 - hidden backend selector: `localStorage.setItem("lwylink.voiceBackend", "webrtc")`
+- server-provided ICE configuration through `/api/rooms/voice/webrtc/ice`
 
-The default backend is `native`, so normal users continue using the existing native overlay voice path.
+The default backend is now `webrtc`. Native overlay voice is retained as a fallback and diagnostic backend, but it is no longer the default product path.
 
-WebRTC local audio tracks start muted. They are enabled only after the normal room mic button calls `SetRoomVoiceMic`, so the experiment keeps the same voice-room semantics as native overlay voice.
+WebRTC local audio tracks start muted. They are enabled only after the normal room mic button calls `SetRoomVoiceMic`, so the same voice-room semantics and mic limits are kept.
+
+The WebRTC peer lifecycle now handles two common real-world issues:
+
+- Early ICE candidates are buffered until the remote SDP is applied.
+- Short `disconnected` states use a grace window before rebuilding the peer connection.
 
 Latest WebRTC stats are exposed for manual inspection:
 
@@ -229,8 +235,8 @@ window.__lwylinkWebRTCVoiceStats
 
 Local backend modes:
 
-- `native`: current LwyLink overlay voice only.
-- `webrtc`: WebRTC voice only.
+- `native`: LwyLink overlay voice only.
+- `webrtc`: WebRTC voice only, current default.
 - `dual`: native overlay voice and WebRTC voice in parallel, useful only for diagnostics because it can cause echo/double audio.
 
 Examples:
@@ -242,14 +248,39 @@ localStorage.setItem("lwylink.voiceBackend", "dual")
 localStorage.removeItem("lwylink.voiceBackend")
 ```
 
-The legacy flag `lwylink.webrtcVoiceExperiment=1` still maps to `dual` for convenience, but new tests should use `lwylink.voiceBackend`.
+The legacy flag `lwylink.webrtcVoiceExperiment=1` still maps to `dual` for convenience, but new diagnostics should use `lwylink.voiceBackend`.
 
-Next experiment step:
+Known gaps after promotion to default:
 
-- Build and run two local clients with the hidden flag enabled.
-- Exchange offer/answer/ICE between two clients through the existing room SSE stream.
-- Collect `RTCPeerConnection.getStats()` for candidate type, RTT, jitter, and packet loss.
-- Compare WebRTC audio with native overlay audio before deciding the product route.
+- There is still no deployed TURN server, so restrictive NATs can still fail to form a media path.
+- ICE servers are now server-provided, but production still defaults to public STUN until TURN is configured.
+- TURN REST short-lived credentials are supported in config, but coturn is not deployed yet.
+- WebRTC stats are exposed through a debug global and a compact voice UI indicator.
+- Dynamic voice membership and reconnection need to be verified with real multi-client tests.
+- Relay/TURN traffic is not yet integrated into the existing account traffic accounting.
+
+Next engineering step:
+
+- Deploy coturn or an equivalent TURN service.
+- Configure coturn `use-auth-secret/static-auth-secret` and LwyLink `voiceTURNCredential`.
+- Expand WebRTC diagnostics into a dedicated detail view if compact UI data is not enough.
+- Verify dynamic join/leave and reconnect behavior with two or more real clients.
+- Decide whether native overlay voice remains a hidden fallback or is removed after TURN is stable.
+
+## Manual WebRTC Voice Checks
+
+When testing a new voice build, record both subjective audio quality and the compact UI indicator:
+
+- Path label: `P2P 语音`, `TURN 语音`, `高清语音`, or `语音连接中`.
+- RTT: stable low values usually mean the selected candidate pair is healthy.
+- Jitter: spikes correlate with choppy audio or robotic transitions.
+- Packet loss: repeated increases mean the issue is likely network path quality, not microphone gain.
+
+The debug global is still available for deeper inspection:
+
+```js
+window.__lwylinkWebRTCVoiceStats
+```
 
 Recommended A/B order:
 
@@ -260,6 +291,6 @@ Recommended A/B order:
 ## What Not To Do
 
 - Do not delete native overlay voice during the experiment.
-- Do not ship WebRTC as default before TURN is tested.
+- Do not claim WebRTC voice is complete before TURN is tested.
 - Do not hide WebRTC path type from diagnostics.
 - Do not treat “connects once” as success; voice quality is the real metric.

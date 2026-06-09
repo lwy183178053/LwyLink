@@ -51,3 +51,5 @@ export function SetRoomVoiceMic(arg1:number,arg2:boolean):Promise<main.AppState>
 export function SetSettings(arg1:main.SettingsInput):Promise<main.AppState>;
 
 export function TransferOwner(arg1:main.MemberActionInput):Promise<main.AppState>;
+
+export function VoiceWebRTCICE():Promise<Array<main.VoiceICEServer>>;

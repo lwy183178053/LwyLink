@@ -526,6 +526,22 @@ export namespace main {
 	        this.payload = source["payload"];
 	    }
 	}
+	export class VoiceICEServer {
+	    urls: string[];
+	    username?: string;
+	    credential?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceICEServer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.urls = source["urls"];
+	        this.username = source["username"];
+	        this.credential = source["credential"];
+	    }
+	}
 	
 	export class VoiceWebRTCSignalInput {
 	    roomID: number;

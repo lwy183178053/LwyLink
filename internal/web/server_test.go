@@ -3,7 +3,10 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/config"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
@@ -86,7 +90,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
 	html := rec.Body.String()
 	for _, want := range []string{"最近账号", "最近房间", "compact-table", "Player"} {
 		if !strings.Contains(html, want) {
@@ -113,7 +117,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 		RecentErrors:          []string{"node: last check failed"},
 	}
 	rec = httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
 	html = rec.Body.String()
 	for _, want := range []string{"实时状态", "Overlay 连接", "0.2.1", "node: last check failed"} {
 		if !strings.Contains(html, want) {
@@ -124,7 +128,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data.Active = "users"
 	data.Title = "玩家账号"
 	rec = httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
 	html = rec.Body.String()
 	for _, want := range []string{"traffic-dialog", "data-open-traffic", `placeholder="例如 1024"`} {
 		if !strings.Contains(html, want) {
@@ -135,7 +139,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	data.Active = "releases"
 	data.Title = "更新发布"
 	rec = httptest.NewRecorder()
-	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil).renderAdmin(rec, data)
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
 	releasesHTML := rec.Body.String()
 	for _, want := range []string{`placeholder="例如 /S，可留空"`, `name="mandatory" value="true"`, "当前阶段所有客户端发布都会强制更新"} {
 		if !strings.Contains(releasesHTML, want) {
@@ -162,7 +166,7 @@ func TestAdminReleaseUploadRejectsOversizedBodyBeforeMultipartParse(t *testing.T
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	rec := httptest.NewRecorder()
 	releases := clientrelease.NewService(nil, "")
-	NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, releases, nil).handleAdminReleaseUploadLimited(rec, req, 32)
+	NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, releases, nil, nil, config.TURNCredentialConfig{}).handleAdminReleaseUploadLimited(rec, req, 32)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want %d", rec.Code, http.StatusBadRequest)
@@ -182,8 +186,69 @@ func TestReadJSONRejectsTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestRoomVoiceWebRTCICEReturnsConfiguredServers(t *testing.T) {
+	accounts := account.NewService(&smokeAccountRepo{users: make(map[string]account.User)}, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
+	login, err := accounts.Register(context.Background(), "voice@example.com", "secret1", "Voice")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil, []config.ICEServerConfig{
+		{
+			URLs:       []string{" turn:turn.example.com:3478 ", ""},
+			Username:   " user ",
+			Credential: " pass ",
+		},
+	}, config.TURNCredentialConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/voice/webrtc/ice", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Token)
+	rec := httptest.NewRecorder()
+	srv.handleRoomVoiceWebRTCICE(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ice status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"turn:turn.example.com:3478"`) || !strings.Contains(body, `"username":"user"`) {
+		t.Fatalf("ice response did not include normalized TURN server: %s", body)
+	}
+}
+
+func TestRoomVoiceWebRTCICERequiresLogin(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/api/rooms/voice/webrtc/ice", nil)
+	rec := httptest.NewRecorder()
+	srv.handleRoomVoiceWebRTCICE(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTurnRESTICEServerUsesShortLivedCredential(t *testing.T) {
+	now := time.Unix(1000, 0)
+	server, ok := turnRESTICEServer(config.TURNCredentialConfig{
+		URLs:             []string{" turn:turn.example.com:3478 "},
+		StaticAuthSecret: "shared-secret",
+		TTLSeconds:       600,
+		UsernamePrefix:   "lwylink",
+	}, now)
+	if !ok {
+		t.Fatalf("turn REST server was not generated")
+	}
+	if got, want := server.Username, "1600:lwylink"; got != want {
+		t.Fatalf("username=%q, want %q", got, want)
+	}
+	mac := hmac.New(sha1.New, []byte("shared-secret"))
+	_, _ = mac.Write([]byte(server.Username))
+	wantCredential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	if server.Credential != wantCredential {
+		t.Fatalf("credential=%q, want %q", server.Credential, wantCredential)
+	}
+	if len(server.URLs) != 1 || server.URLs[0] != "turn:turn.example.com:3478" {
+		t.Fatalf("urls not normalized: %+v", server.URLs)
+	}
+}
+
 func TestSitePagesRender(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 	for _, path := range []string{"/", "/login", "/register", "/reset", "/dashboard", "/download"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
@@ -198,7 +263,7 @@ func TestSitePagesRender(t *testing.T) {
 }
 
 func TestSitePasswordResetIsSeparatePage(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
 	srv.handleSite(rec, req)
@@ -257,7 +322,7 @@ func TestSiteFormBusySnapshotsDataBeforeDisablingInputs(t *testing.T) {
 
 func TestSmokeRegisterRequiresAdminAndSmokeEmail(t *testing.T) {
 	accounts := account.NewService(&smokeAccountRepo{users: make(map[string]account.User)}, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
-	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 
 	body := `{"email":"player@smoke.lwylink.test","password":"secret1","displayName":"Smoke"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/smoke/register", strings.NewReader(body))
@@ -299,7 +364,7 @@ func TestLoginDisabledAccountReturnsForbidden(t *testing.T) {
 	u := repo.users[result.User.Email]
 	u.Disabled = true
 	repo.users[result.User.Email] = u
-	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"player@example.com","password":"secret1"}`))
 	rec := httptest.NewRecorder()

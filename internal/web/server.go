@@ -2,6 +2,9 @@ package web
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +20,7 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/account"
 	"github.com/LwyV-Labs/LwyLink/internal/appsettings"
 	"github.com/LwyV-Labs/LwyLink/internal/clientrelease"
+	"github.com/LwyV-Labs/LwyLink/internal/config"
 	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 	"github.com/LwyV-Labs/LwyLink/internal/mail"
 	"github.com/LwyV-Labs/LwyLink/internal/node"
@@ -34,12 +38,14 @@ type Server struct {
 	nodes           *node.Service
 	releases        *clientrelease.Service
 	mail            *mail.Service
+	voiceICEServers []config.ICEServerConfig
+	voiceTURN       config.TURNCredentialConfig
 	downloadLimiter *downloadLimiter
 	httpServer      *http.Server
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
-func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service, mailSvc *mail.Service) *Server {
+func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service, mailSvc *mail.Service, voiceICEServers []config.ICEServerConfig, voiceTURN config.TURNCredentialConfig) *Server {
 	return &Server{
 		addr:            addr,
 		adminToken:      adminToken,
@@ -49,6 +55,8 @@ func NewServer(addr, adminToken string, accounts *account.Service, settings *app
 		nodes:           nodes,
 		releases:        releases,
 		mail:            mailSvc,
+		voiceICEServers: normalizeICEServers(voiceICEServers),
+		voiceTURN:       voiceTURN,
 		downloadLimiter: newDownloadLimiter(downloadRateLimitWindow),
 	}
 }
@@ -74,6 +82,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/voice/join", s.handleJoinRoomVoice)
 	mux.HandleFunc("/api/rooms/voice/leave", s.handleLeaveRoomVoice)
 	mux.HandleFunc("/api/rooms/voice/mic", s.handleRoomVoiceMic)
+	mux.HandleFunc("/api/rooms/voice/webrtc/ice", s.handleRoomVoiceWebRTCICE)
 	mux.HandleFunc("/api/rooms/voice/webrtc/signal", s.handleRoomVoiceWebRTCSignal)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
@@ -550,6 +559,21 @@ func (s *Server) handleRoomVoiceMic(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, state)
 }
 
+func (s *Server) handleRoomVoiceWebRTCICE(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if _, err := s.userFromRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		ICEServers []config.ICEServerConfig `json:"iceServers"`
+	}{
+		ICEServers: s.voiceICEConfig(time.Now()),
+	})
+}
+
 func (s *Server) handleRoomVoiceWebRTCSignal(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -870,6 +894,70 @@ func writeSSE(w http.ResponseWriter, flusher http.Flusher, event room.RoomEvent)
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func normalizeICEServers(servers []config.ICEServerConfig) []config.ICEServerConfig {
+	out := make([]config.ICEServerConfig, 0, len(servers))
+	for _, server := range servers {
+		urls := make([]string, 0, len(server.URLs))
+		for _, rawURL := range server.URLs {
+			rawURL = strings.TrimSpace(rawURL)
+			if rawURL != "" {
+				urls = append(urls, rawURL)
+			}
+		}
+		if len(urls) == 0 {
+			continue
+		}
+		out = append(out, config.ICEServerConfig{
+			URLs:       urls,
+			Username:   strings.TrimSpace(server.Username),
+			Credential: strings.TrimSpace(server.Credential),
+		})
+	}
+	if len(out) == 0 {
+		return []config.ICEServerConfig{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	}
+	return out
+}
+
+func (s *Server) voiceICEConfig(now time.Time) []config.ICEServerConfig {
+	servers := normalizeICEServers(s.voiceICEServers)
+	if turn, ok := turnRESTICEServer(s.voiceTURN, now); ok {
+		servers = append(servers, turn)
+	}
+	return servers
+}
+
+func turnRESTICEServer(cfg config.TURNCredentialConfig, now time.Time) (config.ICEServerConfig, bool) {
+	urls := make([]string, 0, len(cfg.URLs))
+	for _, rawURL := range cfg.URLs {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL != "" {
+			urls = append(urls, rawURL)
+		}
+	}
+	secret := strings.TrimSpace(cfg.StaticAuthSecret)
+	if len(urls) == 0 || secret == "" {
+		return config.ICEServerConfig{}, false
+	}
+	ttl := cfg.TTLSeconds
+	if ttl <= 0 {
+		ttl = 3600
+	}
+	expiry := now.Add(time.Duration(ttl) * time.Second).Unix()
+	username := strconv.FormatInt(expiry, 10)
+	if prefix := strings.TrimSpace(cfg.UsernamePrefix); prefix != "" {
+		username += ":" + prefix
+	}
+	mac := hmac.New(sha1.New, []byte(secret))
+	_, _ = mac.Write([]byte(username))
+	credential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return config.ICEServerConfig{
+		URLs:       urls,
+		Username:   username,
+		Credential: credential,
+	}, true
 }
 
 func withCORS(next http.Handler) http.Handler {

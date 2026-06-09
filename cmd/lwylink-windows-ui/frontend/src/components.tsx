@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import { Button, Input, Spinner } from "@fluentui/react-components";
 import {
   CircleCheck,
@@ -18,7 +18,12 @@ import {
   UserMinus,
 } from "lucide-react";
 import { formatTime, initials, statusText, statusTone, userLabel } from "./client-ui";
+import type { WebRTCVoiceStats } from "./webrtcVoice";
 import type { ChatMessage, ConnectionState, PublicUser, Room, RoomMember, VoiceState } from "./types";
+
+type VoiceLevelStyle = CSSProperties & {
+  "--voice-level": string;
+};
 
 export function NavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: ReactNode; label: string; detail: string; onClick: () => void }) {
   return (
@@ -277,6 +282,35 @@ function memberP2PLabel(member: RoomMember, currentUserID: number | undefined, c
   return undefined;
 }
 
+function voiceRTCDiagnostic(stats: WebRTCVoiceStats[]) {
+  if (stats.length === 0) {
+    return { label: "高清语音", detail: "等待媒体路径", tone: "" };
+  }
+  const connected = stats.filter((item) => item.connectionState === "connected" || item.iceConnectionState === "completed");
+  const candidates = stats.map((item) => item.candidateType).filter(Boolean);
+  const usingRelay = candidates.includes("relay");
+  const usingDirect = candidates.some((item) => item === "host" || item === "srflx" || item === "prflx");
+  const qualityStats = connected.length > 0 ? connected : stats;
+  const avgRTT = averageNumber(qualityStats.map((item) => item.roundTripTimeMS).filter((item) => item > 0));
+  const avgJitter = averageNumber(qualityStats.map((item) => item.jitterMS).filter((item) => item > 0));
+  const lost = qualityStats.reduce((sum, item) => sum + Math.max(0, item.packetsLost), 0);
+  const label = usingRelay ? "TURN 语音" : usingDirect ? "P2P 语音" : connected.length > 0 ? "高清语音" : "语音连接中";
+  const tone = usingRelay ? "warn" : connected.length > 0 ? "good" : "";
+  const detail = [
+    avgRTT > 0 ? `RTT ${avgRTT}ms` : "",
+    avgJitter > 0 ? `抖动 ${avgJitter}ms` : "",
+    lost > 0 ? `丢包 ${lost}` : "",
+  ].filter(Boolean).join(" · ");
+  return { label, detail: detail || `${connected.length}/${stats.length} 路连接`, tone };
+}
+
+function averageNumber(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
 function VoiceDock({
   room,
   voiceState,
@@ -284,6 +318,8 @@ function VoiceDock({
   voiceMicActive,
   voiceMode,
   voiceMessage,
+  voiceRTCStats,
+  voiceInputLevel,
   disabled,
   onJoinVoice,
   onToggleVoiceMic,
@@ -295,6 +331,8 @@ function VoiceDock({
   voiceMicActive: boolean;
   voiceMode: string;
   voiceMessage: string;
+  voiceRTCStats: WebRTCVoiceStats[];
+  voiceInputLevel: number;
   disabled: boolean;
   onJoinVoice: () => void;
   onToggleVoiceMic: () => void;
@@ -302,8 +340,9 @@ function VoiceDock({
 }) {
   const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
   const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
-  const transportText = voiceActive ? "已加入语音" : voiceMessage || "未加入语音";
-  const transportClass = voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "";
+  const diagnostic = voiceRTCDiagnostic(voiceRTCStats);
+  const transportText = voiceActive ? diagnostic.label : voiceMessage || "未加入语音";
+  const transportClass = diagnostic.tone || (voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "");
   return (
     <div className="voice-dock">
       <div className="voice-dock-title">
@@ -317,11 +356,19 @@ function VoiceDock({
         <Radio size={14} />
         <span>{transportText}</span>
       </div>
+      {voiceActive && diagnostic.detail && <div className="voice-quality">{diagnostic.detail}</div>}
       <div className="voice-actions">
         <button className={voiceActive ? "voice-icon-button active" : "voice-icon-button"} type="button" disabled={disabled} title={voiceActive ? "退出语音" : "加入语音"} onClick={voiceActive ? onLeaveVoice : onJoinVoice}>
           <Headphones size={16} />
         </button>
-        <button className={voiceMicActive ? "voice-icon-button mic-on" : "voice-icon-button"} type="button" disabled={disabled || !voiceActive} title={voiceMicActive ? "关闭麦克风" : "打开麦克风"} onClick={onToggleVoiceMic}>
+        <button
+          className={voiceMicActive ? "voice-icon-button mic-on" : "voice-icon-button"}
+          type="button"
+          disabled={disabled || !voiceActive}
+          title={voiceMicActive ? "关闭麦克风" : "打开麦克风"}
+          style={{ "--voice-level": String(voiceMicActive ? Math.max(0, Math.min(1, voiceInputLevel)) : 0) } as VoiceLevelStyle}
+          onClick={onToggleVoiceMic}
+        >
           {voiceMicActive ? <Mic size={16} /> : <MicOff size={16} />}
         </button>
       </div>
@@ -336,6 +383,8 @@ export function RoomCommsPanel({
   voiceMicActive,
   voiceMode,
   voiceMessage,
+  voiceRTCStats,
+  voiceInputLevel,
   disabled,
   onJoinVoice,
   onToggleVoiceMic,
@@ -355,6 +404,8 @@ export function RoomCommsPanel({
   voiceMicActive: boolean;
   voiceMode: string;
   voiceMessage: string;
+  voiceRTCStats: WebRTCVoiceStats[];
+  voiceInputLevel: number;
   disabled: boolean;
   onJoinVoice: () => void;
   onToggleVoiceMic: () => void;
@@ -384,6 +435,8 @@ export function RoomCommsPanel({
         voiceMicActive={voiceMicActive}
         voiceMode={voiceMode}
         voiceMessage={voiceMessage}
+        voiceRTCStats={voiceRTCStats}
+        voiceInputLevel={voiceInputLevel}
         disabled={disabled}
         onJoinVoice={onJoinVoice}
         onToggleVoiceMic={onToggleVoiceMic}
