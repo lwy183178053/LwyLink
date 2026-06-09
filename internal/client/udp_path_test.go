@@ -256,6 +256,58 @@ func TestUDPPathNeedsMirrorOnlyDuringWarmup(t *testing.T) {
 	}
 }
 
+func TestUDPManagerSendsVoiceDirectWhenPathReady(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	receiver := listenTestUDP(t)
+	defer receiver.Close()
+	m := startTestUDPManager(t, ctx, udpManagerConfig{
+		ServerAddr: "127.0.0.1:9",
+		Token:      "token-a",
+		Key:        testUDPKey(11),
+		RoomID:     1,
+		UserID:     10,
+		VirtualIP:  "172.16.1.10",
+	})
+
+	pairKey := testUDPKey(9)
+	m.AddPeer(overlay.UDPPeerCandidate{
+		VirtualIP: "172.16.1.11",
+		Endpoint:  udpLoopbackEndpoint(t, receiver),
+		SessionID: "pair-voice",
+		Key:       overlay.EncodeUDPKey(pairKey),
+	})
+	m.mu.Lock()
+	path := m.pathsByIP["172.16.1.11"]
+	path.active = true
+	path.lastSeen = time.Now()
+	path.readyAt = path.lastSeen.Add(-udpWarmupDuration)
+	m.mu.Unlock()
+
+	payload := []byte(`{"seq":1}`)
+	if decision := m.SendPayloadToPeer("172.16.1.11", overlay.UDPTypeVoice, payload); decision != udpSendDirect {
+		t.Fatalf("voice decision=%v, want direct", decision)
+	}
+	buf := make([]byte, 2048)
+	_ = receiver.SetReadDeadline(time.Now().Add(time.Second))
+	n, _, err := receiver.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("read voice udp: %v", err)
+	}
+	_, sessionID, err := overlay.UDPPacketID(buf[:n])
+	if err != nil {
+		t.Fatalf("udp packet id: %v", err)
+	}
+	sendKey, _ := udpDirectionalKeys(pairKey, "172.16.1.10", "172.16.1.11")
+	packet, err := overlay.DecodeUDPPacket(buf[:n], sendKey)
+	if err != nil {
+		t.Fatalf("decode voice udp: %v", err)
+	}
+	if sessionID != "pair-voice" || packet.Type != overlay.UDPTypeVoice || !bytes.Equal(packet.Payload, payload) {
+		t.Fatalf("voice udp session=%q type=%d payload=%q", sessionID, packet.Type, packet.Payload)
+	}
+}
+
 func TestUDPManagerDisablesAfterRepeatedProbeFailures(t *testing.T) {
 	m := newTestUDPManager()
 	var disabled atomic.Bool
@@ -456,6 +508,18 @@ func startTestUDPManager(t *testing.T, ctx context.Context, cfg udpManagerConfig
 		_ = m.Close()
 	})
 	return m
+}
+
+func listenTestUDP(t *testing.T) *net.UDPConn {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+	return conn
 }
 
 func udpLoopbackEndpoint(t *testing.T, conn *net.UDPConn) string {

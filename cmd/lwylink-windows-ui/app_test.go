@@ -40,16 +40,25 @@ func TestUpdateConnectionAppliesTransportMessageAndDirectPeers(t *testing.T) {
 	}
 }
 
-func TestVoiceFrameFreshRejectsOldFrames(t *testing.T) {
+func TestAcceptVoicePacketDropsDuplicateAndOlderSeq(t *testing.T) {
+	app := NewApp()
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	now := time.Now()
-	if !voiceFrameFresh(now.UnixMilli(), now) {
-		t.Fatalf("current voice frame was rejected")
+	if !app.acceptVoicePacketLocked(10, 2, now) {
+		t.Fatalf("first voice packet was rejected")
 	}
-	if voiceFrameFresh(now.Add(-maxVoiceFrameAge-time.Millisecond).UnixMilli(), now) {
-		t.Fatalf("expired voice frame was accepted")
+	if app.acceptVoicePacketLocked(10, 2, now.Add(time.Millisecond)) {
+		t.Fatalf("duplicate voice packet was accepted")
 	}
-	if voiceFrameFresh(0, now) {
-		t.Fatalf("missing timestamp was accepted")
+	if app.acceptVoicePacketLocked(10, 1, now.Add(2*time.Millisecond)) {
+		t.Fatalf("older voice packet was accepted")
+	}
+	if !app.acceptVoicePacketLocked(10, 3, now.Add(3*time.Millisecond)) {
+		t.Fatalf("newer voice packet was rejected")
+	}
+	if !app.acceptVoicePacketLocked(11, 1, now.Add(4*time.Millisecond)) {
+		t.Fatalf("other speaker seq should be tracked independently")
 	}
 }
 

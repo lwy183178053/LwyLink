@@ -33,7 +33,6 @@ const frameSamples = (targetSampleRate * frameDurationMS) / 1000;
 const opusBitrate = 24000;
 const playoutDelaySeconds = 0.08;
 const maxBufferedSeconds = 0.45;
-const maxIncomingAgeMS = 2000;
 
 export class VoiceSession {
   private room: Room;
@@ -94,7 +93,7 @@ export class VoiceSession {
   }
 
   playFrame(frame: IncomingVoiceFrame) {
-    if (!this.audioContext || frame.roomID !== this.room.id || Math.abs(Date.now() - frame.timestampMS) > maxIncomingAgeMS) {
+    if (!this.audioContext || frame.roomID !== this.room.id || frame.timestampMS <= 0) {
       return;
     }
     const bytes = payloadBytes(frame.payload);

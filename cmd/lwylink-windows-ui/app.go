@@ -22,7 +22,7 @@ const (
 	defaultAPIBaseURL = "https://www.lwylink.xyz"
 	defaultIfName     = "LwyLink"
 	maxChatMessages   = 120
-	maxVoiceFrameAge  = 2 * time.Second
+	voiceSeenTTL      = 10 * time.Second
 
 	statusDisconnected  = "disconnected"
 	statusConnecting    = "connecting"
@@ -31,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.2.1"
+var AppVersion = "0.2.2"
 
 type App struct {
 	ctx context.Context
@@ -57,6 +57,8 @@ type App struct {
 	voiceSend     chan client.VoicePacket
 	voiceMode     string
 	voiceMessage  string
+	voiceSeen     map[voicePacketKey]time.Time
+	voiceLastSeq  map[int64]uint64
 
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
@@ -244,6 +246,11 @@ type fetchedRoomState struct {
 	voice       room.VoiceState
 }
 
+type voicePacketKey struct {
+	fromUserID int64
+	seq        uint64
+}
+
 func NewApp() *App {
 	prefs := loadClientPreferences()
 	return &App{
@@ -257,6 +264,8 @@ func NewApp() *App {
 		voiceSend:    make(chan client.VoicePacket, 256),
 		voiceMode:    "idle",
 		voiceMessage: "未加入语音",
+		voiceSeen:    make(map[voicePacketKey]time.Time),
+		voiceLastSeq: make(map[int64]uint64),
 		update:       UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
@@ -1104,7 +1113,8 @@ func (a *App) handleVoicePayload(seq int64, payload []byte) {
 		voice.RoomID != a.currentRoom.ID ||
 		voice.ToUserID != a.user.ID ||
 		!voiceParticipantSpeaking(a.voiceState, voice.FromUserID) ||
-		!voiceFrameFresh(voice.TimestampMS, time.Now()) {
+		voice.TimestampMS <= 0 ||
+		!a.acceptVoicePacketLocked(voice.FromUserID, voice.Seq, time.Now()) {
 		a.mu.Unlock()
 		return
 	}
@@ -1127,13 +1137,31 @@ func participantHasJoinedVoice(participant room.VoiceParticipant) bool {
 	return participant.UserID > 0
 }
 
-func voiceFrameFresh(timestampMS int64, now time.Time) bool {
-	if timestampMS <= 0 {
+func (a *App) acceptVoicePacketLocked(fromUserID int64, seq uint64, now time.Time) bool {
+	if seq == 0 {
+		return true
+	}
+	if a.voiceSeen == nil {
+		a.voiceSeen = make(map[voicePacketKey]time.Time)
+	}
+	if a.voiceLastSeq == nil {
+		a.voiceLastSeq = make(map[int64]uint64)
+	}
+	for key, seenAt := range a.voiceSeen {
+		if now.Sub(seenAt) > voiceSeenTTL {
+			delete(a.voiceSeen, key)
+		}
+	}
+	key := voicePacketKey{fromUserID: fromUserID, seq: seq}
+	if _, ok := a.voiceSeen[key]; ok {
 		return false
 	}
-	sentAt := time.UnixMilli(timestampMS)
-	age := now.Sub(sentAt)
-	return age >= -maxVoiceFrameAge && age <= maxVoiceFrameAge
+	if last := a.voiceLastSeq[fromUserID]; last > 0 && seq <= last {
+		return false
+	}
+	a.voiceSeen[key] = now
+	a.voiceLastSeq[fromUserID] = seq
+	return true
 }
 
 func applyTransportStatus(state *ConnectionState, status client.TransportStatus) {
@@ -1315,6 +1343,8 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 func (a *App) resetVoiceLocked(message string) {
 	a.voiceState = room.VoiceState{}
 	a.voiceMode = "idle"
+	a.voiceSeen = make(map[voicePacketKey]time.Time)
+	a.voiceLastSeq = make(map[int64]uint64)
 	if strings.TrimSpace(message) == "" {
 		message = "未加入语音"
 	}
