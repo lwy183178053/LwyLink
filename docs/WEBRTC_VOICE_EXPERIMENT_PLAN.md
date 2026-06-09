@@ -1,6 +1,8 @@
-# LwyLink WebRTC Voice Experiment Plan
+# LwyLink WebRTC Voice Decision Record
 
-This is an experiment plan, not a release plan. Do not publish a client version from this work until the experiment beats the current native overlay voice path with evidence.
+Status: archived decision record. The Windows client voice product path is now WebRTC media with LwyLink room membership, signaling, and mic controls around it. The former native overlay voice frontend module has been removed; low-level `FrameVoice / UDPTypeVoice` remains only for overlay transport smoke tests and future protocol experiments.
+
+The sections below are kept as rationale for why the project moved away from maintaining two client media engines.
 
 ## Why This Experiment Exists
 

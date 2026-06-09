@@ -37,10 +37,10 @@ func run() (code int) {
 	apiURL := flag.String("api", "http://127.0.0.1:8080", "HTTP API base URL")
 	overlayAddr := flag.String("overlay", "127.0.0.1:35768", "Overlay address")
 	adminToken := flag.String("admin-token", os.Getenv("LWYLINK_ADMIN_TOKEN"), "Admin token used to delete smoke users after the run")
-	voiceQAFrames := flag.Int("voice-qa-frames", 160, "number of synthetic PCM16 voice frames to send in each direction; set 0 to disable")
-	voiceQARuns := flag.Int("voice-qa-runs", 1, "number of voice QA send/compare runs")
-	voiceQAJitterMS := flag.Int("voice-qa-jitter-ms", 260, "simulated client jitter buffer delay in milliseconds")
-	voiceQAOut := flag.String("voice-qa-out", "", "optional directory for voice QA JSON/WAV artifacts")
+	voiceQAFrames := flag.Int("voice-qa-frames", 160, "number of synthetic overlay voice transport frames to send in each direction; set 0 to disable")
+	voiceQARuns := flag.Int("voice-qa-runs", 1, "number of overlay voice transport send/compare runs")
+	voiceQAJitterMS := flag.Int("voice-qa-jitter-ms", 260, "simulated overlay voice receive buffer delay in milliseconds")
+	voiceQAOut := flag.String("voice-qa-out", "", "optional directory for overlay voice transport JSON/WAV artifacts")
 	flag.Parse()
 
 	cleaner := newSmokeCleaner(*apiURL, *adminToken)
@@ -600,8 +600,8 @@ type voiceQAGapSpike struct {
 }
 
 func verifyVoiceQuality(ctx context.Context, tt voiceQACase) {
-	must("owner join voice qa", joinVoiceForQA(ctx, tt.OwnerAPI, tt.RoomID))
-	must("player join voice qa", joinVoiceForQA(ctx, tt.PlayerAPI, tt.RoomID))
+	must("owner join overlay voice transport smoke", joinVoiceForQA(ctx, tt.OwnerAPI, tt.RoomID))
+	must("player join overlay voice transport smoke", joinVoiceForQA(ctx, tt.PlayerAPI, tt.RoomID))
 	defer func() {
 		_, _ = tt.OwnerAPI.SetRoomVoiceMic(context.Background(), tt.RoomID, false)
 		_, _ = tt.OwnerAPI.LeaveRoomVoice(context.Background(), tt.RoomID)
@@ -655,11 +655,11 @@ func verifyVoiceQuality(ctx context.Context, tt voiceQACase) {
 	}
 	for name, metrics := range report.Directions {
 		if !metrics.Passed {
-			failf("voice qa %s failed: received=%d/%d missing=%d unexpected=%d outOfOrder=%d mismatches=%d sent=%s got=%s",
+			failf("overlay voice transport %s failed: received=%d/%d missing=%d unexpected=%d outOfOrder=%d mismatches=%d sent=%s got=%s",
 				name, metrics.ReceivedFrames, metrics.SentFrames, metrics.MissingFrames, metrics.UnexpectedFrames,
 				metrics.OutOfOrderFrames, metrics.PayloadMismatches, metrics.SentSHA256, metrics.ReceivedSHA256)
 		}
-		log.Printf("voice qa run=%d/%d %s ok frames=%d avgGap=%.2fms minGap=%dms maxGap=%dms sha=%s",
+		log.Printf("overlay voice transport run=%d/%d %s ok frames=%d avgGap=%.2fms minGap=%dms maxGap=%dms sha=%s",
 			tt.RunIndex, tt.Runs, name, metrics.ReceivedFrames, metrics.AverageGapMS, metrics.MinGapMS, metrics.MaxGapMS, metrics.ReceivedSHA256)
 	}
 }
@@ -923,10 +923,10 @@ func simulateVoicePlayout(arrivals []voiceQAArrival, frames []voiceQAFrame, jitt
 }
 
 func writeVoiceQAReport(dir string, report voiceQAReport) {
-	must("create voice qa dir", os.MkdirAll(dir, 0o755))
+	must("create overlay voice transport report dir", os.MkdirAll(dir, 0o755))
 	raw, err := json.MarshalIndent(report, "", "  ")
-	must("marshal voice qa report", err)
-	must("write voice qa report", os.WriteFile(dir+"/report.json", raw, 0o644))
+	must("marshal overlay voice transport report", err)
+	must("write overlay voice transport report", os.WriteFile(dir+"/report.json", raw, 0o644))
 }
 
 func voiceQAOutputDir(root string, runIndex int) string {
@@ -941,7 +941,7 @@ func voiceQAOutputDir(root string, runIndex int) string {
 }
 
 func writeVoiceQAWAV(dir, name string, pcm []byte, sampleRate int) {
-	must("create voice qa dir", os.MkdirAll(dir, 0o755))
+	must("create overlay voice transport wav dir", os.MkdirAll(dir, 0o755))
 	var out bytes.Buffer
 	dataLen := uint32(len(pcm))
 	riffLen := uint32(36 + len(pcm))
@@ -958,7 +958,7 @@ func writeVoiceQAWAV(dir, name string, pcm []byte, sampleRate int) {
 	out.WriteString("data")
 	writeLE32(&out, dataLen)
 	out.Write(pcm)
-	must("write voice qa wav", os.WriteFile(dir+"/"+name, out.Bytes(), 0o644))
+	must("write overlay voice transport wav", os.WriteFile(dir+"/"+name, out.Bytes(), 0o644))
 }
 
 func writeLE16(w io.Writer, v uint16) {
