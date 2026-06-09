@@ -190,11 +190,11 @@ Copy-Item .\configs\mail.example.json .\configs\mail.local.json
 
 ### WebRTC 语音网络配置
 
-控制中心通过 `voiceICEServers` 下发 WebRTC 语音使用的 ICE servers。默认只包含公共 STUN：
+控制中心通过 `voiceICEServers` 下发 WebRTC 语音使用的 ICE servers。生产环境建议配置自家 STUN/TURN，公共 STUN 只适合作为开发兜底：
 
 ```json
 "voiceICEServers": [
-  { "urls": ["stun:stun.l.google.com:19302"] }
+  { "urls": ["stun:stun.lwylink.xyz:3478"] }
 ]
 ```
 
@@ -218,6 +218,7 @@ $env:LWYLINK_VOICE_TURN_SECRET='CHANGE_ME_TURN_REST_SECRET'
 
 真实 TURN secret 不要提交到 Git。`voiceICEServers` 仍可用于普通 STUN 或临时静态 ICE server，但生产 TURN 优先使用 `voiceTURNCredential`。
 客户端只有登录后才会请求 WebRTC ICE 配置，避免未授权访问者批量获取 TURN 临时凭据。
+WebRTC 语音走 `relay` candidate 时，Windows 客户端会按 WebRTC stats 增量上报 TURN 字节并计入账号中继流量；`host/srflx` 直连语音不扣中继流量。后续如果接入 coturn 服务端日志，可升级为更权威的服务端侧计费。
 
 仓库提供 `deploy/setup-turn.ps1` 和 `deploy/turn.example.json` 辅助部署 coturn：
 
@@ -237,4 +238,4 @@ Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
 - 实际传输加密由 `tcpx` 完成。
 - Redis 中的房间公钥、会话和在线状态决定运行期访问权限。
 - 空房间会按配置自动清理，旧房间公钥随房间删除而失效。
-- UDP 打洞成功率主要取决于 NAT 类型、端口映射保持时间、防火墙和节点公网地址配置。当前策略是双端候选地址协商、短暂暖机双发、成功后优先 UDP、失败后回 TCP relay；后续优化应优先围绕候选地址质量、探测节奏和可观测日志展开。
+- UDP 打洞成功率主要取决于 NAT 类型、端口映射保持时间、防火墙和节点公网地址配置。当前策略是 TCP relay 先通、UDP P2P 后台优化、LAN/STUN server-reflexive/节点 observed 候选并行探测、成功后优先 UDP、失败后回 TCP relay。Overlay UDP 节点内置轻量 STUN Binding 响应，客户端默认使用当前房间节点 UDP 地址发现 server-reflexive 候选；也可以通过 `LWYLINK_STUN` 或 `--stun` 指定其他 STUN。

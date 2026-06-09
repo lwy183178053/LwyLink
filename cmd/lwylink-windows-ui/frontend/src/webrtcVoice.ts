@@ -25,13 +25,14 @@ type WebRTCVoiceCallbacks = {
   onError: (message: string) => void;
   onStats?: (stats: WebRTCVoiceStats[]) => void;
   onInputLevel?: (level: number) => void;
+  onRelayTraffic?: (bytes: number) => void;
 };
 
 type VoiceMemberRef = {
   userID: number;
 };
 
-const defaultICEServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+const defaultICEServers: RTCIceServer[] = [{ urls: "stun:stun.lwylink.xyz:3478" }];
 const reconnectDelayMS = 2500;
 const disconnectGraceMS = 5000;
 
@@ -54,6 +55,7 @@ export class WebRTCVoiceSession {
   private disconnectTimers = new Map<number, number>();
   private reconnectTimers = new Map<number, number>();
   private voiceMemberIDs = new Set<number>();
+  private lastTrafficTotals = new Map<number, number>();
   private statsTimer: number | null = null;
 
   constructor(room: Room, selfUserID: number, settings: VoiceSettings, iceServers: RTCIceServer[], callbacks: WebRTCVoiceCallbacks) {
@@ -175,6 +177,7 @@ export class WebRTCVoiceSession {
     this.disconnectTimers.clear();
     this.pendingICE.clear();
     this.voiceMemberIDs.clear();
+    this.lastTrafficTotals.clear();
     for (const peerUserID of [...this.peers.keys()]) {
       this.closePeer(peerUserID);
     }
@@ -318,6 +321,7 @@ export class WebRTCVoiceSession {
     }
     this.peers.delete(peerUserID);
     this.pendingICE.delete(peerUserID);
+    this.lastTrafficTotals.delete(peerUserID);
     this.clearDisconnectTimer(peerUserID);
     peer.close();
     removeRemoteAudio(peerUserID);
@@ -341,18 +345,30 @@ export class WebRTCVoiceSession {
   }
 
   private async collectStats() {
-    if (!this.callbacks.onStats) {
-      return;
-    }
     const out: WebRTCVoiceStats[] = [];
+    let relayTrafficBytes = 0;
     for (const [peerUserID, peer] of this.peers) {
       const report = await peer.getStats();
       const stats = viewPeerStats(peerUserID, peer, report);
       if (stats) {
         out.push(stats);
+        relayTrafficBytes += this.relayTrafficDelta(stats);
       }
     }
-    this.callbacks.onStats(out);
+    this.callbacks.onStats?.(out);
+    if (relayTrafficBytes > 0) {
+      this.callbacks.onRelayTraffic?.(relayTrafficBytes);
+    }
+  }
+
+  private relayTrafficDelta(stats: WebRTCVoiceStats) {
+    const total = Math.max(0, Math.floor(stats.bytesSent + stats.bytesReceived));
+    const previous = this.lastTrafficTotals.get(stats.peerUserID);
+    this.lastTrafficTotals.set(stats.peerUserID, total);
+    if (previous === undefined || stats.candidateType !== "relay" || total <= previous) {
+      return 0;
+    }
+    return total - previous;
   }
 
   private playRemoteStream(peerUserID: number, stream: MediaStream) {

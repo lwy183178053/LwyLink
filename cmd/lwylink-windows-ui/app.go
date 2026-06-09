@@ -121,6 +121,11 @@ type VoiceWebRTCSignalInput struct {
 	Payload  json.RawMessage `json:"payload"`
 }
 
+type VoiceWebRTCTrafficInput struct {
+	RoomID int64 `json:"roomID"`
+	Bytes  int64 `json:"bytes"`
+}
+
 type VoiceICEServer struct {
 	URLs       []string `json:"urls"`
 	Username   string   `json:"username,omitempty"`
@@ -822,6 +827,39 @@ func (a *App) SendVoiceWebRTCSignal(input VoiceWebRTCSignalInput) (AppState, err
 		a.mu.Unlock()
 		return a.CurrentState(), nil
 	}
+	return a.commitStateLocked(), nil
+}
+
+func (a *App) ReportVoiceWebRTCTraffic(input VoiceWebRTCTrafficInput) (AppState, error) {
+	if input.Bytes <= 0 {
+		return a.CurrentState(), nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	a.mu.Lock()
+	api := a.api.Clone()
+	apiBaseURL := a.apiBaseURL
+	userID := int64(0)
+	if a.user != nil {
+		userID = a.user.ID
+	}
+	a.mu.Unlock()
+
+	if err := api.ReportRoomVoiceWebRTCTraffic(ctx, input.RoomID, input.Bytes); err != nil {
+		return a.CurrentState(), err
+	}
+	user, err := api.Me(ctx)
+	if err != nil {
+		return a.CurrentState(), nil
+	}
+
+	a.mu.Lock()
+	if a.apiBaseURL != apiBaseURL || a.user == nil || a.user.ID != userID {
+		a.mu.Unlock()
+		return a.CurrentState(), nil
+	}
+	a.user = &user
 	return a.commitStateLocked(), nil
 }
 

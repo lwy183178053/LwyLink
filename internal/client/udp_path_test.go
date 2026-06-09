@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/overlay"
+	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
 func TestUDPManagerCloseCancelsWorkerAndWaits(t *testing.T) {
@@ -452,6 +453,20 @@ func TestNormalizeSTUNServer(t *testing.T) {
 		if got := normalizeSTUNServer(input); got != want {
 			t.Fatalf("normalizeSTUNServer(%q)=%q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestNormalizeConnectOptionsDefaultsSTUNToUDPOverlayAddr(t *testing.T) {
+	opts := normalizeConnectOptions(ConnectOptions{
+		OverlayAddr:     "node.example.com:35768",
+		UDPOverlayAddr:  "node.example.com:35768",
+		ServerPublicKey: "key",
+		Room: room.Room{
+			ID: 1,
+		},
+	})
+	if opts.STUNAddr != "node.example.com:35768" {
+		t.Fatalf("STUNAddr=%q, want UDP overlay addr", opts.STUNAddr)
 	}
 }
 

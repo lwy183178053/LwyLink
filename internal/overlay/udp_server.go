@@ -62,6 +62,10 @@ func (s *Server) listenAndServeUDP(ctx context.Context) {
 		}
 		raw := make([]byte, n)
 		copy(raw, buf[:n])
+		if response, ok := buildSTUNBindingResponse(raw, remote); ok {
+			_, _ = conn.WriteToUDP(response, remote)
+			continue
+		}
 		s.handleUDPPacket(remote, raw)
 	}
 }

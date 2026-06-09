@@ -28,6 +28,7 @@ import {
   Login,
   Logout,
   Register,
+  ReportVoiceWebRTCTraffic,
   ResetPassword,
   SendRoomChat,
   SendEmailVerification,
@@ -114,6 +115,9 @@ export default function App() {
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const webrtcVoiceRef = useRef<WebRTCVoiceSession | null>(null);
+  const voiceRelayTrafficPending = useRef(0);
+  const voiceRelayTrafficTimer = useRef<number | null>(null);
+  const voiceRelayTrafficReporting = useRef(false);
 
   useEffect(() => {
     CurrentState()
@@ -137,6 +141,9 @@ export default function App() {
     return () => {
       if (noticeTimer.current !== null) {
         window.clearTimeout(noticeTimer.current);
+      }
+      if (voiceRelayTrafficTimer.current !== null) {
+        window.clearTimeout(voiceRelayTrafficTimer.current);
       }
     };
   }, []);
@@ -438,6 +445,7 @@ export default function App() {
     setVoiceRTCStats([]);
     setVoiceInputLevel(0);
     await stopWebRTCVoice();
+    await flushVoiceRelayTraffic(roomID);
     if (notifyServer && roomID) {
       try {
         const next = await LeaveRoomVoice(roomID);
@@ -467,6 +475,7 @@ export default function App() {
         }
       },
       onInputLevel: setVoiceInputLevel,
+      onRelayTraffic: queueVoiceRelayTraffic,
     });
     try {
       webrtcVoiceRef.current = session;
@@ -482,6 +491,56 @@ export default function App() {
     const session = webrtcVoiceRef.current;
     webrtcVoiceRef.current = null;
     await session?.close();
+  }
+
+  function queueVoiceRelayTraffic(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return;
+    }
+    voiceRelayTrafficPending.current += Math.floor(bytes);
+    if (voiceRelayTrafficPending.current >= 256 * 1024) {
+      scheduleVoiceRelayTrafficReport(0);
+      return;
+    }
+    scheduleVoiceRelayTrafficReport(5000);
+  }
+
+  function scheduleVoiceRelayTrafficReport(delayMS: number) {
+    if (voiceRelayTrafficTimer.current !== null) {
+      if (delayMS > 0) {
+        return;
+      }
+      window.clearTimeout(voiceRelayTrafficTimer.current);
+    }
+    voiceRelayTrafficTimer.current = window.setTimeout(() => {
+      voiceRelayTrafficTimer.current = null;
+      void flushVoiceRelayTraffic();
+    }, delayMS);
+  }
+
+  async function flushVoiceRelayTraffic(roomIDOverride?: number) {
+    if (voiceRelayTrafficReporting.current) {
+      return;
+    }
+    const roomID = roomIDOverride || currentRoom?.id || 0;
+    const bytes = voiceRelayTrafficPending.current;
+    if (!roomID || bytes <= 0) {
+      return;
+    }
+    voiceRelayTrafficPending.current = 0;
+    voiceRelayTrafficReporting.current = true;
+    try {
+      const next = await ReportVoiceWebRTCTraffic({ roomID, bytes });
+      applyState(next);
+    } catch (err) {
+      voiceRelayTrafficPending.current += bytes;
+      showNotice(errorText(err), "error");
+    } finally {
+      voiceRelayTrafficReporting.current = false;
+      if (voiceRelayTrafficPending.current > 0 && voiceActive) {
+        scheduleVoiceRelayTrafficReport(5000);
+      }
+    }
   }
 
   async function handleToggleVoiceMic() {

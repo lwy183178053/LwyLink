@@ -220,12 +220,12 @@ window.__lwylinkWebRTCVoiceStats
 
 Known gaps after promotion to default:
 
-- There is still no deployed TURN server, so restrictive NATs can still fail to form a media path.
-- ICE servers are now server-provided, but production still defaults to public STUN until TURN is configured.
+- There must be a deployed TURN server before restrictive NAT voice can be considered complete.
+- ICE servers are server-provided; production should use a controlled LwyLink STUN/TURN service instead of depending on public STUN.
 - TURN REST short-lived credentials are supported in config, but coturn is not deployed yet.
 - WebRTC stats are exposed through a debug global and a compact voice UI indicator.
 - Dynamic voice membership and reconnection need to be verified with real multi-client tests.
-- Relay/TURN traffic is not yet integrated into the existing account traffic accounting.
+- TURN relay traffic is now integrated through client-reported WebRTC stats when the selected candidate type is `relay`; a future coturn-side accounting hook would be more authoritative.
 
 Next engineering step:
 

@@ -83,5 +83,5 @@ $env:LWYLINK_TOKEN = "<login-token>"
 | `LWYLINK_NETWORK_CIDR` | 直连模式房间网段 |
 | `LWYLINK_OVERLAY_ADDR` | 直连模式 Overlay 地址 |
 | `LWYLINK_UDP_OVERLAY_ADDR` | 直连模式 UDP 打洞地址，留空时同 Overlay 地址 |
-| `LWYLINK_STUN` | UDP P2P 的 STUN 地址，默认 `stun.l.google.com:19302` |
+| `LWYLINK_STUN` | UDP P2P 的 STUN 地址，默认使用当前房间节点 UDP 地址 |
 | `LWYLINK_SERVER_PUBLIC_KEY` | 直连模式节点公钥 |

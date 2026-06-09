@@ -36,6 +36,8 @@ export function Logout():Promise<main.AppState>;
 
 export function Register(arg1:main.RegisterInput):Promise<main.AppState>;
 
+export function ReportVoiceWebRTCTraffic(arg1:main.VoiceWebRTCTrafficInput):Promise<main.AppState>;
+
 export function ResetPassword(arg1:main.ResetPasswordInput):Promise<main.AppState>;
 
 export function SendEmailVerification(arg1:main.EmailVerificationInput):Promise<main.AppState>;

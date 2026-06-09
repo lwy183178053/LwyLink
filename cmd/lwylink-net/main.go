@@ -179,7 +179,7 @@ func parseConnectFlags(args []string) (connectConfig, error) {
 	fs.StringVar(&cfg.networkCIDR, "network-cidr", envString("LWYLINK_NETWORK_CIDR", ""), "direct mode room network CIDR")
 	fs.StringVar(&cfg.overlayAddr, "overlay-addr", envString("LWYLINK_OVERLAY_ADDR", ""), "direct mode overlay address")
 	fs.StringVar(&cfg.udpOverlayAddr, "udp-overlay-addr", envString("LWYLINK_UDP_OVERLAY_ADDR", ""), "direct mode UDP rendezvous address; defaults to overlay address")
-	fs.StringVar(&cfg.stunAddr, "stun", envString("LWYLINK_STUN", ""), "STUN server for UDP P2P candidate discovery; defaults to stun.l.google.com:19302")
+	fs.StringVar(&cfg.stunAddr, "stun", envString("LWYLINK_STUN", ""), "STUN server for UDP P2P candidate discovery; defaults to the room node UDP address")
 	fs.StringVar(&cfg.serverPublicKey, "server-public-key", envString("LWYLINK_SERVER_PUBLIC_KEY", ""), "direct mode overlay server public key")
 	if err := fs.Parse(args); err != nil {
 		return connectConfig{}, err
@@ -334,6 +334,6 @@ Cleanup routes/firewall:
   lwylink-net.exe cleanup --if LwyLink --cidr 172.16.1.0/24
 
 Transport selection is automatic: TCP relay connects first, then UDP P2P probes in the background.
-Use --stun host:port or LWYLINK_STUN to override the default STUN server for UDP candidate discovery.
+Use --stun host:port or LWYLINK_STUN to override the default room-node STUN target for UDP candidate discovery.
 Status is written to stdout as one JSON object per line.`)
 }

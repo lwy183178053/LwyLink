@@ -196,6 +196,13 @@ func (a *API) SendRoomVoiceWebRTCSignal(ctx context.Context, roomID, toUserID in
 	return out, err
 }
 
+func (a *API) ReportRoomVoiceWebRTCTraffic(ctx context.Context, roomID, bytes int64) error {
+	return a.request(ctx, http.MethodPost, "/api/rooms/voice/webrtc/traffic", map[string]int64{
+		"roomID": roomID,
+		"bytes":  bytes,
+	}, nil)
+}
+
 func (a *API) DeleteRoom(ctx context.Context, roomID int64) error {
 	return a.request(ctx, http.MethodPost, "/api/rooms/delete", map[string]int64{"roomID": roomID}, nil)
 }

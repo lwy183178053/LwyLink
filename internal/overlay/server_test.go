@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"encoding/binary"
 	"net"
 	"slices"
 	"testing"
@@ -104,6 +105,29 @@ func TestNormalizeUDPReflexiveEndpointsFiltersPrivateValues(t *testing.T) {
 	want := []string{"198.51.100.9:40000", "203.0.113.9:40000"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("reflexive endpoints=%v, want %v", got, want)
+	}
+}
+
+func TestBuildSTUNBindingResponse(t *testing.T) {
+	request := make([]byte, 20)
+	binary.BigEndian.PutUint16(request[0:2], stunBindingRequest)
+	binary.BigEndian.PutUint32(request[4:8], stunMagicCookie)
+	copy(request[8:20], []byte("abcdefghijkl"))
+	remote := testUDPAddr(t, "198.51.100.9:40000")
+
+	response, ok := buildSTUNBindingResponse(request, remote)
+	if !ok {
+		t.Fatalf("stun response was not built")
+	}
+	if binary.BigEndian.Uint16(response[0:2]) != stunBindingSuccess {
+		t.Fatalf("bad stun response type")
+	}
+	if !slices.Equal(response[8:20], request[8:20]) {
+		t.Fatalf("stun transaction id was not echoed")
+	}
+	port := binary.BigEndian.Uint16(response[26:28]) ^ uint16(stunMagicCookie>>16)
+	if port != 40000 {
+		t.Fatalf("stun port=%d, want 40000", port)
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultOverlaySTUNAddr = "stun.l.google.com:19302"
+	defaultOverlaySTUNAddr = "stun.lwylink.xyz:3478"
 	stunBindingRequest     = 0x0001
 	stunBindingSuccess     = 0x0101
 	stunMagicCookie        = 0x2112A442

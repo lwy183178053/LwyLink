@@ -196,7 +196,7 @@ function Update-ControlConfig {
   })
   Set-ObjectProperty -Object $cfg -Name "voiceICEServers" -Value @(
     [pscustomobject]@{
-      urls = @("stun:stun.l.google.com:19302")
+      urls = @("stun:stun.lwylink.xyz:3478")
     }
   )
   $json = $cfg | ConvertTo-Json -Depth 12

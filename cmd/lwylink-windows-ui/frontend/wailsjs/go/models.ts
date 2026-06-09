@@ -581,4 +581,18 @@ export namespace main {
       this.payload = source["payload"];
     }
   }
+  export class VoiceWebRTCTrafficInput {
+    roomID: number;
+    bytes: number;
+
+    static createFrom(source: any = {}) {
+      return new VoiceWebRTCTrafficInput(source);
+    }
+
+    constructor(source: any = {}) {
+      if ("string" === typeof source) source = JSON.parse(source);
+      this.roomID = source["roomID"];
+      this.bytes = source["bytes"];
+    }
+  }
 }

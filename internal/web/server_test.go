@@ -222,6 +222,36 @@ func TestRoomVoiceWebRTCICERequiresLogin(t *testing.T) {
 	}
 }
 
+func TestRoomVoiceWebRTCTrafficRejectsBadBytes(t *testing.T) {
+	repo := &smokeAccountRepo{users: make(map[string]account.User)}
+	accounts := account.NewService(repo, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
+	login, err := accounts.Register(context.Background(), "voice-traffic@example.com", "secret1", "Voice")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/voice/webrtc/traffic", strings.NewReader(`{"roomID":9,"bytes":0}`))
+	req.Header.Set("Authorization", "Bearer "+login.Token)
+	rec := httptest.NewRecorder()
+	srv.handleRoomVoiceWebRTCTraffic(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestVoiceStateHasParticipant(t *testing.T) {
+	state := room.VoiceState{
+		Participants: []room.VoiceParticipant{{UserID: 7}},
+	}
+	if !voiceStateHasParticipant(state, 7) {
+		t.Fatalf("expected participant to be found")
+	}
+	if voiceStateHasParticipant(state, 8) {
+		t.Fatalf("unexpected participant match")
+	}
+}
+
 func TestTurnRESTICEServerUsesShortLivedCredential(t *testing.T) {
 	now := time.Unix(1000, 0)
 	server, ok := turnRESTICEServer(config.TURNCredentialConfig{
@@ -375,8 +405,9 @@ func TestLoginDisabledAccountReturnsForbidden(t *testing.T) {
 }
 
 type smokeAccountRepo struct {
-	nextID int64
-	users  map[string]account.User
+	nextID   int64
+	users    map[string]account.User
+	consumed map[int64]int64
 }
 
 func (r *smokeAccountRepo) Create(_ context.Context, username, passwordHash, displayName string) (account.User, error) {
@@ -428,7 +459,11 @@ func (r *smokeAccountRepo) SetMembership(context.Context, int64, string) error {
 	return nil
 }
 func (r *smokeAccountRepo) AddRelayTraffic(context.Context, int64, int64) error { return nil }
-func (r *smokeAccountRepo) ConsumeRelayTraffic(context.Context, int64, int64) error {
+func (r *smokeAccountRepo) ConsumeRelayTraffic(_ context.Context, userID, bytes int64) error {
+	if r.consumed == nil {
+		r.consumed = make(map[int64]int64)
+	}
+	r.consumed[userID] += bytes
 	return nil
 }
 func (r *smokeAccountRepo) Delete(context.Context, int64) error { return nil }

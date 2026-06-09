@@ -239,7 +239,7 @@ func applyControlDefaults(cfg *ControlConfig) {
 		cfg.MailConfigPath = "configs/mail.local.json"
 	}
 	if len(cfg.VoiceICEServers) == 0 {
-		cfg.VoiceICEServers = []ICEServerConfig{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+		cfg.VoiceICEServers = []ICEServerConfig{{URLs: []string{"stun:stun.lwylink.xyz:3478"}}}
 	}
 	if cfg.VoiceTURNCredential.TTLSeconds <= 0 {
 		cfg.VoiceTURNCredential.TTLSeconds = 3600

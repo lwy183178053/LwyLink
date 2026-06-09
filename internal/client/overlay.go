@@ -370,7 +370,7 @@ func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
 		opts.UDPOverlayAddr = opts.OverlayAddr
 	}
 	if opts.STUNAddr == "" {
-		opts.STUNAddr = defaultOverlaySTUNAddr
+		opts.STUNAddr = opts.UDPOverlayAddr
 	}
 	if opts.ServerPublicKey == "" {
 		opts.ServerPublicKey = opts.Room.NodePublicKey

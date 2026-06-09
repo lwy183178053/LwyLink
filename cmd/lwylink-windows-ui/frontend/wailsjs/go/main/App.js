@@ -70,6 +70,10 @@ export function Register(arg1) {
   return window['go']['main']['App']['Register'](arg1);
 }
 
+export function ReportVoiceWebRTCTraffic(arg1) {
+  return window['go']['main']['App']['ReportVoiceWebRTCTraffic'](arg1);
+}
+
 export function ResetPassword(arg1) {
   return window['go']['main']['App']['ResetPassword'](arg1);
 }

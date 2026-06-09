@@ -104,13 +104,14 @@ Expose diagnostics in:
 
 ## P1: STUN Server-Reflexive Candidate
 
-Current status: implemented as an automatic UDP overlay candidate source. The client sends a short-timeout STUN Binding request from the same UDP socket used for rendezvous, reports the discovered `srflx-stun` endpoint to the node, and peers probe it alongside LAN and node-observed endpoints.
+Current status: implemented as an automatic UDP overlay candidate source. The client sends a short-timeout STUN Binding request from the same UDP socket used for rendezvous, reports the discovered `srflx-stun` endpoint to the node, and peers probe it alongside LAN and node-observed endpoints. Overlay UDP nodes also answer minimal STUN Binding requests, so the default STUN target is the current room node UDP address rather than a public third-party STUN server.
 
 Keep improving STUN discovery:
 
 - Client sends binding request to configured STUN server.
 - Client reports srflx endpoint to node/control path.
 - Peers probe srflx endpoint alongside node-observed endpoint.
+- Production deployments should prefer controlled LwyLink STUN/TURN hosts; public STUN is only a development fallback.
 
 Benefits:
 

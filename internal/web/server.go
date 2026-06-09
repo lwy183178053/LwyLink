@@ -28,6 +28,7 @@ import (
 )
 
 const maxAdminReleaseUploadBodyBytes = (512 << 20) + (1 << 20)
+const maxVoiceRelayTrafficReportBytes int64 = 32 << 20
 
 type Server struct {
 	addr            string
@@ -84,6 +85,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/voice/mic", s.handleRoomVoiceMic)
 	mux.HandleFunc("/api/rooms/voice/webrtc/ice", s.handleRoomVoiceWebRTCICE)
 	mux.HandleFunc("/api/rooms/voice/webrtc/signal", s.handleRoomVoiceWebRTCSignal)
+	mux.HandleFunc("/api/rooms/voice/webrtc/traffic", s.handleRoomVoiceWebRTCTraffic)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
@@ -287,6 +289,9 @@ func statusForAccountError(err error, fallback int) int {
 	}
 	if errors.Is(err, account.ErrUnauthorized) {
 		return http.StatusUnauthorized
+	}
+	if errors.Is(err, account.ErrRelayTrafficExceeded) {
+		return http.StatusPaymentRequired
 	}
 	return fallback
 }
@@ -605,6 +610,57 @@ func (s *Server) handleRoomVoiceWebRTCSignal(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, signal)
 }
 
+func (s *Server) handleRoomVoiceWebRTCTraffic(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		RoomID int64 `json:"roomID"`
+		Bytes  int64 `json:"bytes"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.RoomID <= 0 {
+		writeError(w, http.StatusBadRequest, "bad roomID")
+		return
+	}
+	if req.Bytes <= 0 || req.Bytes > maxVoiceRelayTrafficReportBytes {
+		writeError(w, http.StatusBadRequest, "bad traffic bytes")
+		return
+	}
+	state, err := s.rooms.VoiceState(r.Context(), user.ID, req.RoomID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !voiceStateHasParticipant(state, user.ID) {
+		writeError(w, http.StatusForbidden, "请先加入语音房")
+		return
+	}
+	if err := s.accounts.ConsumeRelayTraffic(r.Context(), user.ID, req.Bytes); err != nil {
+		writeError(w, statusForAccountError(err, http.StatusBadRequest), err.Error())
+		return
+	}
+	s.notifyUserUpdated(r.Context(), user.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "chargedBytes": req.Bytes})
+}
+
+func voiceStateHasParticipant(state room.VoiceState, userID int64) bool {
+	for _, participant := range state.Participants {
+		if participant.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleRoomEvents(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
@@ -916,7 +972,7 @@ func normalizeICEServers(servers []config.ICEServerConfig) []config.ICEServerCon
 		})
 	}
 	if len(out) == 0 {
-		return []config.ICEServerConfig{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+		return []config.ICEServerConfig{{URLs: []string{"stun:stun.lwylink.xyz:3478"}}}
 	}
 	return out
 }
