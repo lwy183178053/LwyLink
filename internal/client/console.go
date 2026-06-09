@@ -244,8 +244,8 @@ func leaveOrDeleteCurrentRoom(ctx context.Context, reader *bufio.Reader, api *AP
 	if selected.OwnerUserID == userID {
 		action = "删除"
 	}
-	confirm := strings.ToLower(prompt(reader, fmt.Sprintf("确认%s房间 %s ? 输入 yes 确认: ", action, selected.Name)))
-	if confirm != "yes" {
+	confirm := prompt(reader, fmt.Sprintf("确认%s房间 %s ? 输入 yes 确认: ", action, selected.Name))
+	if !strings.EqualFold(confirm, "yes") {
 		fmt.Println("已取消")
 		return nil
 	}

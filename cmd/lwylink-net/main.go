@@ -248,8 +248,10 @@ func runCleanup(args []string, writer *outputWriter) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*cidr) != "" {
-		if err := tun.CleanupRoute(strings.TrimSpace(*ifName), strings.TrimSpace(*cidr)); err != nil {
+	cleanIfName := strings.TrimSpace(*ifName)
+	cleanCIDR := strings.TrimSpace(*cidr)
+	if cleanCIDR != "" {
+		if err := tun.CleanupRoute(cleanIfName, cleanCIDR); err != nil {
 			return err
 		}
 	}
