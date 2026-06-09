@@ -133,16 +133,13 @@ Should avoid:
 
 ### Voice Module
 
-Current native voice should be treated as:
+Current Windows voice should be treated as:
 
-- A working prototype.
-- A baseline for A/B comparison.
-- Not yet the final media architecture.
+- WebRTC media for the product client.
+- LwyLink room membership, mic limits, and signaling around WebRTC.
+- TURN still required before calling the voice path complete for restrictive NATs.
 
-WebRTC voice should be treated as:
-
-- A mature baseline experiment.
-- Not automatically the final answer until Wails/WebView2, TURN, and stats are tested.
+The native overlay voice frontend prototype has been removed from the Windows UI to avoid carrying two media engines. Low-level overlay voice frames may remain for transport smoke tests and future protocol experiments.
 
 ## Experiment Stop Conditions
 
@@ -153,7 +150,7 @@ Stop WebRTC experiment if:
 - `getStats()` does not provide enough path/quality visibility in Wails.
 - Latency or audio quality is not meaningfully better than native overlay voice.
 
-Stop native overlay voice redesign if:
+Keep native overlay voice out of the Windows product path if:
 
 - WebRTC experiment clearly beats it in voice quality and latency.
 - Implementing PLC/adaptive jitter starts duplicating too much WebRTC/NetEQ functionality.

@@ -215,10 +215,11 @@ The frontend now includes:
 - `webrtcVoice.ts`
 - Wails binding `SendVoiceWebRTCSignal`
 - Wails event `voice-webrtc-signal`
-- hidden backend selector: `localStorage.setItem("lwylink.voiceBackend", "webrtc")`
 - server-provided ICE configuration through `/api/rooms/voice/webrtc/ice`
 
-The default backend is now `webrtc`. Native overlay voice is retained as a fallback and diagnostic backend, but it is no longer the default product path.
+The Windows client voice backend is now WebRTC only. The former native overlay voice frontend module, hidden backend selector, and dual-audio diagnostic mode were removed after listening tests confirmed WebRTC quality was acceptable. This avoids maintaining two media engines and prevents echo/double-audio confusion.
+
+The lower-level `FrameVoice / UDPTypeVoice` protocol path still exists in the overlay and smoke tooling for transport verification, but it is not the Windows product media path.
 
 WebRTC local audio tracks start muted. They are enabled only after the normal room mic button calls `SetRoomVoiceMic`, so the same voice-room semantics and mic limits are kept.
 
@@ -232,23 +233,6 @@ Latest WebRTC stats are exposed for manual inspection:
 ```js
 window.__lwylinkWebRTCVoiceStats
 ```
-
-Local backend modes:
-
-- `native`: LwyLink overlay voice only.
-- `webrtc`: WebRTC voice only, current default.
-- `dual`: native overlay voice and WebRTC voice in parallel, useful only for diagnostics because it can cause echo/double audio.
-
-Examples:
-
-```js
-localStorage.setItem("lwylink.voiceBackend", "native")
-localStorage.setItem("lwylink.voiceBackend", "webrtc")
-localStorage.setItem("lwylink.voiceBackend", "dual")
-localStorage.removeItem("lwylink.voiceBackend")
-```
-
-The legacy flag `lwylink.webrtcVoiceExperiment=1` still maps to `dual` for convenience, but new diagnostics should use `lwylink.voiceBackend`.
 
 Known gaps after promotion to default:
 
@@ -265,7 +249,7 @@ Next engineering step:
 - Configure coturn `use-auth-secret/static-auth-secret` and LwyLink `voiceTURNCredential`.
 - Expand WebRTC diagnostics into a dedicated detail view if compact UI data is not enough.
 - Verify dynamic join/leave and reconnect behavior with two or more real clients.
-- Decide whether native overlay voice remains a hidden fallback or is removed after TURN is stable.
+- Keep deleting dead client code when a WebRTC/TURN path replaces an old experiment.
 
 ## Manual WebRTC Voice Checks
 
@@ -282,15 +266,8 @@ The debug global is still available for deeper inspection:
 window.__lwylinkWebRTCVoiceStats
 ```
 
-Recommended A/B order:
-
-1. Run both clients in `native`, record current baseline.
-2. Run both clients in `webrtc`, test small voice, tail, latency, and stats.
-3. Use `dual` only to confirm signaling and peer path behavior; do not use it for final listening judgment.
-
 ## What Not To Do
 
-- Do not delete native overlay voice during the experiment.
 - Do not claim WebRTC voice is complete before TURN is tested.
 - Do not hide WebRTC path type from diagnostics.
 - Do not treat “connects once” as success; voice quality is the real metric.

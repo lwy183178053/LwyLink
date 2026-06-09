@@ -22,7 +22,6 @@ const (
 	defaultAPIBaseURL = "https://www.lwylink.xyz"
 	defaultIfName     = "LwyLink"
 	maxChatMessages   = 120
-	voiceSeenTTL      = 10 * time.Second
 
 	statusDisconnected  = "disconnected"
 	statusConnecting    = "connecting"
@@ -54,11 +53,8 @@ type App struct {
 	connectSeq    int64
 	connectCancel context.CancelFunc
 	connection    ConnectionState
-	voiceSend     chan client.VoicePacket
 	voiceMode     string
 	voiceMessage  string
-	voiceSeen     map[voicePacketKey]time.Time
-	voiceLastSeq  map[int64]uint64
 
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
@@ -120,15 +116,6 @@ type JoinRoomInput struct {
 type SendChatInput struct {
 	RoomID  int64  `json:"roomID"`
 	Message string `json:"message"`
-}
-
-type VoiceAudioFrameInput struct {
-	RoomID      int64  `json:"roomID"`
-	Seq         uint64 `json:"seq"`
-	TimestampMS int64  `json:"timestampMS"`
-	Codec       string `json:"codec"`
-	SampleRate  int    `json:"sampleRate"`
-	Payload     []byte `json:"payload"`
 }
 
 type VoiceWebRTCSignalInput struct {
@@ -259,11 +246,6 @@ type fetchedRoomState struct {
 	voice       room.VoiceState
 }
 
-type voicePacketKey struct {
-	fromUserID int64
-	seq        uint64
-}
-
 func NewApp() *App {
 	prefs := loadClientPreferences()
 	return &App{
@@ -274,11 +256,8 @@ func NewApp() *App {
 		voicePrefs:   prefs.VoiceSettings,
 		announcement: appsettings.DefaultAnnouncement,
 		connection:   newConnectionState(statusDisconnected, "未连接"),
-		voiceSend:    make(chan client.VoicePacket, 256),
 		voiceMode:    "idle",
 		voiceMessage: "未加入语音",
-		voiceSeen:    make(map[voicePacketKey]time.Time),
-		voiceLastSeq: make(map[int64]uint64),
 		update:       UpdateState{Status: updateStatusIdle, CurrentVersion: AppVersion},
 	}
 }
@@ -838,79 +817,6 @@ func (a *App) VoiceWebRTCICE() ([]VoiceICEServer, error) {
 	return out, nil
 }
 
-func (a *App) SendVoiceAudioFrame(input VoiceAudioFrameInput) (AppState, error) {
-	a.mu.Lock()
-	if a.user == nil || a.currentRoom == nil {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("当前没有加入房间")
-	}
-	if input.RoomID <= 0 {
-		input.RoomID = a.currentRoom.ID
-	}
-	if input.RoomID != a.currentRoom.ID {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("只能发送当前房间语音")
-	}
-	if a.connection.Status != statusConnected || a.connection.RoomID != input.RoomID {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("请先启动虚拟网络")
-	}
-	codec := strings.TrimSpace(input.Codec)
-	if codec == "" {
-		codec = "pcm16"
-	}
-	if input.SampleRate <= 0 || len(input.Payload) == 0 {
-		a.mu.Unlock()
-		return a.stateLocked(), nil
-	}
-	userID := a.user.ID
-	if !voiceParticipantSpeaking(a.voiceState, userID) {
-		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("请先加入语音并打开麦克风")
-	}
-	membersByUser := make(map[int64]room.MemberView, len(a.members))
-	for _, member := range a.members {
-		membersByUser[member.UserID] = member
-	}
-	targets := make([]client.VoicePacket, 0, len(a.voiceState.Participants))
-	for _, participant := range a.voiceState.Participants {
-		if participant.UserID == userID || !participantHasJoinedVoice(participant) {
-			continue
-		}
-		member := membersByUser[participant.UserID]
-		if strings.TrimSpace(member.VirtualIP) == "" {
-			continue
-		}
-		voice := overlay.VoicePayload{
-			RoomID:      input.RoomID,
-			FromUserID:  userID,
-			ToUserID:    participant.UserID,
-			Seq:         input.Seq,
-			TimestampMS: input.TimestampMS,
-			Codec:       codec,
-			SampleRate:  input.SampleRate,
-			Payload:     append([]byte(nil), input.Payload...),
-		}
-		raw, err := json.Marshal(voice)
-		if err != nil {
-			a.mu.Unlock()
-			return AppState{}, err
-		}
-		targets = append(targets, client.VoicePacket{PeerVirtualIP: member.VirtualIP, Payload: raw})
-	}
-	send := a.voiceSend
-	a.mu.Unlock()
-
-	for _, target := range targets {
-		select {
-		case send <- target:
-		default:
-			// Voice prefers dropping fresh frames over building latency.
-		}
-	}
-	return a.CurrentState(), nil
-}
-
 func (a *App) SendVoiceWebRTCSignal(input VoiceWebRTCSignalInput) (AppState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1090,7 +996,6 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		UserID:          userID,
 		Room:            selected,
 		P2PEnabled:      a.isP2PEnabled,
-		VoicePackets:    a.voiceSend,
 		OnConnected: func(lease overlay.DHCPResponse) {
 			a.updateConnection(seq, func(state *ConnectionState) {
 				*state = newConnectedState(selected, lease)
@@ -1100,9 +1005,6 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 			a.updateConnection(seq, func(state *ConnectionState) {
 				applyTransportStatus(state, status)
 			})
-		},
-		OnVoicePayload: func(payload []byte) {
-			a.handleVoicePayload(seq, payload)
 		},
 		OnVoiceTransport: func(status client.TransportStatus) {
 			a.updateVoiceTransport(seq, status)
@@ -1152,68 +1054,6 @@ func (a *App) updateVoiceTransport(seq int64, status client.TransportStatus) {
 	a.voiceMode = status.Mode
 	a.voiceMessage = nextMessage
 	a.commitStateLocked()
-}
-
-func (a *App) handleVoicePayload(seq int64, payload []byte) {
-	var voice overlay.VoicePayload
-	if err := json.Unmarshal(payload, &voice); err != nil {
-		return
-	}
-	a.mu.Lock()
-	if a.connectSeq != seq ||
-		a.user == nil ||
-		a.currentRoom == nil ||
-		voice.RoomID != a.currentRoom.ID ||
-		voice.ToUserID != a.user.ID ||
-		!voiceParticipantSpeaking(a.voiceState, voice.FromUserID) ||
-		voice.TimestampMS <= 0 ||
-		!a.acceptVoicePacketLocked(voice.FromUserID, voice.Seq, time.Now()) {
-		a.mu.Unlock()
-		return
-	}
-	a.mu.Unlock()
-	if ctx := a.currentContext(); ctx != nil {
-		wailsRuntime.EventsEmit(ctx, "voice-audio", voice)
-	}
-}
-
-func voiceParticipantSpeaking(state room.VoiceState, userID int64) bool {
-	for _, participant := range state.Participants {
-		if participant.UserID == userID {
-			return participant.Speaking
-		}
-	}
-	return false
-}
-
-func participantHasJoinedVoice(participant room.VoiceParticipant) bool {
-	return participant.UserID > 0
-}
-
-func (a *App) acceptVoicePacketLocked(fromUserID int64, seq uint64, now time.Time) bool {
-	if seq == 0 {
-		return true
-	}
-	if a.voiceSeen == nil {
-		a.voiceSeen = make(map[voicePacketKey]time.Time)
-	}
-	if a.voiceLastSeq == nil {
-		a.voiceLastSeq = make(map[int64]uint64)
-	}
-	for key, seenAt := range a.voiceSeen {
-		if now.Sub(seenAt) > voiceSeenTTL {
-			delete(a.voiceSeen, key)
-		}
-	}
-	key := voicePacketKey{fromUserID: fromUserID, seq: seq}
-	if _, ok := a.voiceSeen[key]; ok {
-		return false
-	}
-	if seq > a.voiceLastSeq[fromUserID] {
-		a.voiceLastSeq[fromUserID] = seq
-	}
-	a.voiceSeen[key] = now
-	return true
 }
 
 func applyTransportStatus(state *ConnectionState, status client.TransportStatus) {
@@ -1405,19 +1245,10 @@ func (a *App) applyRoomStateLocked(next fetchedRoomState) {
 func (a *App) resetVoiceLocked(message string) {
 	a.voiceState = room.VoiceState{}
 	a.voiceMode = "idle"
-	a.voiceSeen = make(map[voicePacketKey]time.Time)
-	a.voiceLastSeq = make(map[int64]uint64)
 	if strings.TrimSpace(message) == "" {
 		message = "未加入语音"
 	}
 	a.voiceMessage = message
-	for {
-		select {
-		case <-a.voiceSend:
-		default:
-			return
-		}
-	}
 }
 
 func (a *App) appendChatMessageLocked(message room.ChatMessage) {

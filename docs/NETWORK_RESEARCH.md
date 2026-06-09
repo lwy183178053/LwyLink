@@ -238,9 +238,9 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 做法：
 
 - 默认 WebRTC 语音。
-- 原生 Overlay 语音保留为实验/内网/特殊网络 fallback。
-- 用同一套 UI 展示语音状态。
-- 两套方案都接入自动音频 QA。
+- Windows UI 不再保留原生 Overlay 语音 fallback，避免双媒体引擎带来的维护和回声问题。
+- 底层 `FrameVoice / UDPTypeVoice` 可继续作为传输层 smoke/实验能力存在。
+- 用同一套 UI 展示语音状态和 WebRTC 路径。
 
 优点：
 

@@ -79,6 +79,7 @@ export class WebRTCVoiceExperiment {
       video: false,
     });
     this.audioContext = new AudioContext();
+    await this.setOutputDevice(this.settings.outputDeviceID);
     this.source = this.audioContext.createMediaStreamSource(this.stream);
     this.micGain = this.audioContext.createGain();
     this.destination = this.audioContext.createMediaStreamDestination();
@@ -104,10 +105,14 @@ export class WebRTCVoiceExperiment {
   }
 
   updateSettings(settings: VoiceSettings) {
+    const outputDeviceChanged = settings.outputDeviceID !== this.settings.outputDeviceID;
     this.settings = settings;
     this.micGain?.gain.setTargetAtTime(clampNumber(settings.micVolume, 0.05, 2, 1), this.audioContext?.currentTime ?? 0, 0.015);
     for (const gain of this.outputGainNodes.values()) {
       gain.gain.setTargetAtTime(clampNumber(settings.outputVolume, 0.05, 2, 1), this.audioContext?.currentTime ?? 0, 0.015);
+    }
+    if (outputDeviceChanged) {
+      void this.setOutputDevice(settings.outputDeviceID);
     }
   }
 
@@ -372,6 +377,32 @@ export class WebRTCVoiceExperiment {
     gain.connect(this.audioContext.destination);
     this.outputGainNodes.set(peerUserID, gain);
   }
+
+  private async setOutputDevice(deviceID: string) {
+    const context = this.audioContext as (AudioContext & { setSinkId?: (sinkID: string) => Promise<void> }) | undefined;
+    if (!context?.setSinkId) {
+      return;
+    }
+    await context.setSinkId(deviceID || "").catch(() => undefined);
+  }
+}
+
+export async function listVoiceDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    return { inputs: [], outputs: [] };
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return {
+    inputs: devices.filter((item) => item.kind === "audioinput").map(viewDevice),
+    outputs: devices.filter((item) => item.kind === "audiooutput").map(viewDevice),
+  };
+}
+
+function viewDevice(device: MediaDeviceInfo) {
+  return {
+    deviceID: device.deviceId,
+    label: device.label || "默认设备",
+  };
 }
 
 function viewPeerStats(peerUserID: number, peer: RTCPeerConnection, report: RTCStatsReport): WebRTCVoiceStats | undefined {

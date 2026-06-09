@@ -1,5 +1,5 @@
 export namespace main {
-	
+
 	export class UpdateState {
 	    status: string;
 	    message: string;
@@ -12,11 +12,11 @@ export namespace main {
 	    fileName: string;
 	    sizeBytes: number;
 	    sha256: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UpdateState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
@@ -38,11 +38,11 @@ export namespace main {
 	    roomID: number;
 	    ip: string;
 	    directPeerIPs: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ConnectionState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
@@ -61,11 +61,11 @@ export namespace main {
 	    muted: boolean;
 	    joinedAt: string;
 	    updatedAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewVoiceParticipant(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomID = source["roomID"];
@@ -86,11 +86,11 @@ export namespace main {
 	    speakerCount: number;
 	    participants: ViewVoiceParticipant[];
 	    updatedAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewVoiceState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomID = source["roomID"];
@@ -101,7 +101,7 @@ export namespace main {
 	        this.participants = this.convertValues(source["participants"], ViewVoiceParticipant);
 	        this.updatedAt = source["updatedAt"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -128,11 +128,11 @@ export namespace main {
 	    displayName: string;
 	    message: string;
 	    createdAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewChatMessage(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -153,11 +153,11 @@ export namespace main {
 	    online: boolean;
 	    virtualIP?: string;
 	    createdAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewMember(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomID = source["roomID"];
@@ -188,11 +188,11 @@ export namespace main {
 	    nodePublicKey?: string;
 	    createdAt: string;
 	    updatedAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewRoom(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -228,11 +228,11 @@ export namespace main {
 	    relayTrafficRemainingBytes: number;
 	    relayTrafficPeriod: string;
 	    createdAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ViewUser(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -258,11 +258,11 @@ export namespace main {
 	    autoGainControl: boolean;
 	    noiseSuppression: boolean;
 	    echoCancellation: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new VoicePreferences(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.inputDeviceID = source["inputDeviceID"];
@@ -290,11 +290,11 @@ export namespace main {
 	    connection: ConnectionState;
 	    update: UpdateState;
 	    announcement: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiBaseURL = source["apiBaseURL"];
@@ -313,7 +313,7 @@ export namespace main {
 	        this.update = this.convertValues(source["update"], UpdateState);
 	        this.announcement = source["announcement"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -335,26 +335,26 @@ export namespace main {
 	export class ChangePasswordInput {
 	    oldPassword: string;
 	    newPassword: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ChangePasswordInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.oldPassword = source["oldPassword"];
 	        this.newPassword = source["newPassword"];
 	    }
 	}
-	
+
 	export class CreateRoomInput {
 	    name: string;
 	    maxMembers: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new CreateRoomInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -364,11 +364,11 @@ export namespace main {
 	export class EmailVerificationInput {
 	    email: string;
 	    purpose: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new EmailVerificationInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
@@ -377,11 +377,11 @@ export namespace main {
 	}
 	export class JoinRoomInput {
 	    roomPublicKey: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new JoinRoomInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomPublicKey = source["roomPublicKey"];
@@ -390,11 +390,11 @@ export namespace main {
 	export class LoginInput {
 	    email: string;
 	    password: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new LoginInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
@@ -403,11 +403,11 @@ export namespace main {
 	}
 	export class MemberActionInput {
 	    userID: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MemberActionInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.userID = source["userID"];
@@ -418,11 +418,11 @@ export namespace main {
 	    password: string;
 	    displayName: string;
 	    emailCode: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new RegisterInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
@@ -435,11 +435,11 @@ export namespace main {
 	    email: string;
 	    emailCode: string;
 	    newPassword: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ResetPasswordInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.email = source["email"];
@@ -450,11 +450,11 @@ export namespace main {
 	export class SendChatInput {
 	    roomID: number;
 	    message: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SendChatInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomID = source["roomID"];
@@ -466,11 +466,11 @@ export namespace main {
 	    interfaceName: string;
 	    p2pEnabled?: boolean;
 	    voiceSettings?: VoicePreferences;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SettingsInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiBaseURL = source["apiBaseURL"];
@@ -478,7 +478,7 @@ export namespace main {
 	        this.p2pEnabled = source["p2pEnabled"];
 	        this.voiceSettings = this.convertValues(source["voiceSettings"], VoicePreferences);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -497,44 +497,22 @@ export namespace main {
 		    return a;
 		}
 	}
-	
-	
-	
-	
-	
-	
-	
-	export class VoiceAudioFrameInput {
-	    roomID: number;
-	    seq: number;
-	    timestampMS: number;
-	    codec: string;
-	    sampleRate: number;
-	    payload: number[];
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceAudioFrameInput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.roomID = source["roomID"];
-	        this.seq = source["seq"];
-	        this.timestampMS = source["timestampMS"];
-	        this.codec = source["codec"];
-	        this.sampleRate = source["sampleRate"];
-	        this.payload = source["payload"];
-	    }
-	}
+
+
+
+
+
+
+
 	export class VoiceICEServer {
 	    urls: string[];
 	    username?: string;
 	    credential?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new VoiceICEServer(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.urls = source["urls"];
@@ -542,17 +520,17 @@ export namespace main {
 	        this.credential = source["credential"];
 	    }
 	}
-	
+
 	export class VoiceWebRTCSignalInput {
 	    roomID: number;
 	    toUserID: number;
 	    type: string;
 	    payload: number[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new VoiceWebRTCSignalInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.roomID = source["roomID"];

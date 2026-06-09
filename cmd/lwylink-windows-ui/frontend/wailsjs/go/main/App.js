@@ -82,10 +82,6 @@ export function SendRoomChat(arg1) {
   return window['go']['main']['App']['SendRoomChat'](arg1);
 }
 
-export function SendVoiceAudioFrame(arg1) {
-  return window['go']['main']['App']['SendVoiceAudioFrame'](arg1);
-}
-
 export function SendVoiceWebRTCSignal(arg1) {
   return window['go']['main']['App']['SendVoiceWebRTCSignal'](arg1);
 }
