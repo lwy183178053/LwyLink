@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/LwyV-Labs/LwyLink/internal/dbutil"
 )
 
 type Verification struct {
@@ -47,20 +49,12 @@ func (r *Repository) Latest(ctx context.Context, email, purpose string) (Verific
 }
 
 func (r *Repository) MarkUsed(ctx context.Context, id int64) error {
-	res, err := r.db.ExecContext(ctx,
+	return dbutil.RequireAffected(r.db.ExecContext(ctx,
 		`UPDATE email_verifications
 		    SET used_at = CURRENT_TIMESTAMP
 		  WHERE id = ? AND used_at IS NULL`,
 		id,
-	)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
+	))
 }
 
 func (r *Repository) CountRecentByEmail(ctx context.Context, email, purpose string, since time.Time) (int, error) {
