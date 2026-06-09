@@ -754,7 +754,7 @@ export default function App() {
                 <div>
                   <span className="eyebrow">语音需要先组网</span>
                   <h2 id="voice-connect-title">启动虚拟网络后加入语音</h2>
-                  <p>房间语音和游戏流量共用同一条 P2P/Relay 通道。当前还没有连接虚拟网络，可以直接从这里启动连接。</p>
+                  <p>加入语音前需要先连接虚拟网络，用于确认房间在线状态；语音媒体会使用 WebRTC 自动选择 P2P 或 TURN 路径。</p>
                 </div>
                 <div className="modal-actions">
                   <Button type="button" onClick={() => setVoiceConnectPrompt(false)}>
