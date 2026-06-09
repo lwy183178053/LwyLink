@@ -2,6 +2,10 @@
 
 本文件是 `NETWORK_RESEARCH.md` 的后续决策表。目标是在改代码前先明确：我们要用什么证据判断“哪条路线最好”。
 
+## 当前状态
+
+Windows 客户端已采用 WebRTC 作为房间语音产品路线；原生 Overlay 语音前端 fallback 已删除。`FrameVoice / UDPTypeVoice` 仍可保留为底层传输 smoke 和后续实验能力，但不再作为 Windows 客户端的主语音媒体路径。下一步完善重点是 TURN 兜底、路径可观测性和流量统计，而不是继续堆两套客户端音频引擎。
+
 ## 目标定义
 
 ### 语音目标
