@@ -62,15 +62,8 @@ func (r *Repository) Delete(ctx context.Context, id int64) (Release, error) {
 		return Release{}, err
 	}
 	res, err := r.db.ExecContext(ctx, `DELETE FROM client_releases WHERE id = ?`, id)
-	if err != nil {
+	if err := dbutil.RequireAffectedAs(ErrNotFound, res, err); err != nil {
 		return Release{}, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return Release{}, err
-	}
-	if affected == 0 {
-		return Release{}, ErrNotFound
 	}
 	return release, nil
 }
