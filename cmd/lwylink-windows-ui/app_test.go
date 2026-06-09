@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/client"
 	"github.com/LwyV-Labs/LwyLink/internal/room"
@@ -69,5 +71,45 @@ func TestCancelConnectionResetsVoiceStateAndQueue(t *testing.T) {
 	got := app.CurrentState()
 	if got.Voice.RoomID != 0 || len(got.Voice.Participants) != 0 {
 		t.Fatalf("voice state was not reset: %+v", got.Voice)
+	}
+}
+
+func TestOfficialClientPinsAPIBaseURL(t *testing.T) {
+	if got := normalizeSavedAPIBaseURL("http://fake.example.test:8080/"); got != defaultAPIBaseURL {
+		t.Fatalf("normalizeSavedAPIBaseURL()=%q, want official %q", got, defaultAPIBaseURL)
+	}
+
+	app := NewApp()
+	state, err := app.SetSettings(SettingsInput{
+		APIBaseURL:    "http://fake.example.test:8080",
+		InterfaceName: defaultIfName,
+	})
+	if err != nil {
+		t.Fatalf("SetSettings returned error: %v", err)
+	}
+	if state.APIBaseURL != defaultAPIBaseURL {
+		t.Fatalf("state APIBaseURL=%q, want %q", state.APIBaseURL, defaultAPIBaseURL)
+	}
+}
+
+func TestManualUpdateCheckCooldown(t *testing.T) {
+	app := NewApp()
+	app.mu.Lock()
+	app.lastManualUpdateAt = time.Now()
+	beforeSeq := app.updateSeq
+	app.mu.Unlock()
+
+	_, err := app.CheckForUpdates()
+	if err == nil {
+		t.Fatalf("expected manual update cooldown error")
+	}
+	if !strings.Contains(err.Error(), "检查更新太频繁") {
+		t.Fatalf("unexpected cooldown error: %v", err)
+	}
+	app.mu.Lock()
+	afterSeq := app.updateSeq
+	app.mu.Unlock()
+	if afterSeq != beforeSeq {
+		t.Fatalf("update check seq changed during cooldown: got %d, want %d", afterSeq, beforeSeq)
 	}
 }
