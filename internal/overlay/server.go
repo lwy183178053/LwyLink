@@ -204,8 +204,6 @@ func (s *Server) handleSessionFrame(sess *session, typ FrameType, payload []byte
 	switch typ {
 	case FrameIP:
 		s.forwardIP(sess, payload)
-	case FrameVoice:
-		s.forwardVoice(sess, payload)
 	case FramePing:
 		_ = sess.conn.Write(PackFrame(FramePing, nil))
 	default:
@@ -231,24 +229,6 @@ func (s *Server) writeLoop(sess *session) {
 			}
 		}
 	}
-}
-
-func (s *Server) forwardVoice(from *session, raw []byte) {
-	var voice VoicePayload
-	if err := json.Unmarshal(raw, &voice); err != nil {
-		return
-	}
-	if voice.RoomID != from.roomID || voice.FromUserID != from.userID || voice.ToUserID <= 0 || voice.TimestampMS <= 0 || len(voice.Payload) == 0 {
-		return
-	}
-	target := s.findByUserID(from.roomID, voice.ToUserID)
-	if target == nil || target == from {
-		return
-	}
-	if !s.consumeRelayTraffic(from, int64(len(voice.Payload))) {
-		return
-	}
-	_ = target.enqueueFrame(FrameVoice, raw)
 }
 
 func (s *Server) onDisconnect(conn *tcpx.SecureConn, err error) {

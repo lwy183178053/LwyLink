@@ -82,7 +82,7 @@ func TestUDPManagerRejectsReplayedPacket(t *testing.T) {
 	}
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")
 	pairKey := testUDPKey(1)
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", pairKey)
 	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeIP, "pair-1", path.recvKey, 1, overlay.PackIPPayload(1, testIPv4Packet("172.16.1.11", "172.16.1.10")))
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -104,7 +104,7 @@ func TestUDPManagerAcceptsOnlyExpectedPeerIPPacket(t *testing.T) {
 	}
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")
 	pairKey := testUDPKey(1)
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", pairKey)
 
 	valid := overlay.PackIPPayload(1, testIPv4Packet("172.16.1.11", "172.16.1.10"))
 	forgedSource := overlay.PackIPPayload(2, testIPv4Packet("172.16.1.99", "172.16.1.10"))
@@ -122,35 +122,6 @@ func TestUDPManagerAcceptsOnlyExpectedPeerIPPacket(t *testing.T) {
 	}
 	if !bytes.Equal(delivered[0], valid) {
 		t.Fatalf("delivered packet mismatch")
-	}
-}
-
-func TestUDPManagerDeliversVoicePacketToVoiceCallback(t *testing.T) {
-	m := newTestUDPManager()
-	var ipDelivered int
-	var voiceDelivered [][]byte
-	m.cfg.OnPacket = func(pkt []byte) {
-		ipDelivered++
-	}
-	m.cfg.OnVoice = func(pkt []byte) {
-		voiceDelivered = append(voiceDelivered, append([]byte(nil), pkt...))
-	}
-	endpoint := testUDPAddr(t, "127.0.0.1:30001")
-	pairKey := testUDPKey(1)
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", pairKey)
-	payload := []byte(`{"roomID":1,"fromUserID":11,"toUserID":10,"payload":"AA=="}`)
-	raw, err := overlay.EncodeUDPPacket(overlay.UDPTypeVoice, "pair-1", path.recvKey, m.nextSeqLocked(), payload)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-
-	m.handlePacket(endpoint, raw)
-
-	if ipDelivered != 0 {
-		t.Fatalf("voice packet was delivered to IP callback")
-	}
-	if len(voiceDelivered) != 1 || !bytes.Equal(voiceDelivered[0], payload) {
-		t.Fatalf("voice delivered=%d payload=%q", len(voiceDelivered), voiceDelivered)
 	}
 }
 
@@ -256,58 +227,6 @@ func TestUDPPathNeedsMirrorOnlyDuringWarmup(t *testing.T) {
 	}
 }
 
-func TestUDPManagerSendsVoiceDirectWhenPathReady(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	receiver := listenTestUDP(t)
-	defer receiver.Close()
-	m := startTestUDPManager(t, ctx, udpManagerConfig{
-		ServerAddr: "127.0.0.1:9",
-		Token:      "token-a",
-		Key:        testUDPKey(11),
-		RoomID:     1,
-		UserID:     10,
-		VirtualIP:  "172.16.1.10",
-	})
-
-	pairKey := testUDPKey(9)
-	m.AddPeer(overlay.UDPPeerCandidate{
-		VirtualIP: "172.16.1.11",
-		Endpoint:  udpLoopbackEndpoint(t, receiver),
-		SessionID: "pair-voice",
-		Key:       overlay.EncodeUDPKey(pairKey),
-	})
-	m.mu.Lock()
-	path := m.pathsByIP["172.16.1.11"]
-	path.active = true
-	path.lastSeen = time.Now()
-	path.readyAt = path.lastSeen.Add(-udpWarmupDuration)
-	m.mu.Unlock()
-
-	payload := []byte(`{"seq":1}`)
-	if decision := m.SendPayloadToPeer("172.16.1.11", overlay.UDPTypeVoice, payload); decision != udpSendDirect {
-		t.Fatalf("voice decision=%v, want direct", decision)
-	}
-	buf := make([]byte, 2048)
-	_ = receiver.SetReadDeadline(time.Now().Add(time.Second))
-	n, _, err := receiver.ReadFromUDP(buf)
-	if err != nil {
-		t.Fatalf("read voice udp: %v", err)
-	}
-	_, sessionID, err := overlay.UDPPacketID(buf[:n])
-	if err != nil {
-		t.Fatalf("udp packet id: %v", err)
-	}
-	sendKey, _ := udpDirectionalKeys(pairKey, "172.16.1.10", "172.16.1.11")
-	packet, err := overlay.DecodeUDPPacket(buf[:n], sendKey)
-	if err != nil {
-		t.Fatalf("decode voice udp: %v", err)
-	}
-	if sessionID != "pair-voice" || packet.Type != overlay.UDPTypeVoice || !bytes.Equal(packet.Payload, payload) {
-		t.Fatalf("voice udp session=%q type=%d payload=%q", sessionID, packet.Type, packet.Payload)
-	}
-}
-
 func TestUDPManagerDisablesAfterRepeatedProbeFailures(t *testing.T) {
 	m := newTestUDPManager()
 	var disabled atomic.Bool
@@ -315,7 +234,7 @@ func TestUDPManagerDisablesAfterRepeatedProbeFailures(t *testing.T) {
 		disabled.Store(true)
 	}
 	endpoint := testUDPAddr(t, "127.0.0.1:30001")
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", testUDPKey(1))
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
 	now := time.Unix(100, 0)
 
 	for i := 0; i < udpDisableFailureLimit; i++ {
@@ -339,7 +258,7 @@ func TestUDPPeerPathDeduplicatesCandidateWhileProbing(t *testing.T) {
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	probe, shouldProbe := m.startProbeTargetLocked(path, now)
 	if !shouldProbe {
 		t.Fatalf("first candidate did not start probing")
@@ -348,7 +267,7 @@ func TestUDPPeerPathDeduplicatesCandidateWhileProbing(t *testing.T) {
 		t.Fatalf("bad first probe state: generation=%d probing=%v", probe.generation, path.probing)
 	}
 
-	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path = m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	probe, shouldProbe = m.startProbeTargetLocked(path, now.Add(time.Second))
 	if shouldProbe {
 		t.Fatalf("duplicate candidate started another probe")
@@ -364,19 +283,19 @@ func TestUDPPeerPathHonorsProbeCooldownAndContinuesRetrying(t *testing.T) {
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	path.probing = false
 	path.probeGeneration = 1
 	path.failedProbes = 1
 	path.nextProbeAt = now.Add(udpProbeRetryDelay(path.failedProbes))
 
-	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path = m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	_, shouldProbe := m.startProbeTargetLocked(path, now.Add(time.Second))
 	if shouldProbe {
 		t.Fatalf("candidate started probing during cooldown")
 	}
 
-	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path = m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	probe, shouldProbe := m.startProbeTargetLocked(path, now.Add(udpProbeRetryDelay(path.failedProbes)+time.Second))
 	if !shouldProbe {
 		t.Fatalf("candidate did not retry after cooldown")
@@ -388,7 +307,7 @@ func TestUDPPeerPathHonorsProbeCooldownAndContinuesRetrying(t *testing.T) {
 	path.probing = false
 	path.failedProbes = 100
 	path.nextProbeAt = time.Time{}
-	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path = m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	probe, shouldProbe = m.startProbeTargetLocked(path, now.Add(2*udpProbeRetryMax))
 	if !shouldProbe {
 		t.Fatalf("candidate stopped retrying after many failures")
@@ -443,12 +362,12 @@ func TestUDPPeerPathEndpointChangeResetsFailures(t *testing.T) {
 	key := testUDPKey(1)
 	now := time.Unix(100, 0)
 
-	path := m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{endpoint}, "pair-1", key)
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", key)
 	path.probing = false
 	path.failedProbes = 100
 
 	nextEndpoint := testUDPAddr(t, "127.0.0.1:30002")
-	path = m.updatePeerPathLocked("172.16.1.11", []*net.UDPAddr{nextEndpoint}, "pair-1", key)
+	path = m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(nextEndpoint), "pair-1", key)
 	_, shouldProbe := m.startProbeTargetLocked(path, now.Add(time.Second))
 	if !shouldProbe {
 		t.Fatalf("endpoint change did not restart probing")
@@ -472,6 +391,9 @@ func TestResolvePeerCandidateEndpointsPrefersLAN(t *testing.T) {
 	want := []string{"10.0.0.5:30001", "192.168.1.20:30001", "203.0.113.9:30001"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("endpoints=%v, want %v", got, want)
+	}
+	if gotTypes, wantTypes := udpCandidateTypes(endpoints), []string{udpCandidateTypeLAN, udpCandidateTypeLAN, udpCandidateTypeObserved}; !slices.Equal(gotTypes, wantTypes) {
+		t.Fatalf("endpoint types=%v, want %v", gotTypes, wantTypes)
 	}
 }
 
@@ -584,16 +506,32 @@ func testUDPAddr(t *testing.T, value string) *net.UDPAddr {
 	return addr
 }
 
+func testUDPCandidates(addrs ...*net.UDPAddr) []udpCandidateEndpoint {
+	out := make([]udpCandidateEndpoint, 0, len(addrs))
+	for _, addr := range addrs {
+		out = append(out, udpCandidateEndpoint{Addr: addr, Type: udpCandidateTypeObserved})
+	}
+	return out
+}
+
 func testUDPKey(seed byte) []byte {
 	key := make([]byte, 32)
 	key[0] = seed
 	return key
 }
 
-func udpAddrStrings(addrs []*net.UDPAddr) []string {
-	out := make([]string, 0, len(addrs))
-	for _, addr := range addrs {
-		out = append(out, addr.String())
+func udpAddrStrings(endpoints []udpCandidateEndpoint) []string {
+	out := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		out = append(out, endpoint.Addr.String())
+	}
+	return out
+}
+
+func udpCandidateTypes(endpoints []udpCandidateEndpoint) []string {
+	out := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		out = append(out, endpoint.Type)
 	}
 	return out
 }

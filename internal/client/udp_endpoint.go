@@ -51,8 +51,13 @@ func (m *udpManager) localLANEndpoints() []string {
 	return overlay.NormalizeUDPLANEndpoints(out)
 }
 
-func resolvePeerCandidateEndpoints(candidate overlay.UDPPeerCandidate) []*net.UDPAddr {
-	out := make([]*net.UDPAddr, 0, len(candidate.LANEndpoints)+1)
+const (
+	udpCandidateTypeLAN      = "lan"
+	udpCandidateTypeObserved = "observed"
+)
+
+func resolvePeerCandidateEndpoints(candidate overlay.UDPPeerCandidate) []udpCandidateEndpoint {
+	out := make([]udpCandidateEndpoint, 0, len(candidate.LANEndpoints)+1)
 	seen := make(map[string]struct{}, len(candidate.LANEndpoints)+1)
 	for _, value := range overlay.NormalizeUDPLANEndpoints(candidate.LANEndpoints) {
 		addr, err := net.ResolveUDPAddr("udp", value)
@@ -66,13 +71,13 @@ func resolvePeerCandidateEndpoints(candidate overlay.UDPPeerCandidate) []*net.UD
 			continue
 		}
 		seen[addr.String()] = struct{}{}
-		out = append(out, addr)
+		out = append(out, udpCandidateEndpoint{Addr: addr, Type: udpCandidateTypeLAN})
 	}
 	if candidate.Endpoint != "" {
 		addr, err := net.ResolveUDPAddr("udp", candidate.Endpoint)
 		if err == nil {
 			if _, ok := seen[addr.String()]; !ok {
-				out = append(out, addr)
+				out = append(out, udpCandidateEndpoint{Addr: addr, Type: udpCandidateTypeObserved})
 			}
 		}
 	}
@@ -85,6 +90,19 @@ func cloneUDPAddr(addr *net.UDPAddr) *net.UDPAddr {
 	}
 	cp := *addr
 	return &cp
+}
+
+func cloneUDPCandidateEndpoints(endpoints []udpCandidateEndpoint) []udpCandidateEndpoint {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	out := make([]udpCandidateEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint.Addr != nil {
+			out = append(out, udpCandidateEndpoint{Addr: cloneUDPAddr(endpoint.Addr), Type: endpoint.Type})
+		}
+	}
+	return out
 }
 
 func cloneUDPAddrs(addrs []*net.UDPAddr) []*net.UDPAddr {
@@ -100,16 +118,29 @@ func cloneUDPAddrs(addrs []*net.UDPAddr) []*net.UDPAddr {
 	return out
 }
 
-func udpAddrSlicesEqual(left, right []*net.UDPAddr) bool {
+func udpCandidateSlicesEqual(left, right []udpCandidateEndpoint) bool {
 	if len(left) != len(right) {
 		return false
 	}
 	for i := range left {
-		if udpAddrString(left[i]) != udpAddrString(right[i]) {
+		if udpAddrString(left[i].Addr) != udpAddrString(right[i].Addr) || left[i].Type != right[i].Type {
 			return false
 		}
 	}
 	return true
+}
+
+func udpCandidateTypeForAddr(endpoints []udpCandidateEndpoint, addr *net.UDPAddr) string {
+	if addr == nil {
+		return ""
+	}
+	value := addr.String()
+	for _, endpoint := range endpoints {
+		if udpAddrString(endpoint.Addr) == value {
+			return endpoint.Type
+		}
+	}
+	return ""
 }
 
 func udpAddrString(addr *net.UDPAddr) string {

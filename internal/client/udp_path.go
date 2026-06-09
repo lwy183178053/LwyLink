@@ -44,9 +44,19 @@ const (
 )
 
 type TransportStatus struct {
-	Mode      string
-	Message   string
-	DirectIPs []string
+	Mode        string
+	Message     string
+	DirectIPs   []string
+	Diagnostics []TransportPeerDiagnostic
+}
+
+type TransportPeerDiagnostic struct {
+	VirtualIP          string
+	CandidateCount     int
+	SelectedType       string
+	LastProbeAt        time.Time
+	FailedProbes       int
+	LastObservedPeerAt time.Time
 }
 
 type udpManagerConfig struct {
@@ -57,7 +67,6 @@ type udpManagerConfig struct {
 	UserID     int64
 	VirtualIP  string
 	OnPacket   func([]byte)
-	OnVoice    func([]byte)
 	OnStatus   func(TransportStatus)
 	OnDisabled func()
 }
@@ -87,7 +96,7 @@ type udpManager struct {
 type udpPeerPath struct {
 	virtualIP          string
 	endpoint           *net.UDPAddr
-	candidateEndpoints []*net.UDPAddr
+	candidateEndpoints []udpCandidateEndpoint
 	sessionID          string
 	pairKey            []byte
 	sendKey            []byte
@@ -101,7 +110,13 @@ type udpPeerPath struct {
 
 	failedProbes    int
 	nextProbeAt     time.Time
+	lastProbeAt     time.Time
 	probeGeneration uint64
+}
+
+type udpCandidateEndpoint struct {
+	Addr *net.UDPAddr
+	Type string
 }
 
 type udpPingTarget struct {
@@ -302,10 +317,6 @@ func (m *udpManager) handlePeerPacket(sessionID, peerVirtualIP string, packet ov
 		if m.cfg.OnPacket != nil {
 			m.cfg.OnPacket(packet.Payload)
 		}
-	case overlay.UDPTypeVoice:
-		if m.cfg.OnVoice != nil {
-			m.cfg.OnVoice(packet.Payload)
-		}
 	}
 }
 
@@ -360,7 +371,7 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 			m.mu.Unlock()
 			return
 		}
-		endpoints := cloneUDPAddrs(path.candidateEndpoints)
+		endpoints := cloneUDPCandidateEndpoints(path.candidateEndpoints)
 		key := cloneBytes(path.sendKey)
 		seqs := make([]uint64, len(endpoints))
 		for i := range seqs {
@@ -368,7 +379,7 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 		}
 		m.mu.Unlock()
 		for i, endpoint := range endpoints {
-			_ = m.sendEncrypted(endpoint, overlay.UDPTypeProbe, sessionID, key, seqs[i], []byte("probe"))
+			_ = m.sendEncrypted(endpoint.Addr, overlay.UDPTypeProbe, sessionID, key, seqs[i], []byte("probe"))
 		}
 		timer := time.NewTimer(udpProbeInterval)
 		select {
@@ -488,7 +499,7 @@ func (m *udpManager) markInactive(sessionID string) {
 	}
 }
 
-func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDPAddr, sessionID string, key []byte) *udpPeerPath {
+func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []udpCandidateEndpoint, sessionID string, key []byte) *udpPeerPath {
 	path := m.pathsByIP[virtualIP]
 	if path == nil {
 		path = &udpPeerPath{virtualIP: virtualIP}
@@ -496,13 +507,13 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []*net.UDP
 	}
 
 	sendKey, recvKey := udpDirectionalKeys(key, m.cfg.VirtualIP, virtualIP)
-	changed := path.sessionID != sessionID || !udpAddrSlicesEqual(path.candidateEndpoints, endpoints) || !bytes.Equal(path.pairKey, key)
+	changed := path.sessionID != sessionID || !udpCandidateSlicesEqual(path.candidateEndpoints, endpoints) || !bytes.Equal(path.pairKey, key)
 	if changed {
 		if path.sessionID != "" && path.sessionID != sessionID {
 			delete(m.pathsByID, path.sessionID)
 		}
-		path.endpoint = cloneUDPAddr(endpoints[0])
-		path.candidateEndpoints = cloneUDPAddrs(endpoints)
+		path.endpoint = cloneUDPAddr(endpoints[0].Addr)
+		path.candidateEndpoints = cloneUDPCandidateEndpoints(endpoints)
 		path.sessionID = sessionID
 		path.pairKey = cloneBytes(key)
 		path.sendKey = sendKey
@@ -540,6 +551,7 @@ func (m *udpManager) startProbeTargetLocked(path *udpPeerPath, now time.Time) (u
 		return udpProbeTarget{}, false
 	}
 	path.probing = true
+	path.lastProbeAt = now
 	path.probeGeneration++
 	return udpProbeTarget{virtualIP: path.virtualIP, sessionID: path.sessionID, generation: path.probeGeneration}, true
 }
@@ -642,6 +654,7 @@ func (m *udpManager) emitStatusLocked() {
 	}
 	probing := false
 	directIPs := make([]string, 0)
+	diagnostics := make([]TransportPeerDiagnostic, 0, len(m.pathsByIP))
 	now := time.Now()
 	for _, path := range m.pathsByIP {
 		if udpPathDirectReady(path, now) {
@@ -650,9 +663,18 @@ func (m *udpManager) emitStatusLocked() {
 		if path.probing {
 			probing = true
 		}
+		diagnostics = append(diagnostics, TransportPeerDiagnostic{
+			VirtualIP:          path.virtualIP,
+			CandidateCount:     len(path.candidateEndpoints),
+			SelectedType:       udpCandidateTypeForAddr(path.candidateEndpoints, path.endpoint),
+			LastProbeAt:        path.lastProbeAt,
+			FailedProbes:       path.failedProbes,
+			LastObservedPeerAt: path.lastSeen,
+		})
 	}
 	sort.Strings(directIPs)
-	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectIPs: directIPs}
+	sort.Slice(diagnostics, func(i, j int) bool { return diagnostics[i].VirtualIP < diagnostics[j].VirtualIP })
+	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectIPs: directIPs, Diagnostics: diagnostics}
 	if len(directIPs) > 0 {
 		status.Mode = TransportModeUDPDirect
 		status.Message = fmt.Sprintf("智能加速已开启 · %d 条隧道", len(directIPs))
@@ -670,11 +692,12 @@ func (m *udpManager) emitStatusLocked() {
 
 func cloneTransportStatus(status TransportStatus) TransportStatus {
 	status.DirectIPs = append([]string(nil), status.DirectIPs...)
+	status.Diagnostics = append([]TransportPeerDiagnostic(nil), status.Diagnostics...)
 	return status
 }
 
 func transportStatusEqual(a, b TransportStatus) bool {
-	return a.Mode == b.Mode && a.Message == b.Message && slices.Equal(a.DirectIPs, b.DirectIPs)
+	return a.Mode == b.Mode && a.Message == b.Message && slices.Equal(a.DirectIPs, b.DirectIPs) && slices.Equal(a.Diagnostics, b.Diagnostics)
 }
 
 func (m *udpManager) recordFailureLocked(now time.Time) {

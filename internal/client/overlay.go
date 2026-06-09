@@ -26,15 +26,8 @@ type ConnectOptions struct {
 	UserID           int64
 	Room             room.Room
 	P2PEnabled       func() bool
-	VoicePackets     <-chan VoicePacket
 	OnConnected      func(overlay.DHCPResponse)
 	OnTransportState func(TransportStatus)
-	OnVoicePayload   func([]byte)
-}
-
-type VoicePacket struct {
-	PeerVirtualIP string
-	Payload       []byte
 }
 
 type connectionRuntime struct {
@@ -236,10 +229,6 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				}
 			case overlay.FrameIP:
 				runtimeState.writeTunnelPayload(payload)
-			case overlay.FrameVoice:
-				if opts.OnVoicePayload != nil {
-					opts.OnVoicePayload(payload)
-				}
 			case overlay.FrameError:
 				var e map[string]string
 				_ = json.Unmarshal(payload, &e)
@@ -315,15 +304,11 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	defer cancel()
 	go manageUDPTransport(childCtx, opts, lease, runtimeState, udpConfigCh, udpPeerCh, udpResetCh, udpDisableCh)
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		tunToOverlay(childCtx, transport, t, runtimeState)
 		cancel()
-	}()
-	go func() {
-		defer wg.Done()
-		voiceToOverlay(childCtx, transport, runtimeState, opts)
 	}()
 	go func() {
 		defer wg.Done()
@@ -345,32 +330,6 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	_ = t.Close()
 	wg.Wait()
 	return nil
-}
-
-func voiceToOverlay(ctx context.Context, transport *tcpx.Client, runtimeState *connectionRuntime, opts ConnectOptions) {
-	if opts.VoicePackets == nil {
-		<-ctx.Done()
-		return
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case pkt, ok := <-opts.VoicePackets:
-			if !ok {
-				return
-			}
-			if !runtimeState.isSecureReady() || pkt.PeerVirtualIP == "" || len(pkt.Payload) == 0 {
-				continue
-			}
-			if manager := runtimeState.udpManager(); manager != nil {
-				_ = manager.SendPayloadToPeer(pkt.PeerVirtualIP, overlay.UDPTypeVoice, pkt.Payload)
-			}
-			if err := transport.Write(overlay.PackFrame(overlay.FrameVoice, pkt.Payload)); err != nil {
-				return
-			}
-		}
-	}
 }
 
 func sendLatestUDPConfig(ch chan overlay.UDPControl, control overlay.UDPControl) {
@@ -457,7 +416,6 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			OnPacket: func(pkt []byte) {
 				runtimeState.writeTunnelPayload(pkt)
 			},
-			OnVoice:  opts.OnVoicePayload,
 			OnStatus: opts.OnTransportState,
 			OnDisabled: func() {
 				select {

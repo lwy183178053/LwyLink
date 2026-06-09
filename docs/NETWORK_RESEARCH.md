@@ -20,7 +20,7 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 1. 虚拟局域网流量继续走 LwyLink Overlay。
 2. 房间语音使用成熟 WebRTC 媒体通道，LwyLink 负责房间、鉴权、信令、麦位限制和 UI。
-3. `FrameVoice / UDPTypeVoice` 只保留为底层传输 smoke 和未来实验能力，不再作为 Windows 客户端主语音媒体路径。
+3. 原生 `FrameVoice / UDPTypeVoice` 已删除；Overlay 当前只承载虚拟局域网 IP 流量。
 
 后续优化重点应放在 TURN 兜底、WebRTC 路径可观测性、账号流量统计、UDP 打洞诊断和持续删除被替代的实验代码。
 
@@ -207,12 +207,12 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 - 优先把语音体验做对。
 
-### 方案 B：继续原生 Overlay 语音，但做成 RTP-like 媒体层
+### 方案 B：继续原生 Overlay 语音，但做成 RTP-like 媒体层（已放弃）
 
 做法：
 
-- 保留 `FrameVoice / UDPTypeVoice`。
-- VoicePayload 增加更明确的 media 字段：streamID、packetDuration、marker、audioLevel。
+- 重新引入专用语音帧。
+- 语音 payload 增加更明确的 media 字段：streamID、packetDuration、marker、audioLevel。
 - 语音发送进入独立高优先级队列。
 - TCP relay 下语音和 IP 分离写队列，避免被大包阻塞。
 - 客户端实现 adaptive jitter + PLC + per-peer stats。
@@ -234,13 +234,13 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 
 - 产品长期坚持“所有业务都走 LwyLink 自研 overlay”。
 
-### 方案 C：混合路线
+### 方案 C：混合路线（已放弃）
 
 做法：
 
 - 默认 WebRTC 语音。
 - Windows UI 不再保留原生 Overlay 语音 fallback，避免双媒体引擎带来的维护和回声问题。
-- 底层 `FrameVoice / UDPTypeVoice` 可继续作为传输层 smoke/实验能力存在。
+- 底层语音帧已删除，避免继续维护第二条媒体/传输实验路线。
 - 用同一套 UI 展示语音状态和 WebRTC 路径。
 
 优点：

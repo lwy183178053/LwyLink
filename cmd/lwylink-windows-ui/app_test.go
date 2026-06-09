@@ -21,6 +21,9 @@ func TestUpdateConnectionAppliesTransportMessageAndDirectPeers(t *testing.T) {
 			Mode:      client.TransportModeUDPDirect,
 			Message:   "udp direct",
 			DirectIPs: []string{"172.16.1.11"},
+			Diagnostics: []client.TransportPeerDiagnostic{
+				{VirtualIP: "172.16.1.11", CandidateCount: 2, SelectedType: "lan", FailedProbes: 1},
+			},
 		})
 	})
 
@@ -33,6 +36,9 @@ func TestUpdateConnectionAppliesTransportMessageAndDirectPeers(t *testing.T) {
 	}
 	if !slices.Equal(got.DirectPeerIPs, []string{"172.16.1.11"}) {
 		t.Fatalf("direct peers=%v", got.DirectPeerIPs)
+	}
+	if len(got.TransportDiagnostics) != 1 || got.TransportDiagnostics[0].SelectedType != "lan" || got.TransportDiagnostics[0].CandidateCount != 2 {
+		t.Fatalf("transport diagnostics=%+v", got.TransportDiagnostics)
 	}
 }
 

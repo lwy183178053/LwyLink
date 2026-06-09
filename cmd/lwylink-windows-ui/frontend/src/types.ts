@@ -82,6 +82,16 @@ export type ConnectionState = {
   roomID: number;
   ip: string;
   directPeerIPs?: string[];
+  transportDiagnostics?: TransportDiagnostic[];
+};
+
+export type TransportDiagnostic = {
+  virtualIP: string;
+  candidateCount: number;
+  selectedType: string;
+  lastProbeAt: string;
+  failedProbes: number;
+  lastObservedPeerAt: string;
 };
 
 export type UpdateState = {
@@ -156,6 +166,7 @@ export const emptyState: AppState = {
     roomID: 0,
     ip: "",
     directPeerIPs: [],
+    transportDiagnostics: [],
   },
   update: {
     status: "idle",

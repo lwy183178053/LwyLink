@@ -128,7 +128,6 @@ func run() (code int) {
 	waitForMemberPresence(ctx, ownerAPI, roomInfo.ID, player.User.ID, true, playerOverlay.lease.IP)
 
 	verifyDiscoveryFanout(ctx, playerOverlay, ownerOverlay)
-	verifyVoiceRelay(ctx, roomInfo.ID, owner.User.ID, player.User.ID, ownerOverlay, playerOverlay)
 	verifyVoiceWebRTCSignal(ctx, roomInfo.ID, owner.User.ID, player.User.ID, ownerAPI, playerAPI)
 	verifyUDPRendezvous(ctx, *overlayAddr, roomInfo.ID, owner.User.ID, player.User.ID, ownerOverlay, playerOverlay)
 
@@ -423,39 +422,6 @@ func verifyDiscoveryFanout(ctx context.Context, from, to *overlaySmokeClient) {
 	}
 }
 
-func verifyVoiceRelay(ctx context.Context, roomID, fromUserID, toUserID int64, from, to *overlaySmokeClient) {
-	voice := overlay.VoicePayload{
-		RoomID:      roomID,
-		FromUserID:  fromUserID,
-		ToUserID:    toUserID,
-		Seq:         uint64(time.Now().UnixNano()),
-		TimestampMS: time.Now().UnixMilli(),
-		Codec:       "pcm16",
-		SampleRate:  16000,
-		Payload:     []byte("smoke-voice-relay"),
-	}
-	raw, err := json.Marshal(voice)
-	must("marshal voice relay", err)
-	if err := from.client.Write(overlay.PackFrame(overlay.FrameVoice, raw)); err != nil {
-		failf("send voice relay: %v", err)
-	}
-	select {
-	case got := <-to.voiceFrames:
-		var forwarded overlay.VoicePayload
-		if err := json.Unmarshal(got, &forwarded); err != nil {
-			failf("voice relay returned bad payload: %v", err)
-		}
-		if forwarded.RoomID != roomID || forwarded.FromUserID != fromUserID || forwarded.ToUserID != toUserID || !bytes.Equal(forwarded.Payload, voice.Payload) {
-			failf("voice relay mismatch room=%d from=%d to=%d payload=%q", forwarded.RoomID, forwarded.FromUserID, forwarded.ToUserID, forwarded.Payload)
-		}
-		log.Printf("overlay voice relay ok from=%d to=%d", fromUserID, toUserID)
-	case <-time.After(3 * time.Second):
-		failf("voice relay was not forwarded")
-	case <-ctx.Done():
-		failf("voice relay: %v", ctx.Err())
-	}
-}
-
 func verifyVoiceWebRTCSignal(ctx context.Context, roomID, ownerUserID, playerUserID int64, ownerAPI, playerAPI *client.API) {
 	eventsCtx, cancelEvents := context.WithCancel(ctx)
 	defer cancelEvents()
@@ -533,15 +499,7 @@ func verifyUDPRendezvous(ctx context.Context, overlayAddr string, roomID, ownerI
 	if !publicOK && !lanOK {
 		failf("udp direct probes failed for public and lan candidates")
 	}
-	voicePublicOK := tryUDPVoicePair(ctx, "public", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, []string{ownerPeer.Endpoint}, []string{playerPeer.Endpoint})
-	voiceLANOK := false
-	if len(ownerPeer.LANEndpoints) > 0 && len(playerPeer.LANEndpoints) > 0 {
-		voiceLANOK = tryUDPVoicePair(ctx, "lan", ownerConn, playerConn, owner.lease.IP, player.lease.IP, ownerPeer, playerPeer, ownerPeer.LANEndpoints, playerPeer.LANEndpoints)
-	}
-	if !voicePublicOK && !voiceLANOK {
-		failf("udp direct voice packets failed")
-	}
-	log.Printf("udp direct probe ok public=%v lan=%v voicePublic=%v voiceLAN=%v", publicOK, lanOK, voicePublicOK, voiceLANOK)
+	log.Printf("udp direct probe ok public=%v lan=%v", publicOK, lanOK)
 }
 
 func waitUDPConfig(ctx context.Context, client *overlaySmokeClient) overlay.UDPControl {
@@ -678,55 +636,6 @@ func tryUDPDirectPair(ctx context.Context, label string, ownerConn, playerConn *
 	}
 }
 
-func tryUDPVoicePair(ctx context.Context, label string, ownerConn, playerConn *net.UDPConn, ownerIP, playerIP string, ownerPeer, playerPeer overlay.UDPPeerCandidate, ownerTargets, playerTargets []string) bool {
-	ownerAddrs := resolveUDPTargets(ownerTargets)
-	playerAddrs := resolveUDPTargets(playerTargets)
-	if len(ownerAddrs) == 0 || len(playerAddrs) == 0 {
-		return false
-	}
-	ownerPairKey, err := overlay.DecodeUDPKey(ownerPeer.Key)
-	must("decode owner voice udp pair key", err)
-	playerPairKey, err := overlay.DecodeUDPKey(playerPeer.Key)
-	must("decode player voice udp pair key", err)
-	ownerSend, ownerRecv := smokeUDPDirectionalKeys(ownerPairKey, ownerIP, playerIP)
-	playerSend, playerRecv := smokeUDPDirectionalKeys(playerPairKey, playerIP, ownerIP)
-	ownerPayload := []byte(`{"roomID":1,"fromUserID":1,"toUserID":2,"seq":1,"timestampMS":1,"codec":"pcm16","sampleRate":16000,"payload":"dm9pY2Utb3duZXI="}`)
-	playerPayload := []byte(`{"roomID":1,"fromUserID":2,"toUserID":1,"seq":1,"timestampMS":1,"codec":"pcm16","sampleRate":16000,"payload":"dm9pY2UtcGxheWVy"}`)
-
-	ownerGot := make(chan struct{}, 1)
-	playerGot := make(chan struct{}, 1)
-	attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	go waitUDPVoice(attemptCtx, ownerConn, ownerRecv, playerPayload, ownerGot)
-	go waitUDPVoice(attemptCtx, playerConn, playerRecv, ownerPayload, playerGot)
-
-	ticker := time.NewTicker(120 * time.Millisecond)
-	defer ticker.Stop()
-	ownerReceived := false
-	playerReceived := false
-	for {
-		sendUDPPayload(ownerConn, ownerAddrs, ownerPeer.SessionID, ownerSend, overlay.UDPTypeVoice, ownerPayload)
-		sendUDPPayload(playerConn, playerAddrs, playerPeer.SessionID, playerSend, overlay.UDPTypeVoice, playerPayload)
-		select {
-		case <-ownerGot:
-			ownerReceived = true
-			if playerReceived {
-				log.Printf("udp direct voice %s ok", label)
-				return true
-			}
-		case <-playerGot:
-			playerReceived = true
-			if ownerReceived {
-				log.Printf("udp direct voice %s ok", label)
-				return true
-			}
-		case <-ticker.C:
-		case <-attemptCtx.Done():
-			return false
-		}
-	}
-}
-
 func resolveUDPTargets(values []string) []*net.UDPAddr {
 	out := make([]*net.UDPAddr, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
@@ -774,31 +683,6 @@ func waitUDPProbe(ctx context.Context, conn *net.UDPConn, key []byte, want []byt
 		}
 		packet, err := overlay.DecodeUDPPacket(buf[:n], key)
 		if err == nil && packet.Type == overlay.UDPTypeProbe && bytes.Equal(packet.Payload, want) {
-			select {
-			case ok <- struct{}{}:
-			default:
-			}
-			return
-		}
-	}
-}
-
-func waitUDPVoice(ctx context.Context, conn *net.UDPConn, key []byte, want []byte, ok chan<- struct{}) {
-	buf := make([]byte, 8192)
-	for {
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		n, _, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
-			continue
-		}
-		packet, err := overlay.DecodeUDPPacket(buf[:n], key)
-		if err == nil && packet.Type == overlay.UDPTypeVoice && bytes.Equal(packet.Payload, want) {
 			select {
 			case ok <- struct{}{}:
 			default:
@@ -989,7 +873,6 @@ type overlaySmokeClient struct {
 	client      *tcpx.Client
 	lease       overlay.DHCPResponse
 	ipFrames    chan []byte
-	voiceFrames chan []byte
 	udpConfigCh chan overlay.UDPControl
 	udpPeerCh   chan overlay.UDPPeerCandidate
 	done        chan error
@@ -1011,7 +894,6 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 	requestID := requestID()
 	dhcpCh := make(chan overlay.DHCPResponse, 1)
 	ipFrames := make(chan []byte, 8)
-	voiceFrames := make(chan []byte, 8)
 	udpConfigCh := make(chan overlay.UDPControl, 2)
 	udpPeerCh := make(chan overlay.UDPPeerCandidate, 8)
 	errCh := make(chan error, 1)
@@ -1075,13 +957,6 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 				case ipFrames <- frame:
 				default:
 				}
-			case overlay.FrameVoice:
-				frame := make([]byte, len(payload))
-				copy(frame, payload)
-				select {
-				case voiceFrames <- frame:
-				default:
-				}
 			case overlay.FrameUDPControl:
 				var control overlay.UDPControl
 				if err := json.Unmarshal(payload, &control); err != nil {
@@ -1126,7 +1001,6 @@ func mustOverlayConnect(ctx context.Context, addr, serverPublicKey, token string
 			client:      c,
 			lease:       lease,
 			ipFrames:    ipFrames,
-			voiceFrames: voiceFrames,
 			udpConfigCh: udpConfigCh,
 			udpPeerCh:   udpPeerCh,
 			done:        errCh,

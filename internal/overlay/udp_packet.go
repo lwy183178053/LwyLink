@@ -18,7 +18,6 @@ const (
 	UDPTypeIP       byte = 4
 	UDPTypePing     byte = 5
 	UDPTypePong     byte = 6
-	UDPTypeVoice    byte = 7
 
 	udpPacketVersion byte = 2
 	udpNonceLen      int  = 12

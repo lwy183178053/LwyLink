@@ -228,11 +228,21 @@ type ViewVoiceState struct {
 }
 
 type ConnectionState struct {
-	Status        string   `json:"status"`
-	Message       string   `json:"message"`
-	RoomID        int64    `json:"roomID"`
-	IP            string   `json:"ip"`
-	DirectPeerIPs []string `json:"directPeerIPs"`
+	Status               string                `json:"status"`
+	Message              string                `json:"message"`
+	RoomID               int64                 `json:"roomID"`
+	IP                   string                `json:"ip"`
+	DirectPeerIPs        []string              `json:"directPeerIPs"`
+	TransportDiagnostics []TransportDiagnostic `json:"transportDiagnostics"`
+}
+
+type TransportDiagnostic struct {
+	VirtualIP          string `json:"virtualIP"`
+	CandidateCount     int    `json:"candidateCount"`
+	SelectedType       string `json:"selectedType"`
+	LastProbeAt        string `json:"lastProbeAt"`
+	FailedProbes       int    `json:"failedProbes"`
+	LastObservedPeerAt string `json:"lastObservedPeerAt"`
 }
 
 type fetchedRoomState struct {
@@ -1029,6 +1039,32 @@ func applyTransportStatus(state *ConnectionState, status client.TransportStatus)
 		state.Message = status.Message
 	}
 	state.DirectPeerIPs = append([]string(nil), status.DirectIPs...)
+	state.TransportDiagnostics = viewTransportDiagnostics(status.Diagnostics)
+}
+
+func viewTransportDiagnostics(items []client.TransportPeerDiagnostic) []TransportDiagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]TransportDiagnostic, 0, len(items))
+	for _, item := range items {
+		out = append(out, TransportDiagnostic{
+			VirtualIP:          item.VirtualIP,
+			CandidateCount:     item.CandidateCount,
+			SelectedType:       item.SelectedType,
+			LastProbeAt:        formatOptionalTime(item.LastProbeAt),
+			FailedProbes:       item.FailedProbes,
+			LastObservedPeerAt: formatOptionalTime(item.LastObservedPeerAt),
+		})
+	}
+	return out
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func (a *App) cancelConnectionLocked() {

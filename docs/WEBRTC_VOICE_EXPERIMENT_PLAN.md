@@ -1,6 +1,6 @@
 # LwyLink WebRTC Voice Decision Record
 
-Status: archived decision record. The Windows client voice product path is now WebRTC media with LwyLink room membership, signaling, and mic controls around it. The former native overlay voice frontend module has been removed; low-level `FrameVoice / UDPTypeVoice` remains only for overlay transport smoke tests and future protocol experiments.
+Status: archived decision record. The Windows client voice product path is now WebRTC media with LwyLink room membership, signaling, and mic controls around it. The former native overlay voice frontend module and low-level `FrameVoice / UDPTypeVoice` transport path have been removed.
 
 The sections below are kept as rationale for why the project moved away from maintaining two client media engines.
 
@@ -203,7 +203,7 @@ The frontend now includes:
 
 The Windows client voice backend is now WebRTC only. The former native overlay voice frontend module, hidden backend selector, and dual-audio diagnostic mode were removed after listening tests confirmed WebRTC quality was acceptable. This avoids maintaining two media engines and prevents echo/double-audio confusion.
 
-The lower-level `FrameVoice / UDPTypeVoice` protocol path still exists in the overlay and smoke tooling for transport verification, but it is not the Windows product media path.
+The lower-level `FrameVoice / UDPTypeVoice` protocol path has also been removed, so the overlay now focuses on virtual LAN IP traffic while voice stays on WebRTC.
 
 WebRTC local audio tracks start muted. They are enabled only after the normal room mic button calls `SetRoomVoiceMic`, so the same voice-room semantics and mic limits are kept.
 

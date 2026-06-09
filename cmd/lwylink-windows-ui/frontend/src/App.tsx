@@ -925,6 +925,7 @@ function normalizeAppState(next: AppState): AppState {
       ...emptyState.connection,
       ...(next.connection ?? emptyState.connection),
       directPeerIPs: Array.isArray(next.connection?.directPeerIPs) ? next.connection.directPeerIPs : [],
+      transportDiagnostics: Array.isArray(next.connection?.transportDiagnostics) ? next.connection.transportDiagnostics : [],
     },
     update: {
       ...emptyState.update,

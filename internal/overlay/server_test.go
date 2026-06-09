@@ -1,7 +1,6 @@
 package overlay
 
 import (
-	"encoding/json"
 	"net"
 	"slices"
 	"testing"
@@ -53,87 +52,6 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 
 	assertNoPacket(t, peer, "room peer")
 	assertNoPacket(t, from, "sender")
-}
-
-func TestForwardVoiceRoutesOnlyValidFramesToTarget(t *testing.T) {
-	srv, from, peer, other := newForwardTestServer()
-	from.userID = 10
-	peer.userID = 11
-	other.userID = 12
-	from.relayRemainingBytes = 1024
-	voice := VoicePayload{
-		RoomID:      from.roomID,
-		FromUserID:  from.userID,
-		ToUserID:    peer.userID,
-		Seq:         1,
-		TimestampMS: time.Now().UnixMilli(),
-		Codec:       "pcm16",
-		SampleRate:  16000,
-		Payload:     []byte{1, 2, 3, 4},
-	}
-	raw, err := json.Marshal(voice)
-	if err != nil {
-		t.Fatalf("marshal voice: %v", err)
-	}
-
-	srv.forwardVoice(from, raw)
-
-	assertVoiceFrame(t, peer, peer.userID)
-	assertNoPacket(t, from, "sender")
-	assertNoPacket(t, other, "other room")
-}
-
-func TestForwardVoiceDropsForgedAndInvalidFrames(t *testing.T) {
-	tests := []struct {
-		name   string
-		adjust func(*VoicePayload)
-	}{
-		{
-			name: "forged sender",
-			adjust: func(voice *VoicePayload) {
-				voice.FromUserID = 99
-			},
-		},
-		{
-			name: "wrong room",
-			adjust: func(voice *VoicePayload) {
-				voice.RoomID = 99
-			},
-		},
-		{
-			name: "missing timestamp",
-			adjust: func(voice *VoicePayload) {
-				voice.TimestampMS = 0
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv, from, peer, _ := newForwardTestServer()
-			from.userID = 10
-			peer.userID = 11
-			from.relayRemainingBytes = 1024
-			voice := VoicePayload{
-				RoomID:      from.roomID,
-				FromUserID:  from.userID,
-				ToUserID:    peer.userID,
-				Seq:         1,
-				TimestampMS: time.Now().UnixMilli(),
-				Codec:       "pcm16",
-				SampleRate:  16000,
-				Payload:     []byte{1, 2, 3, 4},
-			}
-			tt.adjust(&voice)
-			raw, err := json.Marshal(voice)
-			if err != nil {
-				t.Fatalf("marshal voice: %v", err)
-			}
-
-			srv.forwardVoice(from, raw)
-
-			assertNoPacket(t, peer, "target peer")
-		})
-	}
 }
 
 func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
@@ -374,25 +292,6 @@ func assertPacket(t *testing.T, sess *session, name string) {
 		}
 	default:
 		t.Fatalf("%s did not receive packet", name)
-	}
-}
-
-func assertVoiceFrame(t *testing.T, sess *session, targetUserID int64) {
-	t.Helper()
-	select {
-	case frame := <-sess.send:
-		if frame.typ != FrameVoice {
-			t.Fatalf("received frame type=%d, want FrameVoice", frame.typ)
-		}
-		var voice VoicePayload
-		if err := json.Unmarshal(frame.payload, &voice); err != nil {
-			t.Fatalf("bad voice payload: %v", err)
-		}
-		if voice.ToUserID != targetUserID || len(voice.Payload) == 0 {
-			t.Fatalf("voice target=%d payload=%d", voice.ToUserID, len(voice.Payload))
-		}
-	default:
-		t.Fatalf("target peer did not receive voice frame")
 	}
 }
 
