@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -673,15 +674,7 @@ func cloneTransportStatus(status TransportStatus) TransportStatus {
 }
 
 func transportStatusEqual(a, b TransportStatus) bool {
-	if a.Mode != b.Mode || a.Message != b.Message || len(a.DirectIPs) != len(b.DirectIPs) {
-		return false
-	}
-	for i := range a.DirectIPs {
-		if a.DirectIPs[i] != b.DirectIPs[i] {
-			return false
-		}
-	}
-	return true
+	return a.Mode == b.Mode && a.Message == b.Message && slices.Equal(a.DirectIPs, b.DirectIPs)
 }
 
 func (m *udpManager) recordFailureLocked(now time.Time) {
