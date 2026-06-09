@@ -519,20 +519,6 @@ export default function App() {
     await run("发送验证码", () => SendEmailVerification({ email: loginForm.email, purpose }));
   }
 
-  async function handleResetPassword() {
-    if (!loginForm.email || !loginForm.resetCode || !loginForm.resetPassword) {
-      showNotice("请填写邮箱、验证码和新密码", "error");
-      return;
-    }
-    const ok = await run("重置密码", () =>
-      ResetPassword({ email: loginForm.email, emailCode: loginForm.resetCode, newPassword: loginForm.resetPassword }),
-    );
-    if (ok) {
-      setLoginForm((current) => ({ ...current, password: current.resetPassword, resetCode: "", resetPassword: "" }));
-      setAuthMode("login");
-    }
-  }
-
   async function handleChangePassword(event: FormEvent) {
     event.preventDefault();
     if (!loginForm.oldPassword || !loginForm.newPassword) {

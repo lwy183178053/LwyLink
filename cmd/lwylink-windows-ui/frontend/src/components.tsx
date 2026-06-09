@@ -302,7 +302,6 @@ function VoiceDock({
 }) {
   const voiceMaxMembers = room.voiceMaxMembers || room.maxMembers;
   const voiceMaxSpeakers = room.voiceMaxSpeakers || Math.min(2, voiceMaxMembers);
-  const participants = voiceState.participants || [];
   const transportText = voiceMessage || (voiceActive ? "语音连接中" : "未加入语音");
   const transportClass = voiceMode === "p2p" || voiceMode === "sending" ? "good" : voiceMode === "relay" ? "warn" : "";
   return (
