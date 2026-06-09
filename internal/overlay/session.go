@@ -22,6 +22,7 @@ type session struct {
 	udpKey         []byte
 	udpAddr        *net.UDPAddr
 	udpLAN         []string
+	udpReflexive   []string
 	udpAnnouncedAt time.Time
 	udpReplay      *UDPReplayCache
 

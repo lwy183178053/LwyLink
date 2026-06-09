@@ -35,7 +35,6 @@ export type RoomForm = {
 
 export type SettingsForm = {
   apiBaseURL: string;
-  p2pEnabled: boolean;
   voiceSettings: VoiceSettings;
 };
 

@@ -7,31 +7,16 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/room"
 )
 
-func TestNormalizeConnectOptionsDefaultsP2PEnabled(t *testing.T) {
+func TestNormalizeConnectOptionsFillsRoomDefaults(t *testing.T) {
 	opts := normalizeConnectOptions(ConnectOptions{
 		Room: room.Room{
 			NodeOverlayAddr: "node.example:35768",
+			NodeUDPAddr:     "node.example:35769",
 			NodePublicKey:   "node-key",
 		},
 	})
-	if opts.P2PEnabled == nil {
-		t.Fatalf("P2PEnabled was not defaulted")
-	}
-	if !opts.P2PEnabled() {
-		t.Fatalf("P2P should default to enabled")
-	}
-}
-
-func TestNormalizeConnectOptionsKeepsExplicitP2PDisabled(t *testing.T) {
-	opts := normalizeConnectOptions(ConnectOptions{
-		P2PEnabled: func() bool { return false },
-		Room: room.Room{
-			NodeOverlayAddr: "node.example:35768",
-			NodePublicKey:   "node-key",
-		},
-	})
-	if opts.P2PEnabled == nil || opts.P2PEnabled() {
-		t.Fatalf("explicit disabled P2P was not preserved")
+	if opts.OverlayAddr != "node.example:35768" || opts.UDPOverlayAddr != "node.example:35769" || opts.ServerPublicKey != "node-key" {
+		t.Fatalf("room defaults were not applied: %+v", opts)
 	}
 }
 

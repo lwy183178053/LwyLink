@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"slices"
@@ -382,17 +383,18 @@ func TestUDPPeerPathEndpointChangeResetsFailures(t *testing.T) {
 
 func TestResolvePeerCandidateEndpointsPrefersLAN(t *testing.T) {
 	candidate := overlay.UDPPeerCandidate{
-		Endpoint:     "203.0.113.9:30001",
-		LANEndpoints: []string{"192.168.1.20:30001", "127.0.0.1:30001", "10.0.0.5:30001"},
+		Endpoint:           "203.0.113.9:30001",
+		LANEndpoints:       []string{"192.168.1.20:30001", "127.0.0.1:30001", "10.0.0.5:30001"},
+		ReflexiveEndpoints: []string{"198.51.100.10:30001"},
 	}
 
 	endpoints := resolvePeerCandidateEndpoints(candidate)
 	got := udpAddrStrings(endpoints)
-	want := []string{"10.0.0.5:30001", "192.168.1.20:30001", "203.0.113.9:30001"}
+	want := []string{"10.0.0.5:30001", "192.168.1.20:30001", "198.51.100.10:30001", "203.0.113.9:30001"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("endpoints=%v, want %v", got, want)
 	}
-	if gotTypes, wantTypes := udpCandidateTypes(endpoints), []string{udpCandidateTypeLAN, udpCandidateTypeLAN, udpCandidateTypeObserved}; !slices.Equal(gotTypes, wantTypes) {
+	if gotTypes, wantTypes := udpCandidateTypes(endpoints), []string{udpCandidateTypeLAN, udpCandidateTypeLAN, udpCandidateTypeSTUN, udpCandidateTypeObserved}; !slices.Equal(gotTypes, wantTypes) {
 		t.Fatalf("endpoint types=%v, want %v", gotTypes, wantTypes)
 	}
 }
@@ -409,6 +411,47 @@ func TestResolvePeerCandidateEndpointsSkipsVirtualIP(t *testing.T) {
 	want := []string{"192.168.1.20:30001", "203.0.113.9:30001"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("endpoints=%v, want %v", got, want)
+	}
+}
+
+func TestParseSTUNBindingResponseXORMappedAddress(t *testing.T) {
+	var txID [12]byte
+	copy(txID[:], []byte("abcdefghijkl"))
+	raw := make([]byte, 32)
+	binary.BigEndian.PutUint16(raw[0:2], stunBindingSuccess)
+	binary.BigEndian.PutUint16(raw[2:4], 12)
+	binary.BigEndian.PutUint32(raw[4:8], stunMagicCookie)
+	copy(raw[8:20], txID[:])
+	binary.BigEndian.PutUint16(raw[20:22], stunAttrXORMappedAddr)
+	binary.BigEndian.PutUint16(raw[22:24], 8)
+	raw[25] = 0x01
+	binary.BigEndian.PutUint16(raw[26:28], 40000^uint16(stunMagicCookie>>16))
+	cookie := make([]byte, 4)
+	binary.BigEndian.PutUint32(cookie, stunMagicCookie)
+	ip := net.IPv4(198, 51, 100, 9).To4()
+	for i := 0; i < 4; i++ {
+		raw[28+i] = ip[i] ^ cookie[i]
+	}
+
+	endpoint, ok := parseSTUNBindingResponse(raw, txID)
+	if !ok || endpoint != "198.51.100.9:40000" {
+		t.Fatalf("stun endpoint=%q ok=%v, want 198.51.100.9:40000 true", endpoint, ok)
+	}
+}
+
+func TestNormalizeSTUNServer(t *testing.T) {
+	tests := map[string]string{
+		"":                         defaultOverlaySTUNAddr,
+		"stun:stun.example.com":    "stun.example.com:19302",
+		"stun.example.com:3478":    "stun.example.com:3478",
+		"192.0.2.10":               "192.0.2.10:19302",
+		"stun:192.0.2.10:3478":     "192.0.2.10:3478",
+		"  stun:example.net:9999 ": "example.net:9999",
+	}
+	for input, want := range tests {
+		if got := normalizeSTUNServer(input); got != want {
+			t.Fatalf("normalizeSTUNServer(%q)=%q, want %q", input, got, want)
+		}
 	}
 }
 

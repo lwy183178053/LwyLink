@@ -56,18 +56,20 @@ type UDPControl struct {
 }
 
 type UDPPeerCandidate struct {
-	VirtualIP    string   `json:"virtualIP"`
-	Endpoint     string   `json:"endpoint"`
-	LANEndpoints []string `json:"lanEndpoints,omitempty"`
-	SessionID    string   `json:"sessionID"`
-	Key          string   `json:"key"`
+	VirtualIP          string   `json:"virtualIP"`
+	Endpoint           string   `json:"endpoint"`
+	LANEndpoints       []string `json:"lanEndpoints,omitempty"`
+	ReflexiveEndpoints []string `json:"reflexiveEndpoints,omitempty"`
+	SessionID          string   `json:"sessionID"`
+	Key                string   `json:"key"`
 }
 
 type UDPRegisterPayload struct {
-	RoomID       int64    `json:"roomID"`
-	UserID       int64    `json:"userID"`
-	VirtualIP    string   `json:"virtualIP"`
-	LANEndpoints []string `json:"lanEndpoints,omitempty"`
+	RoomID             int64    `json:"roomID"`
+	UserID             int64    `json:"userID"`
+	VirtualIP          string   `json:"virtualIP"`
+	LANEndpoints       []string `json:"lanEndpoints,omitempty"`
+	ReflexiveEndpoints []string `json:"reflexiveEndpoints,omitempty"`
 }
 
 // PackFrame wraps an overlay payload for transport through tcpx.SecureConn.

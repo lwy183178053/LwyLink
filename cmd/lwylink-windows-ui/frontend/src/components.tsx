@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, ReactNode, RefObject } from "react";
-import { Button, Field, Input, Select, Slider, Spinner, Switch, Textarea } from "@fluentui/react-components";
+import { Button, Field, Input, Select, Slider, Spinner, Textarea } from "@fluentui/react-components";
 import {
   CircleCheck,
   CircleX,
@@ -811,7 +811,6 @@ export function SettingsPage({
   disabled,
   onSubmit,
   onAPIBaseURLChange,
-  onP2PEnabledChange,
   onVoiceSettingsChange,
   onCheckUpdates,
   onInstallUpdate,
@@ -824,7 +823,6 @@ export function SettingsPage({
   disabled: boolean;
   onSubmit: (event: FormEvent) => void;
   onAPIBaseURLChange: (value: string) => void;
-  onP2PEnabledChange: (value: boolean) => void;
   onVoiceSettingsChange: (patch: Partial<VoiceSettings>) => void;
   onCheckUpdates: () => void;
   onInstallUpdate: () => void;
@@ -838,7 +836,7 @@ export function SettingsPage({
           <div className="surface-head">
             <div>
               <span className="eyebrow">客户端</span>
-              <h2>连接偏好</h2>
+              <h2>服务器设置</h2>
             </div>
             <SlidersHorizontal size={18} />
           </div>
@@ -846,7 +844,6 @@ export function SettingsPage({
             <Field label="接口地址">
               <Input className="pretty-input" value={form.apiBaseURL} onChange={(_, data) => onAPIBaseURLChange(data.value)} />
             </Field>
-            <Switch label="启用 P2P 直连" checked={form.p2pEnabled} onChange={(_, data) => onP2PEnabledChange(data.checked)} />
             <div className="command-actions">
               <Button appearance="primary" type="submit" disabled={disabled}>
                 保存

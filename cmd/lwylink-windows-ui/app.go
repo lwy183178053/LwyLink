@@ -39,7 +39,6 @@ type App struct {
 	api        *client.API
 	apiBaseURL string
 	ifName     string
-	p2pEnabled bool
 	voicePrefs VoicePreferences
 
 	user         *account.PublicUser
@@ -70,7 +69,6 @@ type App struct {
 type SettingsInput struct {
 	APIBaseURL    string            `json:"apiBaseURL"`
 	InterfaceName string            `json:"interfaceName"`
-	P2PEnabled    *bool             `json:"p2pEnabled,omitempty"`
 	VoiceSettings *VoicePreferences `json:"voiceSettings,omitempty"`
 }
 
@@ -136,7 +134,6 @@ type MemberActionInput struct {
 type AppState struct {
 	APIBaseURL    string            `json:"apiBaseURL"`
 	InterfaceName string            `json:"interfaceName"`
-	P2PEnabled    bool              `json:"p2pEnabled"`
 	VoiceSettings VoicePreferences  `json:"voiceSettings"`
 	User          *ViewUser         `json:"user,omitempty"`
 	Rooms         []ViewRoom        `json:"rooms"`
@@ -258,7 +255,6 @@ func NewApp() *App {
 		api:          client.NewAPI(defaultAPIBaseURL),
 		apiBaseURL:   defaultAPIBaseURL,
 		ifName:       defaultIfName,
-		p2pEnabled:   prefs.P2PEnabled,
 		voicePrefs:   prefs.VoiceSettings,
 		announcement: appsettings.DefaultAnnouncement,
 		connection:   newConnectionState(statusDisconnected, "未连接"),
@@ -425,16 +421,10 @@ func (a *App) SetSettings(input SettingsInput) (AppState, error) {
 		announcementAPI = a.api.Clone()
 	}
 	a.ifName = ifName
-	if input.P2PEnabled != nil && a.p2pEnabled != *input.P2PEnabled {
-		a.p2pEnabled = *input.P2PEnabled
-		if !a.p2pEnabled {
-			a.connection.DirectPeerIPs = nil
-		}
-	}
 	if input.VoiceSettings != nil {
 		a.voicePrefs = normalizeVoicePreferences(*input.VoiceSettings)
 	}
-	_ = saveClientPreferences(clientPreferences{P2PEnabled: a.p2pEnabled, VoiceSettings: a.voicePrefs})
+	_ = saveClientPreferences(clientPreferences{VoiceSettings: a.voicePrefs})
 	a.startRoomEventsLocked()
 	if announcementAPI == nil {
 		return a.commitStateLocked(), nil
@@ -995,7 +985,6 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 		Token:           token,
 		UserID:          userID,
 		Room:            selected,
-		P2PEnabled:      a.isP2PEnabled,
 		OnConnected: func(lease overlay.DHCPResponse) {
 			a.updateConnection(seq, func(state *ConnectionState) {
 				*state = newConnectedState(selected, lease)
@@ -1294,7 +1283,6 @@ func (a *App) stateLocked() AppState {
 	return AppState{
 		APIBaseURL:    a.apiBaseURL,
 		InterfaceName: a.ifName,
-		P2PEnabled:    a.p2pEnabled,
 		VoiceSettings: a.voicePrefs,
 		User:          user,
 		Rooms:         rooms,
@@ -1306,12 +1294,6 @@ func (a *App) stateLocked() AppState {
 		Update:        a.update,
 		Announcement:  a.announcement,
 	}
-}
-
-func (a *App) isP2PEnabled() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.p2pEnabled
 }
 
 func (a *App) emitState(state AppState) {

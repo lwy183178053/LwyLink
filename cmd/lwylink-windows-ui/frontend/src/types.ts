@@ -121,7 +121,6 @@ export type VoiceSettings = {
 export type AppState = {
   apiBaseURL: string;
   interfaceName: string;
-  p2pEnabled: boolean;
   voiceSettings: VoiceSettings;
   user?: PublicUser;
   rooms: Room[];
@@ -137,7 +136,6 @@ export type AppState = {
 export const emptyState: AppState = {
   apiBaseURL: "https://www.lwylink.xyz",
   interfaceName: "LwyLink",
-  p2pEnabled: true,
   voiceSettings: {
     inputDeviceID: "",
     outputDeviceID: "",

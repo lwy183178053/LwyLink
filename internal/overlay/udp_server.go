@@ -87,8 +87,9 @@ func (s *Server) handleUDPPacket(remote *net.UDPAddr, raw []byte) {
 		return
 	}
 	lanEndpoints := NormalizeUDPLANEndpoints(payload.LANEndpoints)
+	reflexiveEndpoints := NormalizeUDPReflexiveEndpoints(payload.ReflexiveEndpoints)
 
-	changed, shouldAnnounce := s.setSessionUDPAddr(sess, remote, lanEndpoints, time.Now())
+	changed, shouldAnnounce := s.setSessionUDPAddr(sess, remote, lanEndpoints, reflexiveEndpoints, time.Now())
 	if changed {
 		log.Printf("udp overlay registered room=%d user=%s ip=%s endpoint=%s", sess.roomID, sess.username, sess.lease.IP, remote)
 	}
@@ -113,17 +114,18 @@ func (s *Server) sessionByUDPToken(token string) *session {
 	return s.byUDP[token]
 }
 
-func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr, lanEndpoints []string, now time.Time) (bool, bool) {
+func (s *Server) setSessionUDPAddr(sess *session, remote *net.UDPAddr, lanEndpoints, reflexiveEndpoints []string, now time.Time) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if current := s.byUDP[sess.udpToken]; current != sess {
 		return false, false
 	}
-	changed := sess.udpAddr == nil || sess.udpAddr.String() != remote.String() || !slices.Equal(sess.udpLAN, lanEndpoints)
+	changed := sess.udpAddr == nil || sess.udpAddr.String() != remote.String() || !slices.Equal(sess.udpLAN, lanEndpoints) || !slices.Equal(sess.udpReflexive, reflexiveEndpoints)
 	if changed {
 		cp := *remote
 		sess.udpAddr = &cp
 		sess.udpLAN = append([]string(nil), lanEndpoints...)
+		sess.udpReflexive = append([]string(nil), reflexiveEndpoints...)
 	}
 	shouldAnnounce := changed || sess.udpAnnouncedAt.IsZero() || now.Sub(sess.udpAnnouncedAt) >= udpPeerAnnounceInterval
 	if shouldAnnounce {
@@ -138,11 +140,12 @@ func (s *Server) announceUDPPeers(sess *session) {
 		_ = s.writeJSON(item.to.conn, FrameUDPControl, UDPControl{
 			Type: UDPControlPeer,
 			Peer: &UDPPeerCandidate{
-				VirtualIP:    item.peer.lease.IP,
-				Endpoint:     item.peer.udpAddr.String(),
-				LANEndpoints: append([]string(nil), item.peer.udpLAN...),
-				SessionID:    item.pair.SessionID,
-				Key:          EncodeUDPKey(item.pair.Key),
+				VirtualIP:          item.peer.lease.IP,
+				Endpoint:           item.peer.udpAddr.String(),
+				LANEndpoints:       append([]string(nil), item.peer.udpLAN...),
+				ReflexiveEndpoints: append([]string(nil), item.peer.udpReflexive...),
+				SessionID:          item.pair.SessionID,
+				Key:                EncodeUDPKey(item.pair.Key),
 			},
 		})
 	}

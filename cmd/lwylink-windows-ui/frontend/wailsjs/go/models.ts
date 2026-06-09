@@ -321,7 +321,6 @@ export namespace main {
   export class AppState {
     apiBaseURL: string;
     interfaceName: string;
-    p2pEnabled: boolean;
     voiceSettings: VoicePreferences;
     user?: ViewUser;
     rooms: ViewRoom[];
@@ -341,7 +340,6 @@ export namespace main {
       if ("string" === typeof source) source = JSON.parse(source);
       this.apiBaseURL = source["apiBaseURL"];
       this.interfaceName = source["interfaceName"];
-      this.p2pEnabled = source["p2pEnabled"];
       this.voiceSettings = this.convertValues(
         source["voiceSettings"],
         VoicePreferences,
@@ -513,7 +511,6 @@ export namespace main {
   export class SettingsInput {
     apiBaseURL: string;
     interfaceName: string;
-    p2pEnabled?: boolean;
     voiceSettings?: VoicePreferences;
 
     static createFrom(source: any = {}) {
@@ -524,7 +521,6 @@ export namespace main {
       if ("string" === typeof source) source = JSON.parse(source);
       this.apiBaseURL = source["apiBaseURL"];
       this.interfaceName = source["interfaceName"];
-      this.p2pEnabled = source["p2pEnabled"];
       this.voiceSettings = this.convertValues(
         source["voiceSettings"],
         VoicePreferences,

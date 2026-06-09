@@ -8,7 +8,7 @@ For LwyLink, the next best work is:
 
 1. Keep the current overlay relay-first behavior stable.
 2. Add path diagnostics before adding more aggressive punching.
-3. Add STUN server-reflexive candidates to the native UDP overlay.
+3. Continue improving STUN server-reflexive candidates in the native UDP overlay.
 4. Add TURN for WebRTC voice, because WebRTC without TURN is not a complete voice product.
 5. Only then consider UPnP/NAT-PMP/PCP, multi-relay selection, or QUIC/UDP relay.
 
@@ -37,9 +37,9 @@ LwyLink already has a useful shape:
 - Clients connect through TCP relay first.
 - UDP direct is attempted as an optimization.
 - UDP failure falls back to TCP relay.
-- Voice and IP use distinct overlay frame types.
+Voice uses WebRTC media; the overlay now focuses on virtual LAN IP traffic.
 
-This should remain the core model. The main missing parts are richer candidate discovery and better diagnostics.
+This should remain the core model. STUN server-reflexive candidate discovery is now implemented; the main missing parts are richer candidate-pair state and better diagnostics.
 
 ## Mature Project Patterns To Borrow
 
@@ -104,7 +104,9 @@ Expose diagnostics in:
 
 ## P1: STUN Server-Reflexive Candidate
 
-Add optional STUN discovery:
+Current status: implemented as an automatic UDP overlay candidate source. The client sends a short-timeout STUN Binding request from the same UDP socket used for rendezvous, reports the discovered `srflx-stun` endpoint to the node, and peers probe it alongside LAN and node-observed endpoints.
+
+Keep improving STUN discovery:
 
 - Client sends binding request to configured STUN server.
 - Client reports srflx endpoint to node/control path.
@@ -147,7 +149,7 @@ Important behavior:
 
 Try UPnP/NAT-PMP/PCP later:
 
-- Only if user enables P2P.
+- Only after clear product review, because UDP P2P probing is automatic.
 - Only in private LAN contexts.
 - Never block room join on it.
 - Treat success as one more candidate.
@@ -196,10 +198,9 @@ This is later work, but the diagnostics model should not assume only one node fo
 ## Immediate Experiments
 
 1. Add smoke output for current UDP candidate attempts and selected path.
-2. Add STUN srflx candidate behind config flag.
-3. Compare direct success rate before/after STUN.
-4. Add relay latency/jitter measurement to smoke.
-5. Decide whether UDP/QUIC relay is needed for virtual LAN traffic after diagnostics show TCP relay head-of-line blocking in real use.
+2. Compare direct success rate before/after STUN.
+3. Add relay latency/jitter measurement to smoke.
+4. Decide whether UDP/QUIC relay is needed for virtual LAN traffic after diagnostics show TCP relay head-of-line blocking in real use.
 
 ## Non-Goals For Now
 

@@ -107,7 +107,6 @@ export default function App() {
   const [roomForm, setRoomForm] = useState<RoomForm>({ name: "", maxMembers: String(defaultRoomMemberLimit), joinKey: "" });
   const [settingsForm, setSettingsForm] = useState<SettingsForm>({
     apiBaseURL: emptyState.apiBaseURL,
-    p2pEnabled: emptyState.p2pEnabled,
     voiceSettings: emptyState.voiceSettings,
   });
   const connectionSignature = useRef("");
@@ -239,12 +238,11 @@ export default function App() {
   function applyState(next: AppState) {
     const normalized = normalizeAppState(next);
     setState(normalized);
-    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${normalized.p2pEnabled}|${JSON.stringify(normalized.voiceSettings)}`;
+    const nextSettingsSignature = `${normalized.apiBaseURL}|${normalized.interfaceName}|${JSON.stringify(normalized.voiceSettings)}`;
     if (settingsSignature.current !== nextSettingsSignature) {
       settingsSignature.current = nextSettingsSignature;
       setSettingsForm({
         apiBaseURL: normalized.apiBaseURL,
-        p2pEnabled: normalized.p2pEnabled,
         voiceSettings: normalized.voiceSettings,
       });
     }
@@ -511,7 +509,6 @@ export default function App() {
       SetSettings(goModels.SettingsInput.createFrom({
         apiBaseURL: settingsForm.apiBaseURL,
         interfaceName: state.interfaceName,
-        p2pEnabled: settingsForm.p2pEnabled,
         voiceSettings: settingsForm.voiceSettings,
       })),
     );
@@ -866,7 +863,6 @@ export default function App() {
         disabled={isBusy}
         onSubmit={handleSaveSettings}
         onAPIBaseURLChange={(value) => setSettingsForm((current) => ({ ...current, apiBaseURL: value }))}
-        onP2PEnabledChange={(value) => setSettingsForm((current) => ({ ...current, p2pEnabled: value }))}
         onVoiceSettingsChange={updateVoiceSettings}
         onCheckUpdates={handleCheckUpdates}
         onInstallUpdate={() => run("启动更新", InstallPreparedUpdate)}

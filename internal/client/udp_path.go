@@ -63,6 +63,7 @@ type udpManagerConfig struct {
 	ServerAddr string
 	Token      string
 	Key        []byte
+	STUNAddr   string
 	RoomID     int64
 	UserID     int64
 	VirtualIP  string
@@ -88,6 +89,7 @@ type udpManager struct {
 	lastStatus TransportStatus
 	disabled   bool
 	failures   []time.Time
+	reflexive  []string
 	lifecycle  sync.Mutex
 	closed     bool
 	wg         sync.WaitGroup
@@ -154,6 +156,8 @@ func startUDPManager(ctx context.Context, cfg udpManagerConfig) (*udpManager, er
 		pathsByIP: make(map[string]*udpPeerPath),
 		pathsByID: make(map[string]*udpPeerPath),
 	}
+	m.refreshSTUNReflexive()
+	_ = conn.SetReadDeadline(time.Time{})
 	m.emitStatusLocked()
 	m.run(m.readLoop)
 	m.run(m.registerLoop)
@@ -347,10 +351,11 @@ func (m *udpManager) registerLoop() {
 
 func (m *udpManager) sendRegister() {
 	payload := overlay.UDPRegisterPayload{
-		RoomID:       m.cfg.RoomID,
-		UserID:       m.cfg.UserID,
-		VirtualIP:    m.cfg.VirtualIP,
-		LANEndpoints: m.localLANEndpoints(),
+		RoomID:             m.cfg.RoomID,
+		UserID:             m.cfg.UserID,
+		VirtualIP:          m.cfg.VirtualIP,
+		LANEndpoints:       m.localLANEndpoints(),
+		ReflexiveEndpoints: m.reflexiveEndpoints(),
 	}
 	m.mu.Lock()
 	seq := m.nextSeqLocked()
@@ -643,7 +648,7 @@ func (m *udpManager) emitStatusLocked() {
 		return
 	}
 	if m.disabled {
-		status := TransportStatus{Mode: TransportModeUDPDisabled, Message: "UDP不稳定，已使用稳定连接"}
+		status := TransportStatus{Mode: TransportModeUDPDisabled, Message: "中继连接"}
 		if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
 			return
 		}
@@ -674,13 +679,13 @@ func (m *udpManager) emitStatusLocked() {
 	}
 	sort.Strings(directIPs)
 	sort.Slice(diagnostics, func(i, j int) bool { return diagnostics[i].VirtualIP < diagnostics[j].VirtualIP })
-	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接", DirectIPs: directIPs, Diagnostics: diagnostics}
+	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "中继连接", DirectIPs: directIPs, Diagnostics: diagnostics}
 	if len(directIPs) > 0 {
 		status.Mode = TransportModeUDPDirect
-		status.Message = fmt.Sprintf("智能加速已开启 · %d 条隧道", len(directIPs))
+		status.Message = fmt.Sprintf("P2P 直连 · %d 条隧道", len(directIPs))
 	} else if probing {
 		status.Mode = TransportModeUDPProbing
-		status.Message = "正在优化连接"
+		status.Message = "正在探测更优路径"
 	}
 	if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
 		return

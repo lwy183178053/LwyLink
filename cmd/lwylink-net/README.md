@@ -28,8 +28,7 @@ $env:LWYLINK_TOKEN = "<login-token>"
   --if "LwyLink"
 ```
 
-`--room-id` 可以省略，省略时使用当前用户加入的第一个房间。
-P2P 默认开启；如果需要强制走 TCP 中继，可以传 `--p2p=false` 或设置 `LWYLINK_P2P=false`。
+`--room-id` 可以省略，省略时使用当前用户加入的第一个房间。传输选路自动完成：先用 TCP relay 保证可用，再在后台探测 UDP P2P，成功后切到直连。
 
 ## 直连模式
 
@@ -55,7 +54,7 @@ $env:LWYLINK_TOKEN = "<login-token>"
 ```json
 {"type":"connecting","message":"正在连接虚拟网络","roomID":123}
 {"type":"connected","message":"虚拟网络已连接","ip":"172.16.1.2","gateway":"172.16.1.254","mtu":1400}
-{"type":"transport","transportMode":"udp-direct","transportMessage":"智能加速已开启","directPeers":1}
+{"type":"transport","transportMode":"udp-direct","transportMessage":"P2P 直连 · 1 条隧道","directPeers":1}
 {"type":"disconnected","message":"虚拟网络已断开"}
 ```
 
@@ -79,10 +78,10 @@ $env:LWYLINK_TOKEN = "<login-token>"
 | `LWYLINK_API` | 控制端 API 地址，默认 `https://www.lwylink.xyz` |
 | `LWYLINK_ROOM_ID` | 房间 ID |
 | `LWYLINK_IF` | Wintun 网卡名 |
-| `LWYLINK_P2P` | 是否启用 P2P，默认 `true` |
 | `LWYLINK_USER_ID` | 直连模式用户 ID |
 | `LWYLINK_ROOM_PUBLIC_KEY` | 直连模式房间密钥 |
 | `LWYLINK_NETWORK_CIDR` | 直连模式房间网段 |
 | `LWYLINK_OVERLAY_ADDR` | 直连模式 Overlay 地址 |
 | `LWYLINK_UDP_OVERLAY_ADDR` | 直连模式 UDP 打洞地址，留空时同 Overlay 地址 |
+| `LWYLINK_STUN` | UDP P2P 的 STUN 地址，默认 `stun.l.google.com:19302` |
 | `LWYLINK_SERVER_PUBLIC_KEY` | 直连模式节点公钥 |

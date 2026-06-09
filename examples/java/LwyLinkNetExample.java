@@ -52,7 +52,6 @@ public final class LwyLinkNetExample {
             options.networkCIDR = "172.16.1.0/24";
             options.overlayAddr = "127.0.0.1:1";
             options.serverPublicKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            options.p2p = false;
 
             List<Map<String, String>> events = new ArrayList<>();
             engine.start(options, event -> {
@@ -86,13 +85,13 @@ public final class LwyLinkNetExample {
         options.token = cli.value("token", LwyLink.env("LWYLINK_TOKEN", ""));
         options.roomID = longValue(cli.value("room-id", LwyLink.env("LWYLINK_ROOM_ID", "0")));
         options.ifName = cli.value("if-name", LwyLink.env("LWYLINK_IF", "LwyLink"));
-        options.p2p = boolValue(cli.value("p2p", LwyLink.env("LWYLINK_P2P", "true")));
         options.userID = longValue(cli.value("user-id", LwyLink.env("LWYLINK_USER_ID", "0")));
         options.roomName = cli.value("room-name", LwyLink.env("LWYLINK_ROOM_NAME", ""));
         options.roomPublicKey = cli.value("room-public-key", LwyLink.env("LWYLINK_ROOM_PUBLIC_KEY", ""));
         options.networkCIDR = cli.value("network-cidr", LwyLink.env("LWYLINK_NETWORK_CIDR", ""));
         options.overlayAddr = cli.value("overlay-addr", LwyLink.env("LWYLINK_OVERLAY_ADDR", ""));
         options.udpOverlayAddr = cli.value("udp-overlay-addr", LwyLink.env("LWYLINK_UDP_OVERLAY_ADDR", ""));
+        options.stun = cli.value("stun", LwyLink.env("LWYLINK_STUN", ""));
         options.serverPublicKey = cli.value("server-public-key", LwyLink.env("LWYLINK_SERVER_PUBLIC_KEY", ""));
 
         try (LwyLink.NetEngine engine = new LwyLink.NetEngine(cli.exe)) {
@@ -144,10 +143,6 @@ public final class LwyLinkNetExample {
         }
     }
 
-    private static boolean boolValue(String value) {
-        return value == null || !java.util.List.of("0", "false", "no", "off").contains(value.trim().toLowerCase());
-    }
-
     private static boolean hasEventTypes(List<Map<String, String>> events, String... expected) {
         Set<String> types = new HashSet<>();
         for (Map<String, String> event : events) {
@@ -175,7 +170,7 @@ public final class LwyLinkNetExample {
                   --api <url>               Control API URL
                   --room-id <id>            Room ID
                   --if-name <name>          Wintun adapter name
-                  --p2p true|false          Enable UDP direct path
+                  --stun <host:port>        STUN server for UDP candidate discovery
                 """);
     }
 

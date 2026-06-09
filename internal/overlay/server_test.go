@@ -92,6 +92,21 @@ func TestNormalizeUDPLANEndpointsFiltersUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestNormalizeUDPReflexiveEndpointsFiltersPrivateValues(t *testing.T) {
+	got := NormalizeUDPReflexiveEndpoints([]string{
+		"198.51.100.9:40000",
+		"192.168.1.20:40000",
+		"127.0.0.1:40000",
+		"203.0.113.9:40000",
+		"198.51.100.9:40000",
+		"bad",
+	})
+	want := []string{"198.51.100.9:40000", "203.0.113.9:40000"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("reflexive endpoints=%v, want %v", got, want)
+	}
+}
+
 func TestBuildUDPAnnouncementsIncludesPeerLANEndpoints(t *testing.T) {
 	srv, from, peer, _ := newForwardTestServer()
 	from.udpToken = "from-token"
@@ -100,6 +115,7 @@ func TestBuildUDPAnnouncementsIncludesPeerLANEndpoints(t *testing.T) {
 	peer.udpToken = "peer-token"
 	peer.udpAddr = testUDPAddr(t, "203.0.113.10:50002")
 	peer.udpLAN = []string{"192.168.1.11:50002"}
+	peer.udpReflexive = []string{"198.51.100.11:50002"}
 	srv.byUDP[from.udpToken] = from
 	srv.byUDP[peer.udpToken] = peer
 
@@ -124,17 +140,17 @@ func TestSetSessionUDPAddrPeriodicallyReannouncesUnchangedEndpoint(t *testing.T)
 	endpoint := testUDPAddr(t, "203.0.113.10:50001")
 	now := time.Unix(100, 0)
 
-	changed, announce := srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now)
+	changed, announce := srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, []string{"198.51.100.10:50001"}, now)
 	if !changed || !announce {
 		t.Fatalf("first registration changed=%v announce=%v, want true true", changed, announce)
 	}
 
-	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now.Add(time.Second))
+	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, []string{"198.51.100.10:50001"}, now.Add(time.Second))
 	if changed || announce {
 		t.Fatalf("early repeat changed=%v announce=%v, want false false", changed, announce)
 	}
 
-	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, now.Add(udpPeerAnnounceInterval+time.Second))
+	changed, announce = srv.setSessionUDPAddr(sess, endpoint, []string{"192.168.1.10:50001"}, []string{"198.51.100.10:50001"}, now.Add(udpPeerAnnounceInterval+time.Second))
 	if changed || !announce {
 		t.Fatalf("interval repeat changed=%v announce=%v, want false true", changed, announce)
 	}

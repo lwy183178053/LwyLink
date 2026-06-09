@@ -51,13 +51,13 @@ type connectConfig struct {
 	token           string
 	roomID          int64
 	ifName          string
-	p2p             bool
 	userID          int64
 	roomName        string
 	roomPublicKey   string
 	networkCIDR     string
 	overlayAddr     string
 	udpOverlayAddr  string
+	stunAddr        string
 	serverPublicKey string
 }
 
@@ -123,14 +123,12 @@ func runConnect(args []string, writer *outputWriter) error {
 	err = client.ConnectRoom(ctx, client.ConnectOptions{
 		OverlayAddr:     selected.NodeOverlayAddr,
 		UDPOverlayAddr:  selected.NodeUDPAddr,
+		STUNAddr:        cfg.stunAddr,
 		ServerPublicKey: selected.NodePublicKey,
 		IfName:          cfg.ifName,
 		Token:           cfg.token,
 		UserID:          userID,
 		Room:            selected,
-		P2PEnabled: func() bool {
-			return cfg.p2p
-		},
 		OnConnected: func(lease overlay.DHCPResponse) {
 			writer.emit(netEvent{
 				Type:           "connected",
@@ -169,20 +167,19 @@ func parseConnectFlags(args []string) (connectConfig, error) {
 		token:      envString("LWYLINK_TOKEN", ""),
 		roomID:     envInt64("LWYLINK_ROOM_ID", 0),
 		ifName:     envString("LWYLINK_IF", defaultIfName),
-		p2p:        envBool("LWYLINK_P2P", true),
 		userID:     envInt64("LWYLINK_USER_ID", 0),
 	}
 	fs.StringVar(&cfg.apiBaseURL, "api", cfg.apiBaseURL, "control plane HTTP API base URL")
 	fs.StringVar(&cfg.token, "token", cfg.token, "login token; prefer LWYLINK_TOKEN for production")
 	fs.Int64Var(&cfg.roomID, "room-id", cfg.roomID, "room ID to connect; defaults to the current/first joined room")
 	fs.StringVar(&cfg.ifName, "if", cfg.ifName, "Windows Wintun adapter name")
-	fs.BoolVar(&cfg.p2p, "p2p", cfg.p2p, "enable UDP direct path when the node provides it")
 	fs.Int64Var(&cfg.userID, "user-id", cfg.userID, "direct mode user ID")
 	fs.StringVar(&cfg.roomName, "room-name", envString("LWYLINK_ROOM_NAME", ""), "direct mode room name")
 	fs.StringVar(&cfg.roomPublicKey, "room-public-key", envString("LWYLINK_ROOM_PUBLIC_KEY", ""), "direct mode room public key")
 	fs.StringVar(&cfg.networkCIDR, "network-cidr", envString("LWYLINK_NETWORK_CIDR", ""), "direct mode room network CIDR")
 	fs.StringVar(&cfg.overlayAddr, "overlay-addr", envString("LWYLINK_OVERLAY_ADDR", ""), "direct mode overlay address")
 	fs.StringVar(&cfg.udpOverlayAddr, "udp-overlay-addr", envString("LWYLINK_UDP_OVERLAY_ADDR", ""), "direct mode UDP rendezvous address; defaults to overlay address")
+	fs.StringVar(&cfg.stunAddr, "stun", envString("LWYLINK_STUN", ""), "STUN server for UDP P2P candidate discovery; defaults to stun.l.google.com:19302")
 	fs.StringVar(&cfg.serverPublicKey, "server-public-key", envString("LWYLINK_SERVER_PUBLIC_KEY", ""), "direct mode overlay server public key")
 	if err := fs.Parse(args); err != nil {
 		return connectConfig{}, err
@@ -336,6 +333,7 @@ Direct connect without HTTP room lookup:
 Cleanup routes/firewall:
   lwylink-net.exe cleanup --if LwyLink --cidr 172.16.1.0/24
 
-P2P is enabled by default. Pass --p2p=false or set LWYLINK_P2P=false to force TCP relay.
+Transport selection is automatic: TCP relay connects first, then UDP P2P probes in the background.
+Use --stun host:port or LWYLINK_STUN to override the default STUN server for UDP candidate discovery.
 Status is written to stdout as one JSON object per line.`)
 }

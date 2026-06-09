@@ -199,13 +199,13 @@ public final class LwyLink {
         public String token = "";
         public long roomID;
         public String ifName = "LwyLink";
-        public boolean p2p = true;
         public long userID;
         public String roomName = "";
         public String roomPublicKey = "";
         public String networkCIDR = "";
         public String overlayAddr = "";
         public String udpOverlayAddr = "";
+        public String stun = "";
         public String serverPublicKey = "";
     }
 
@@ -231,7 +231,6 @@ public final class LwyLink {
             command.add("connect");
             add(command, "--api", options.api);
             add(command, "--if", options.ifName);
-            command.add("--p2p=" + options.p2p);
             addIfPresent(command, "--token", options.token);
             addIfPositive(command, "--room-id", options.roomID);
             addIfPositive(command, "--user-id", options.userID);
@@ -240,6 +239,7 @@ public final class LwyLink {
             addIfPresent(command, "--network-cidr", options.networkCIDR);
             addIfPresent(command, "--overlay-addr", options.overlayAddr);
             addIfPresent(command, "--udp-overlay-addr", options.udpOverlayAddr);
+            addIfPresent(command, "--stun", options.stun);
             addIfPresent(command, "--server-public-key", options.serverPublicKey);
             process = new ProcessBuilder(command).redirectErrorStream(true).start();
             readerThread = new Thread(() -> readEvents(process, onEvent), "lwylink-net-events");

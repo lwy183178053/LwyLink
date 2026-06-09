@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from lwylink import DEFAULT_API, ConnectOptions, NetEngine, env_bool, install_sigint_stop, parse_event
+from lwylink import DEFAULT_API, ConnectOptions, NetEngine, install_sigint_stop, parse_event
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,13 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--token", default=os.getenv("LWYLINK_TOKEN", ""))
     connect.add_argument("--room-id", type=int, default=int(os.getenv("LWYLINK_ROOM_ID", "0") or "0"))
     connect.add_argument("--if-name", default=os.getenv("LWYLINK_IF", "LwyLink"))
-    connect.add_argument("--p2p", action=argparse.BooleanOptionalAction, default=env_bool("LWYLINK_P2P", True))
     connect.add_argument("--user-id", type=int, default=int(os.getenv("LWYLINK_USER_ID", "0") or "0"))
     connect.add_argument("--room-name", default=os.getenv("LWYLINK_ROOM_NAME", ""))
     connect.add_argument("--room-public-key", default=os.getenv("LWYLINK_ROOM_PUBLIC_KEY", ""))
     connect.add_argument("--network-cidr", default=os.getenv("LWYLINK_NETWORK_CIDR", ""))
     connect.add_argument("--overlay-addr", default=os.getenv("LWYLINK_OVERLAY_ADDR", ""))
     connect.add_argument("--udp-overlay-addr", default=os.getenv("LWYLINK_UDP_OVERLAY_ADDR", ""))
+    connect.add_argument("--stun", default=os.getenv("LWYLINK_STUN", ""))
     connect.add_argument("--server-public-key", default=os.getenv("LWYLINK_SERVER_PUBLIC_KEY", ""))
 
     cleanup = subparsers.add_parser("cleanup", help="Cleanup routes and firewall state")
@@ -96,7 +96,6 @@ def self_test(exe: Path) -> int:
             "127.0.0.1:1",
             "--server-public-key",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "--p2p=false",
         ],
         text=True,
         stdout=subprocess.PIPE,
@@ -142,13 +141,13 @@ def run_connect(args: argparse.Namespace) -> int:
             token=args.token,
             room_id=args.room_id,
             if_name=args.if_name,
-            p2p=args.p2p,
             user_id=args.user_id,
             room_name=args.room_name,
             room_public_key=args.room_public_key,
             network_cidr=args.network_cidr,
             overlay_addr=args.overlay_addr,
             udp_overlay_addr=args.udp_overlay_addr,
+            stun=args.stun,
             server_public_key=args.server_public_key,
         ),
         handle_event,

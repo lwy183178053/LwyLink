@@ -131,13 +131,13 @@ class ConnectOptions:
     api: str = DEFAULT_API
     room_id: int = 0
     if_name: str = "LwyLink"
-    p2p: bool = True
     user_id: int = 0
     room_name: str = ""
     room_public_key: str = ""
     network_cidr: str = ""
     overlay_addr: str = ""
     udp_overlay_addr: str = ""
+    stun: str = ""
     server_public_key: str = ""
 
 
@@ -157,13 +157,14 @@ class NetEngine:
             options.api,
             "--if",
             options.if_name,
-            "--p2p=" + bool_text(options.p2p),
         ]
         if options.token:
             command += ["--token", options.token]
         if options.room_id > 0:
             command += ["--room-id", str(options.room_id)]
         command += direct_connect_args(options)
+        if options.stun:
+            command += ["--stun", options.stun]
         self.process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
         self._thread = threading.Thread(target=self._read_events, args=(on_event,), daemon=True)
         self._thread.start()
@@ -231,17 +232,6 @@ def resolve_exe(path: Path) -> Path:
     if not resolved.exists():
         raise LwyLinkError(f"lwylink-net.exe not found: {resolved}")
     return resolved
-
-
-def env_bool(key: str, fallback: bool) -> bool:
-    value = os.getenv(key, "")
-    if not value:
-        return fallback
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def bool_text(value: bool) -> str:
-    return "true" if value else "false"
 
 
 def install_sigint_stop(engine: NetEngine) -> None:

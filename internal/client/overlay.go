@@ -20,12 +20,12 @@ import (
 type ConnectOptions struct {
 	OverlayAddr      string
 	UDPOverlayAddr   string
+	STUNAddr         string
 	ServerPublicKey  string
 	IfName           string
 	Token            string
 	UserID           int64
 	Room             room.Room
-	P2PEnabled       func() bool
 	OnConnected      func(overlay.DHCPResponse)
 	OnTransportState func(TransportStatus)
 }
@@ -295,7 +295,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 		opts.OnConnected(lease)
 	}
 	if opts.OnTransportState != nil {
-		opts.OnTransportState(TransportStatus{Mode: TransportModeTCPRelay, Message: "稳定连接"})
+		opts.OnTransportState(TransportStatus{Mode: TransportModeTCPRelay, Message: "中继连接"})
 	}
 
 	log.Printf("虚拟网络已连接: room=%s ip=%s cidr=%s if=%s", opts.Room.Name, lease.IP, opts.Room.NetworkCIDR, opts.IfName)
@@ -360,9 +360,6 @@ func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
 	if opts.IfName == "" {
 		opts.IfName = "LwyLink"
 	}
-	if opts.P2PEnabled == nil {
-		opts.P2PEnabled = func() bool { return true }
-	}
 	if opts.OverlayAddr == "" {
 		opts.OverlayAddr = opts.Room.NodeOverlayAddr
 	}
@@ -371,6 +368,9 @@ func normalizeConnectOptions(opts ConnectOptions) ConnectOptions {
 	}
 	if opts.UDPOverlayAddr == "" {
 		opts.UDPOverlayAddr = opts.OverlayAddr
+	}
+	if opts.STUNAddr == "" {
+		opts.STUNAddr = defaultOverlaySTUNAddr
 	}
 	if opts.ServerPublicKey == "" {
 		opts.ServerPublicKey = opts.Room.NodePublicKey
@@ -383,12 +383,9 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 	var latestConfig *overlay.UDPControl
 	knownPeers := make(map[string]overlay.UDPPeerCandidate)
 	udpDisabledForRun := false
-	p2pEnabled := func() bool {
-		return !udpDisabledForRun && opts.P2PEnabled != nil && opts.P2PEnabled()
-	}
 	emitDisabled := func() {
 		if opts.OnTransportState != nil {
-			opts.OnTransportState(TransportStatus{Mode: TransportModeUDPDisabled, Message: "稳定连接"})
+			opts.OnTransportState(TransportStatus{Mode: TransportModeUDPDisabled, Message: "中继连接"})
 		}
 	}
 	closeManager := func() {
@@ -399,7 +396,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 		runtimeState.setUDP(nil)
 	}
 	startManager := func() {
-		if manager != nil || latestConfig == nil || !p2pEnabled() {
+		if manager != nil || latestConfig == nil || udpDisabledForRun {
 			return
 		}
 		key, err := overlay.DecodeUDPKey(latestConfig.Key)
@@ -410,6 +407,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			ServerAddr: opts.UDPOverlayAddr,
 			Token:      latestConfig.Token,
 			Key:        key,
+			STUNAddr:   opts.STUNAddr,
 			RoomID:     opts.Room.ID,
 			UserID:     opts.UserID,
 			VirtualIP:  lease.IP,
@@ -459,12 +457,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			udpDisabledForRun = true
 			emitDisabled()
 		case <-ticker.C:
-			if p2pEnabled() {
-				startManager()
-			} else if manager != nil {
-				closeManager()
-				emitDisabled()
-			}
+			startManager()
 		}
 	}
 }

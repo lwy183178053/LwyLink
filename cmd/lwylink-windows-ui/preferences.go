@@ -8,12 +8,10 @@ import (
 )
 
 type clientPreferences struct {
-	P2PEnabled    bool             `json:"p2pEnabled"`
 	VoiceSettings VoicePreferences `json:"voiceSettings"`
 }
 
 type clientPreferencesFile struct {
-	P2PEnabled    *bool             `json:"p2pEnabled,omitempty"`
 	VoiceSettings *VoicePreferences `json:"voiceSettings,omitempty"`
 }
 
@@ -29,7 +27,6 @@ type VoicePreferences struct {
 
 func defaultClientPreferences() clientPreferences {
 	return clientPreferences{
-		P2PEnabled:    true,
 		VoiceSettings: defaultVoicePreferences(),
 	}
 }
@@ -58,8 +55,8 @@ func loadClientPreferences() clientPreferences {
 		return prefs
 	}
 	var file clientPreferencesFile
-	if err := json.Unmarshal(data, &file); err == nil && file.P2PEnabled != nil {
-		prefs.P2PEnabled = *file.P2PEnabled
+	if err := json.Unmarshal(data, &file); err != nil {
+		return prefs
 	}
 	if file.VoiceSettings != nil {
 		prefs.VoiceSettings = normalizeVoicePreferences(*file.VoiceSettings)
@@ -76,7 +73,6 @@ func saveClientPreferences(prefs clientPreferences) error {
 		return err
 	}
 	data, err := json.MarshalIndent(clientPreferencesFile{
-		P2PEnabled:    &prefs.P2PEnabled,
 		VoiceSettings: &prefs.VoiceSettings,
 	}, "", "  ")
 	if err != nil {
