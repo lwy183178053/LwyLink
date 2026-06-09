@@ -8,6 +8,13 @@ export const passwordMaxLength = 128;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type PageKey = "account" | "room" | "settings";
+export type AuthMode = "login" | "register" | "reset";
+
+export type AuthRules = {
+  emailLength: boolean;
+  emailFormat: boolean;
+  passwordLength: boolean;
+};
 
 export type LoginForm = {
   email: string;
@@ -79,7 +86,7 @@ const updateStatusTones: Record<string, string> = {
   error: "bad",
 };
 
-export function authRuleState(email: string, password: string) {
+export function authRuleState(email: string, password: string): AuthRules {
   const value = email.trim();
   return {
     emailLength: value.length >= emailMinLength && value.length <= emailMaxLength,

@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Field, Input, Spinner } from "@fluentui/react-components";
+import { Button, Spinner } from "@fluentui/react-components";
 import {
   Copy,
   Gamepad2,
-  KeyRound,
-  LogIn,
-  LogOut,
   Minus,
-  Network,
   PlugZap,
   Power,
-  RefreshCw,
-  Send,
   Settings,
   Square,
   UserCircle,
@@ -50,7 +44,6 @@ import {
   canCreateRoomSize,
   defaultRoomMemberLimit,
   defaultRoomName,
-  emailCodeInputValue,
   errorText,
   formatBytes,
   isConnectionRunning,
@@ -59,14 +52,10 @@ import {
   pageEyebrow,
   pageSubtitle,
   pageTitle,
-  emailMaxLength,
-  emailMinLength,
-  passwordMaxLength,
   passwordMinLength,
   roomCapacityLimit,
   roomMemberOptions,
   roomSizeTierLabel,
-  serverHostFromAPI,
   statusText,
   statusTone,
   trafficPeriodLabel,
@@ -79,7 +68,7 @@ import {
   type VoiceDevice,
   userLabel,
 } from "./client-ui";
-import { Avatar, Metric, NavButton, RoomCommsPanel, RoomControlPanel, RoomEntryPage, RoomPlayersPanel, Rule, SettingsPage } from "./components";
+import { AccountPage, Avatar, NavButton, RoomCommsPanel, RoomControlPanel, RoomEntryPage, RoomPlayersPanel, SettingsPage } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
 import { WebRTCVoiceSession, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
 import type { AppState, VoiceSettings } from "./types";
@@ -766,204 +755,27 @@ export default function App() {
   );
 
   function renderAccountPage() {
-    if (!state.user) {
-      return (
-        <section className="auth-layout">
-          <div className="hero-panel">
-            <div className="hero-symbol">
-              <Gamepad2 size={30} />
-            </div>
-            <div className="hero-copy">
-              <span>联微互联</span>
-              <strong>LwyLink</strong>
-            </div>
-            <div className="hero-status-grid">
-              <Metric label="服务器" value={serverHostFromAPI(settingsForm.apiBaseURL)} />
-              <Metric label="网卡" value={state.interfaceName} />
-              <Metric label="状态" value={statusText(state.connection.status)} />
-            </div>
-          </div>
-
-          <form className="surface auth-form" onSubmit={handleAuthSubmit}>
-            <div className="surface-head">
-              <div>
-                <span className="eyebrow">账号</span>
-                <h2>{authMode === "login" ? "登录" : authMode === "register" ? "注册" : "找回密码"}</h2>
-              </div>
-              {authMode === "reset" ? <KeyRound size={18} /> : <LogIn size={18} />}
-            </div>
-            <div className="form-stack">
-              <div className="segmented">
-                <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>
-                  登录
-                </button>
-                <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>
-                  注册
-                </button>
-              </div>
-              <Field label="邮箱">
-                <Input className="pretty-input" type="email" value={loginForm.email} onChange={(_, data) => handleEmailChange(data.value)} />
-              </Field>
-              {authMode === "reset" ? (
-                <>
-                  <div className="inline-action-field">
-                    <Field label="邮箱验证码">
-                      <Input
-                        className="pretty-input"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={loginForm.resetCode}
-                        onChange={(_, data) => setLoginForm((current) => ({ ...current, resetCode: emailCodeInputValue(data.value) }))}
-                      />
-                    </Field>
-                    <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("password_reset")}>
-                      发送
-                    </Button>
-                  </div>
-                  <Field label="新密码">
-                    <Input
-                      className="pretty-input"
-                      type="password"
-                      value={loginForm.resetPassword}
-                      onChange={(_, data) => setLoginForm((current) => ({ ...current, resetPassword: data.value }))}
-                    />
-                  </Field>
-                  <div className="rules compact">
-                    <Rule ok={authRules.emailFormat} text="请输入有效邮箱格式" />
-                    <Rule ok={loginForm.resetCode.trim().length === 6} text="6 位邮箱验证码" />
-                    <Rule ok={loginForm.resetPassword.length >= passwordMinLength} text={`新密码至少 ${passwordMinLength} 位`} />
-                  </div>
-                </>
-              ) : authMode === "register" && (
-                <Field label="昵称">
-                  <Input
-                    className="pretty-input"
-                    value={loginForm.displayName}
-                    onChange={(_, data) => setLoginForm((current) => ({ ...current, displayName: data.value }))}
-                  />
-                </Field>
-              )}
-              {authMode === "register" && (
-                <div className="inline-action-field">
-                  <Field label="邮箱验证码">
-                    <Input
-                      className="pretty-input"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={loginForm.emailCode}
-                      onChange={(_, data) => setLoginForm((current) => ({ ...current, emailCode: emailCodeInputValue(data.value) }))}
-                    />
-                  </Field>
-                  <Button type="button" icon={<Send size={16} />} disabled={isBusy || !authRules.emailFormat} onClick={() => handleSendEmailCode("register")}>
-                    发送
-                  </Button>
-                </div>
-              )}
-              {authMode !== "reset" && (
-                <Field label="密码">
-                  <Input
-                    className="pretty-input"
-                    type="password"
-                    value={loginForm.password}
-                    onChange={(_, data) => setLoginForm((current) => ({ ...current, password: data.value }))}
-                  />
-                </Field>
-              )}
-              {authMode === "register" && (
-                <div className="rules">
-                  <Rule ok={authRules.emailLength} text={`${emailMinLength}-${emailMaxLength} 位邮箱`} />
-                  <Rule ok={authRules.emailFormat} text="请输入有效邮箱格式" />
-                  <Rule ok={authRules.passwordLength} text={`${passwordMinLength}-${passwordMaxLength} 位密码`} />
-                  <Rule ok={loginForm.emailCode.trim().length === 6} text="6 位邮箱验证码" />
-                </div>
-              )}
-              <Button appearance="primary" icon={authMode === "reset" ? <RefreshCw size={16} /> : <LogIn size={16} />} type="submit" disabled={isBusy || !canSubmitAuth}>
-                {authMode === "login" ? "进入客户端" : authMode === "register" ? "创建账号" : "重置密码"}
-              </Button>
-              {authMode === "login" && (
-                <button type="button" className="auth-link-button" onClick={() => setAuthMode("reset")}>
-                  <span>
-                    <KeyRound size={15} />
-                    忘记密码，使用邮箱验证码找回
-                  </span>
-                </button>
-              )}
-              {authMode === "reset" && (
-                <button type="button" className="auth-link-button" onClick={() => setAuthMode("login")}>
-                  返回登录
-                </button>
-              )}
-            </div>
-          </form>
-        </section>
-      );
-    }
-
     return (
-      <section className="account-grid">
-        <div className="surface account-session">
-          <Avatar user={state.user} size="hero" />
-          <div className="account-main">
-            <span>当前会话</span>
-            <h2>{userLabel(state.user.displayName, state.user.username)}</h2>
-            <div className="account-tags">
-              <span className={`member-chip ${membershipTone(state.user.membership)}`}>
-                {membershipLabel(state.user.membership)}
-              </span>
-              <span className="member-chip neutral">{state.user.disabled ? "已禁用" : "账号正常"}</span>
-            </div>
-          </div>
-          <div className="account-actions">
-            <Button icon={<LogOut size={16} />} disabled={isBusy} onClick={() => run("退出登录", Logout)}>
-              退出
-            </Button>
-          </div>
-        </div>
-
-        <div className="surface data-panel">
-          <div className="surface-head">
-            <h2>网络状态</h2>
-            <Network size={18} />
-          </div>
-          <div className="data-grid">
-            <Metric label="连接" value={statusText(state.connection.status)} />
-            <Metric label="虚拟 IP" value={state.connection.ip || "-"} />
-            <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
-            <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
-          </div>
-        </div>
-
-        <form className="surface password-panel" onSubmit={handleChangePassword}>
-          <div className="surface-head">
-            <div>
-              <span className="eyebrow">安全</span>
-              <h2>修改密码</h2>
-            </div>
-            <KeyRound size={18} />
-          </div>
-          <div className="form-stack">
-            <Field label="当前密码">
-              <Input
-                className="pretty-input"
-                type="password"
-                value={loginForm.oldPassword}
-                onChange={(_, data) => setLoginForm((current) => ({ ...current, oldPassword: data.value }))}
-              />
-            </Field>
-            <Field label="新密码">
-              <Input
-                className="pretty-input"
-                type="password"
-                value={loginForm.newPassword}
-                onChange={(_, data) => setLoginForm((current) => ({ ...current, newPassword: data.value }))}
-              />
-            </Field>
-            <Button appearance="primary" icon={<KeyRound size={16} />} type="submit" disabled={isBusy || loginForm.newPassword.length < passwordMinLength}>
-              保存新密码
-            </Button>
-          </div>
-        </form>
-      </section>
+      <AccountPage
+        user={state.user}
+        authMode={authMode}
+        loginForm={loginForm}
+        authRules={authRules}
+        apiBaseURL={settingsForm.apiBaseURL}
+        interfaceName={state.interfaceName}
+        connection={state.connection}
+        currentRoom={currentRoom}
+        currentMember={currentMember}
+        canSubmitAuth={canSubmitAuth}
+        isBusy={isBusy}
+        onAuthModeChange={setAuthMode}
+        onAuthSubmit={handleAuthSubmit}
+        onEmailChange={handleEmailChange}
+        onLoginFormChange={(patch) => setLoginForm((current) => ({ ...current, ...patch }))}
+        onSendEmailCode={handleSendEmailCode}
+        onChangePassword={handleChangePassword}
+        onLogout={() => run("退出登录", Logout)}
+      />
     );
   }
 
