@@ -74,6 +74,30 @@ func TestCancelConnectionResetsVoiceStateAndQueue(t *testing.T) {
 	}
 }
 
+func TestDisconnectPreservesVoiceState(t *testing.T) {
+	app := NewApp()
+	app.mu.Lock()
+	app.connection = ConnectionState{Status: statusConnected, Message: "已连接", RoomID: 7}
+	app.voiceState = room.VoiceState{
+		RoomID: 7,
+		Participants: []room.VoiceParticipant{
+			{UserID: 10, Speaking: true},
+		},
+	}
+	app.mu.Unlock()
+
+	got, err := app.Disconnect()
+	if err != nil {
+		t.Fatalf("Disconnect returned error: %v", err)
+	}
+	if got.Connection.Status != statusDisconnected {
+		t.Fatalf("connection status=%q, want %q", got.Connection.Status, statusDisconnected)
+	}
+	if got.Voice.RoomID != 7 || len(got.Voice.Participants) != 1 || got.Voice.Participants[0].UserID != 10 {
+		t.Fatalf("voice state was changed: %+v", got.Voice)
+	}
+}
+
 func TestOfficialClientPinsAPIBaseURL(t *testing.T) {
 	if got := normalizeSavedAPIBaseURL("http://fake.example.test:8080/"); got != defaultAPIBaseURL {
 		t.Fatalf("normalizeSavedAPIBaseURL()=%q, want official %q", got, defaultAPIBaseURL)
@@ -111,5 +135,17 @@ func TestManualUpdateCheckCooldown(t *testing.T) {
 	app.mu.Unlock()
 	if afterSeq != beforeSeq {
 		t.Fatalf("update check seq changed during cooldown: got %d, want %d", afterSeq, beforeSeq)
+	}
+}
+
+func TestShouldRestartUpdateDownloadAfterAuth(t *testing.T) {
+	if !shouldRestartUpdateDownloadAfterAuth(UpdateState{Status: updateStatusIdle, LatestVersion: "9.9.9"}) {
+		t.Fatalf("expected auth to restart update download when latest release is waiting for token")
+	}
+	if shouldRestartUpdateDownloadAfterAuth(UpdateState{Status: updateStatusDownloading, LatestVersion: "9.9.9"}) {
+		t.Fatalf("downloading update should not restart")
+	}
+	if shouldRestartUpdateDownloadAfterAuth(UpdateState{Status: updateStatusIdle}) {
+		t.Fatalf("empty latest version should not restart")
 	}
 }

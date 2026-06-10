@@ -82,6 +82,7 @@ func main() {
 	roomSvc.StartEmptyRoomCleaner(ctx, time.Duration(cfg.RoomCleanupIntervalSeconds)*time.Second, time.Duration(cfg.RoomEmptyGraceSeconds)*time.Second)
 
 	httpServer := web.NewServer(cfg.HTTPAddr, cfg.AdminToken, accountSvc, settingsSvc, roomSvc, nodeSvc, releaseSvc, mailSvc, cfg.VoiceICEServers, cfg.VoiceTURNCredential)
+	httpServer.SetTurnUsageLedger(web.NewTurnUsageLedger(sqlDB))
 	if err := httpServer.ListenAndServe(ctx); err != nil {
 		log.Fatalf("control plane failed: %v", err)
 	}

@@ -36,6 +36,8 @@
         {{template "overview" .}}
       {{else if eq .Active "metrics"}}
         {{template "monitoring" .}}
+      {{else if eq .Active "turn-usage"}}
+        {{template "turn-usage" .}}
       {{else if eq .Active "users"}}
         {{template "users" .}}
       {{else if eq .Active "rooms"}}
@@ -96,6 +98,7 @@
   <div class="monitor-card">
     <strong>{{.Metrics.OverlayConnections}}</strong>
     <span>Overlay 连接</span>
+    <small>{{.Metrics.OnlineRooms}} 个在线房间</small>
   </div>
   <div class="monitor-card">
     <strong>{{.Metrics.VoiceParticipants}}</strong>
@@ -105,6 +108,11 @@
   <div class="monitor-card">
     <strong>{{formatBytes .Metrics.RelayTrafficUsedBytes}}</strong>
     <span>本期中继流量</span>
+  </div>
+  <div class="monitor-card">
+    <strong>{{formatBytes .Metrics.TURNTrafficUsedBytes}}</strong>
+    <span>TURN 流量</span>
+    <small>失败 {{.Metrics.TURNChargeFailures}} 次，日志延迟 {{printf "%.0f" .Metrics.CoturnLogLagSeconds}}s</small>
   </div>
   <div class="monitor-card">
     <strong>{{.Metrics.DownloadsLastHour}}</strong>
@@ -134,7 +142,11 @@
     </div>
     <div class="status-list">
       <div><span>Overlay 在线连接</span><strong>{{.Metrics.OverlayConnections}}</strong></div>
+      <div><span>在线房间</span><strong>{{.Metrics.OnlineRooms}}</strong></div>
       <div><span>语音使用</span><strong>{{.Metrics.VoiceParticipants}} 人 / {{.Metrics.VoiceSpeakers}} 麦</strong></div>
+      <div><span>TURN 流量</span><strong>{{formatBytes .Metrics.TURNTrafficUsedBytes}}</strong></div>
+      <div><span>TURN 扣费失败</span><strong>{{.Metrics.TURNChargeFailures}}</strong></div>
+      <div><span>coturn 日志延迟</span><strong>{{printf "%.0f" .Metrics.CoturnLogLagSeconds}}s</strong></div>
       <div><span>下载趋势</span><strong>{{.Metrics.DownloadsLastHour}} / {{.Metrics.DownloadsLastDay}}</strong></div>
       <div><span>节点异常</span><strong>{{len .Metrics.RecentErrors}}</strong></div>
     </div>
@@ -154,6 +166,84 @@
 <section class="panel">
   <div class="panel-head"><h2>服务器节点</h2><span>{{len .Nodes}} 条</span></div>
   {{template "node-table" .}}
+</section>
+{{end}}
+
+{{define "turn-usage"}}
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>TURN 扣费对账</h2>
+      <p>按 coturn usage 日志记录展示扣费明细。</p>
+    </div>
+    <span>coturn</span>
+  </div>
+  <form class="toolbar" method="get">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label>用户 ID
+      <input name="userID" value="{{if gt .TurnUsageUserID 0}}{{.TurnUsageUserID}}{{end}}" placeholder="全部">
+    </label>
+    <label>日期
+      <input name="date" value="{{.TurnUsageDate}}" placeholder="YYYY-MM-DD">
+    </label>
+    <label>每页
+      <select name="perPage">
+        <option value="20" {{if eq .PerPage 20}}selected{{end}}>20</option>
+        <option value="50" {{if eq .PerPage 50}}selected{{end}}>50</option>
+        <option value="100" {{if eq .PerPage 100}}selected{{end}}>100</option>
+        <option value="200" {{if eq .PerPage 200}}selected{{end}}>200</option>
+      </select>
+    </label>
+    <button class="primary" type="submit">查询</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>每日汇总</h2><span>{{len .TurnUsage.Summaries}} 条</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>日期</th><th>用户</th><th>已扣费</th><th>失败流量</th><th>事件</th><th>失败</th></tr></thead>
+      <tbody>
+        {{range .TurnUsage.Summaries}}
+        <tr>
+          <td class="mono">{{.Date}}</td>
+          <td class="mono">{{.UserID}}</td>
+          <td>{{formatBytes .ChargedBytes}}</td>
+          <td>{{formatBytes .FailedBytes}}</td>
+          <td>{{.Events}}</td>
+          <td>{{.Failures}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6" class="empty">暂无 TURN usage 记录</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{template "pagination" .}}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>扣费明细</h2><span>{{len .TurnUsage.Events}} 条</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>时间</th><th>用户</th><th>来源</th><th>流量</th><th>状态</th><th>错误</th><th>原始日志</th></tr></thead>
+      <tbody>
+        {{range .TurnUsage.Events}}
+        <tr>
+          <td class="mono">{{timeText .ReportedAt}}</td>
+          <td class="mono">{{.UserID}}</td>
+          <td>{{.Source}}</td>
+          <td>{{formatBytes .Bytes}}</td>
+          <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
+          <td>{{if .ErrorMessage}}{{.ErrorMessage}}{{else}}<span class="muted">-</span>{{end}}</td>
+          <td class="mono compact raw-log">{{.RawLine}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="empty">暂无明细</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 
@@ -380,7 +470,7 @@
 <div class="table-wrap">
   <table>
     <thead>
-      <tr><th>ID</th><th>名称</th><th>房主</th><th>成员</th><th>状态</th><th>网络</th><th>节点</th><th>密钥</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
+      <tr><th>ID</th><th>名称</th><th>房主</th><th>成员</th><th>状态</th><th>网络</th><th>节点</th><th>路径诊断</th><th>密钥</th>{{if not .ReadOnlyRows}}<th>操作</th>{{end}}</tr>
     </thead>
     <tbody>
       {{range .Rooms}}
@@ -392,6 +482,39 @@
         <td><span class="status {{statusClass .Status}}">{{.Status}}</span></td>
         <td class="mono">{{.NetworkCIDR}}</td>
         <td>{{if .NodeName}}{{.NodeName}}{{else}}<span class="muted">未分配</span>{{end}}</td>
+        <td class="network-diag-cell">
+          {{$reports := roomDiagnostics $.RoomNetworkDiagnostics .ID}}
+          {{range $reports}}
+          <details class="diag-entry">
+            <summary>
+              <span class="mono">#{{.UserID}}</span>
+              <span>{{if .TransportMode}}{{.TransportMode}}{{else}}{{.Status}}{{end}}</span>
+              <span>{{timeText .UpdatedAt}}</span>
+            </summary>
+            <div class="diag-meta">
+              <span>IP {{if .IP}}{{.IP}}{{else}}-{{end}}</span>
+              <span>直连 {{len .DirectPeerIPs}}</span>
+              <span>{{.Message}}</span>
+            </div>
+            <ul class="diag-peers">
+              {{range .TransportDiagnostics}}
+              <li>
+                <strong>{{.VirtualIP}}</strong>
+                <span>{{if .SelectedPath}}{{.SelectedPath}}{{else}}-{{end}} / {{if .SelectedType}}{{.SelectedType}}{{else}}-{{end}}</span>
+                <span>RTT {{.LastRTTMS}}ms</span>
+                <span>失败 {{.ConsecutiveFailures}}</span>
+                {{if .FailureReason}}<span>{{.FailureReason}}</span>{{end}}
+                {{if .DisabledReason}}<span>{{.DisabledReason}}</span>{{end}}
+              </li>
+              {{else}}
+              <li class="empty">暂无 peer 明细</li>
+              {{end}}
+            </ul>
+          </details>
+          {{else}}
+          <span class="muted">暂无</span>
+          {{end}}
+        </td>
         <td class="mono compact">{{.RoomPublicKey}}</td>
         {{if not $.ReadOnlyRows}}<td>
           <form method="post" action="/admin/rooms/status">
@@ -403,7 +526,7 @@
         </td>{{end}}
       </tr>
       {{else}}
-      <tr><td colspan="{{if .ReadOnlyRows}}8{{else}}9{{end}}" class="empty">暂无房间</td></tr>
+      <tr><td colspan="{{if .ReadOnlyRows}}9{{else}}10{{end}}" class="empty">暂无房间</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -421,7 +544,7 @@
   </div>
   <form class="release-form" method="post" action="/admin/releases/upload" enctype="multipart/form-data">
     <input type="hidden" name="token" value="{{.Token}}">
-    <label>版本号<input name="version" placeholder="例如 0.2.8" required></label>
+    <label>版本号<input name="version" placeholder="例如 0.2.1" required></label>
     <label>平台<input name="platform" value="windows-amd64" required></label>
     <label>安装参数<input name="installArgs" placeholder="例如 /S，可留空"></label>
     <label>强制更新

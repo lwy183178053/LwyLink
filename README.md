@@ -209,7 +209,10 @@ Copy-Item .\configs\mail.example.json .\configs\mail.local.json
   "urls": ["turn:turn.example.com:3478", "turns:turn.example.com:5349"],
   "staticAuthSecret": "CHANGE_ME_TURN_REST_SECRET",
   "ttlSeconds": 3600,
-  "usernamePrefix": "lwylink"
+  "usernamePrefix": "lwylink",
+  "usageLogPath": "/var/log/lwylink/coturn.log",
+  "usageStatePath": "/opt/lwylink/data/coturn-usage.offset",
+  "usagePollIntervalSeconds": 10
 }
 ```
 
@@ -221,8 +224,8 @@ $env:LWYLINK_VOICE_TURN_SECRET='CHANGE_ME_TURN_REST_SECRET'
 ```
 
 真实 TURN secret 不要提交到 Git。`voiceICEServers` 仍可用于普通 STUN 或临时静态 ICE server，但生产 TURN 优先使用 `voiceTURNCredential`。
-客户端只有登录后才会请求 WebRTC ICE 配置，避免未授权访问者批量获取 TURN 临时凭据。
-WebRTC 语音走 `relay` candidate 时，Windows 客户端会按 WebRTC stats 增量上报 TURN 字节并计入账号中继流量；`host/srflx` 直连语音不扣中继流量。后续如果接入 coturn 服务端日志，可升级为更权威的服务端侧计费。
+客户端只有登录后才会请求 WebRTC ICE 配置，避免未授权访问者批量获取 TURN 临时凭据。控制端签发的 TURN REST username 会带上账号 ID，便于 coturn usage 日志回算到账号。
+生产环境建议配置 `usageLogPath`：控制端会 tail coturn `usage:` 日志，用服务端 `rb+sb` 字节扣账号中继流量并更新后台 TURN 指标；未配置 usage log 时，才保留 Windows 客户端 WebRTC stats 上报作为测试兜底。`host/srflx` 直连语音不扣中继流量。
 
 仓库提供 `deploy/setup-turn.ps1` 和 `deploy/turn.example.json` 辅助部署 coturn：
 

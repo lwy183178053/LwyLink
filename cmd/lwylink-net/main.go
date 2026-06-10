@@ -48,12 +48,20 @@ type netEvent struct {
 }
 
 type transportDiagnostic struct {
-	VirtualIP          string `json:"virtualIP"`
-	CandidateCount     int    `json:"candidateCount"`
-	SelectedType       string `json:"selectedType"`
-	LastProbeAt        string `json:"lastProbeAt,omitempty"`
-	FailedProbes       int    `json:"failedProbes"`
-	LastObservedPeerAt string `json:"lastObservedPeerAt,omitempty"`
+	VirtualIP           string   `json:"virtualIP"`
+	CandidateCount      int      `json:"candidateCount"`
+	CandidateTypes      []string `json:"candidateTypes,omitempty"`
+	SelectedType        string   `json:"selectedType"`
+	SelectedPath        string   `json:"selectedPath,omitempty"`
+	LastProbeAt         string   `json:"lastProbeAt,omitempty"`
+	LastSuccessAt       string   `json:"lastSuccessAt,omitempty"`
+	LastFailureAt       string   `json:"lastFailureAt,omitempty"`
+	LastRTTMS           int64    `json:"lastRTTMS,omitempty"`
+	FailedProbes        int      `json:"failedProbes"`
+	ConsecutiveFailures int      `json:"consecutiveFailures,omitempty"`
+	FailureReason       string   `json:"failureReason,omitempty"`
+	DisabledReason      string   `json:"disabledReason,omitempty"`
+	LastObservedPeerAt  string   `json:"lastObservedPeerAt,omitempty"`
 }
 
 type connectConfig struct {
@@ -284,12 +292,20 @@ func viewTransportDiagnostics(items []client.TransportPeerDiagnostic) []transpor
 	out := make([]transportDiagnostic, 0, len(items))
 	for _, item := range items {
 		out = append(out, transportDiagnostic{
-			VirtualIP:          item.VirtualIP,
-			CandidateCount:     item.CandidateCount,
-			SelectedType:       item.SelectedType,
-			LastProbeAt:        formatOptionalTime(item.LastProbeAt),
-			FailedProbes:       item.FailedProbes,
-			LastObservedPeerAt: formatOptionalTime(item.LastObservedPeerAt),
+			VirtualIP:           item.VirtualIP,
+			CandidateCount:      item.CandidateCount,
+			CandidateTypes:      append([]string(nil), item.CandidateTypes...),
+			SelectedType:        item.SelectedType,
+			SelectedPath:        item.SelectedPath,
+			LastProbeAt:         formatOptionalTime(item.LastProbeAt),
+			LastSuccessAt:       formatOptionalTime(item.LastSuccessAt),
+			LastFailureAt:       formatOptionalTime(item.LastFailureAt),
+			LastRTTMS:           item.LastRTT.Milliseconds(),
+			FailedProbes:        item.FailedProbes,
+			ConsecutiveFailures: item.ConsecutiveFailures,
+			FailureReason:       item.FailureReason,
+			DisabledReason:      item.DisabledReason,
+			LastObservedPeerAt:  formatOptionalTime(item.LastObservedPeerAt),
 		})
 	}
 	return out
@@ -315,18 +331,6 @@ func envInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func envBool(key string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

@@ -19,6 +19,7 @@ var adminModuleTemplate = template.Must(template.New("admin.html").Funcs(templat
 	"formatBytes":     formatBytes,
 	"timeText":        timeText,
 	"timePtrText":     timePtrText,
+	"roomDiagnostics": roomDiagnostics,
 }).ParseFS(adminFiles, "admin_assets/admin.html"))
 
 func adminAssetHandler() http.Handler {

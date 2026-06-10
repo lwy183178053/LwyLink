@@ -38,7 +38,7 @@ func TestDownloadTicketRoundTripAndExpiry(t *testing.T) {
 }
 
 func TestDownloadLimiterRejectsAfterLimit(t *testing.T) {
-	limiter := newDownloadLimiter(time.Hour)
+	limiter := newWindowLimiter(time.Hour)
 	if !limiter.Allow("ip:1", 2) {
 		t.Fatalf("first hit rejected")
 	}
@@ -50,6 +50,25 @@ func TestDownloadLimiterRejectsAfterLimit(t *testing.T) {
 	}
 	if !limiter.Allow("ip:2", 2) {
 		t.Fatalf("different key rejected")
+	}
+}
+
+func TestAllowUserAPIRateRejectsAfterUserLimit(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-secret", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
+	req.RemoteAddr = "203.0.113.5:12345"
+
+	if !srv.allowUserAPIRate(req, "test-scope", 7, 100, 2) {
+		t.Fatalf("first user API hit rejected")
+	}
+	if !srv.allowUserAPIRate(req, "test-scope", 7, 100, 2) {
+		t.Fatalf("second user API hit rejected")
+	}
+	if srv.allowUserAPIRate(req, "test-scope", 7, 100, 2) {
+		t.Fatalf("third user API hit accepted")
+	}
+	if !srv.allowUserAPIRate(req, "test-scope", 8, 100, 2) {
+		t.Fatalf("different user was rejected")
 	}
 }
 

@@ -16,20 +16,20 @@ import (
 const envPrefix = "LWYLINK_"
 
 type ControlConfig struct {
-	HTTPAddr                       string `json:"httpAddr"`
-	MySQLDSN                       string `json:"mysqlDsn"`
-	RedisAddr                      string `json:"redisAddr"`
-	RedisPassword                  string `json:"redisPassword"`
-	TokenSecret                    string `json:"tokenSecret"`
-	AdminToken                     string `json:"adminToken"`
-	ClientReleaseDir               string `json:"clientReleaseDir"`
-	NodeHealthCheckIntervalSeconds int    `json:"nodeHealthCheckIntervalSeconds"`
-	RoomCleanupIntervalSeconds     int    `json:"roomCleanupIntervalSeconds"`
-	RoomEmptyGraceSeconds          int    `json:"roomEmptyGraceSeconds"`
-	RoomNetworkBase                string `json:"roomNetworkBase"`
-	RoomSubnetPrefix               int    `json:"roomSubnetPrefix"`
-	MailConfigPath                 string `json:"mailConfigPath"`
-	VoiceICEServers                []ICEServerConfig `json:"voiceICEServers"`
+	HTTPAddr                       string               `json:"httpAddr"`
+	MySQLDSN                       string               `json:"mysqlDsn"`
+	RedisAddr                      string               `json:"redisAddr"`
+	RedisPassword                  string               `json:"redisPassword"`
+	TokenSecret                    string               `json:"tokenSecret"`
+	AdminToken                     string               `json:"adminToken"`
+	ClientReleaseDir               string               `json:"clientReleaseDir"`
+	NodeHealthCheckIntervalSeconds int                  `json:"nodeHealthCheckIntervalSeconds"`
+	RoomCleanupIntervalSeconds     int                  `json:"roomCleanupIntervalSeconds"`
+	RoomEmptyGraceSeconds          int                  `json:"roomEmptyGraceSeconds"`
+	RoomNetworkBase                string               `json:"roomNetworkBase"`
+	RoomSubnetPrefix               int                  `json:"roomSubnetPrefix"`
+	MailConfigPath                 string               `json:"mailConfigPath"`
+	VoiceICEServers                []ICEServerConfig    `json:"voiceICEServers"`
 	VoiceTURNCredential            TURNCredentialConfig `json:"voiceTURNCredential"`
 }
 
@@ -40,10 +40,13 @@ type ICEServerConfig struct {
 }
 
 type TURNCredentialConfig struct {
-	URLs             []string `json:"urls"`
-	StaticAuthSecret string   `json:"staticAuthSecret"`
-	TTLSeconds       int      `json:"ttlSeconds"`
-	UsernamePrefix   string   `json:"usernamePrefix,omitempty"`
+	URLs                     []string `json:"urls"`
+	StaticAuthSecret         string   `json:"staticAuthSecret"`
+	TTLSeconds               int      `json:"ttlSeconds"`
+	UsernamePrefix           string   `json:"usernamePrefix,omitempty"`
+	UsageLogPath             string   `json:"usageLogPath,omitempty"`
+	UsageStatePath           string   `json:"usageStatePath,omitempty"`
+	UsagePollIntervalSeconds int      `json:"usagePollIntervalSeconds,omitempty"`
 }
 
 type MailConfig struct {
@@ -244,6 +247,9 @@ func applyControlDefaults(cfg *ControlConfig) {
 	if cfg.VoiceTURNCredential.TTLSeconds <= 0 {
 		cfg.VoiceTURNCredential.TTLSeconds = 3600
 	}
+	if cfg.VoiceTURNCredential.UsagePollIntervalSeconds <= 0 {
+		cfg.VoiceTURNCredential.UsagePollIntervalSeconds = 10
+	}
 }
 
 func applyMailDefaults(cfg *MailConfig) {
@@ -308,7 +314,14 @@ func applyControlEnvOverrides(cfg *ControlConfig) {
 	if v := os.Getenv(envName("VOICE_TURN_USERNAME_PREFIX")); v != "" {
 		cfg.VoiceTURNCredential.UsernamePrefix = v
 	}
+	if v := os.Getenv(envName("VOICE_TURN_USAGE_LOG")); v != "" {
+		cfg.VoiceTURNCredential.UsageLogPath = v
+	}
+	if v := os.Getenv(envName("VOICE_TURN_USAGE_STATE")); v != "" {
+		cfg.VoiceTURNCredential.UsageStatePath = v
+	}
 	applyEnvInt(envName("VOICE_TURN_TTL_SECONDS"), &cfg.VoiceTURNCredential.TTLSeconds)
+	applyEnvInt(envName("VOICE_TURN_USAGE_POLL_SECONDS"), &cfg.VoiceTURNCredential.UsagePollIntervalSeconds)
 	applyEnvInt(envName("NODE_HEALTH_INTERVAL_SECONDS"), &cfg.NodeHealthCheckIntervalSeconds)
 	applyEnvInt(envName("ROOM_CLEANUP_INTERVAL_SECONDS"), &cfg.RoomCleanupIntervalSeconds)
 	applyEnvInt(envName("ROOM_EMPTY_GRACE_SECONDS"), &cfg.RoomEmptyGraceSeconds)

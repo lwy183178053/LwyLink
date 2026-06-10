@@ -9,8 +9,11 @@
 | `release.cmd` / `release.ps1` | 一键发布入口：同步版本、构建、部署、发布 Windows 客户端并校验 latest 接口 |
 | `check.ps1` | 日常开发自检入口：Go 测试、前端构建、发布脚本自测和空白检查 |
 | `build-all.ps1` | 本机一键全编译 |
+| `backup-remote.ps1` | 远端 MySQL、Redis 和配置备份，可安装每日 systemd timer |
+| `post-release-check.ps1` | 发布后巡检：healthz、latest release、smoke、coturn 和 backup timer |
 | `upload-deploy.ps1` | 上传已有构建产物、安装 systemd、重启并可选 smoke 验证 |
 | `setup-turn.ps1` | 安装/配置 coturn，为 WebRTC 语音提供 TURN 兜底 |
+| `prometheus-alerts.yml` | Prometheus 告警规则：TURN 扣费失败、coturn 日志延迟、节点掉线 |
 | `turn.example.json` | TURN 本机配置模板，复制到 `configs/turn.local.json` 后填写密钥 |
 | `test-release.ps1` | 发布脚本自测，检查版本同步幂等和后台占位符不被误改 |
 | `docker-compose.prod.yml` | 生产版 MySQL 和 Redis，只绑定 `127.0.0.1` |
@@ -63,9 +66,20 @@ Copy-Item .\configs\deploy.example.json .\configs\deploy.local.json
 
 1. 同步 Windows 客户端版本号到 Go、Wails、前端包文件、前端默认状态和管理端占位文本。
 2. 调用 `build-all.ps1 -Vet -AppVersion <version>` 全量构建。
-3. 调用 `upload-deploy.ps1` 上传 Linux 服务端二进制、安装 systemd、重启并跑 smoke。
-4. 上传 `build/windows-amd64/LwyLink.exe` 到管理端“更新发布”。
-5. 请求 `/api/client/releases/latest` 校验线上 latest 版本号和 SHA256。
+3. 调用 `backup-remote.ps1` 备份远端配置、MySQL 和 Redis。
+4. 调用 `upload-deploy.ps1` 上传 Linux 服务端二进制、安装 systemd、重启并跑 smoke。
+5. 上传 `build/windows-amd64/LwyLink.exe` 到管理端“更新发布”。
+6. 请求 `/api/client/releases/latest` 校验线上 latest 版本号和 SHA256。
+7. 自动调用 `post-release-check.ps1` 做完整发布后巡检。
+
+如需单独重跑巡检：
+
+```powershell
+.\deploy\post-release-check.ps1
+```
+
+这条命令会检查 `/healthz`、Windows latest release、端到端 smoke、远端 `coturn` active 和 `lwylink-backup.timer` active。
+新环境尚未安装 coturn 或备份定时器时，可显式加 `-SkipCoturn` 或 `-SkipBackupTimer` 只跑已启用组件。
 
 当前阶段客户端协议和账号/网络逻辑经常是不兼容更新，发布脚本会默认把 Windows 客户端标记为强制更新。
 客户端发布和 smoke 默认使用公网 HTTPS API：`https://www.lwylink.xyz`。控制端 `8080` 只监听本机，不再作为公网排障入口；如需排查反向代理，优先在服务器本机 `curl http://127.0.0.1:8080`。
@@ -77,6 +91,9 @@ Copy-Item .\configs\deploy.example.json .\configs\deploy.local.json
 .\deploy\release.cmd -Version <version> -Notes "说明" -SkipDeploy
 .\deploy\release.cmd -Version <version> -Notes "说明" -SkipClientRelease
 .\deploy\release.cmd -Version <version> -Notes "说明" -SkipBuild
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipBackup
+.\deploy\release.cmd -Version <version> -Notes "说明" -SkipPostReleaseCheck
+.\deploy\release.cmd -Version <version> -Notes "说明" -InstallDailyBackup
 .\deploy\release.cmd -Version <version> -Notes "说明" -UploadConfigs
 .\deploy\release.cmd -Version <version> -Notes "说明" -Commit
 ```
@@ -187,6 +204,48 @@ $env:LWYLINK_API_URL = "https://www.lwylink.xyz"
 
 命令行参数优先级最高，其次环境变量，最后读取 `configs/deploy.local.json`。临时切换服务器时直接传 `-HostName` / `-Password`，不需要改本地配置文件。
 
+## 备份与恢复准备
+
+发布脚本默认会在部署前执行一次远端备份。备份保存在服务器 `$RemoteRoot/backups/<UTC 时间戳>/`，默认保留 14 天，目录内包含：
+
+- `configs.tgz`：`configs/`、`deploy/.env`、生产 docker compose 和 systemd 文件。
+- `mysql-lwylink.sql.gz`：`lwylink-mysql` 容器内 `lwylink` 数据库 dump。
+- `redis-dump.rdb.gz`：`lwylink-redis` 当前 RDB 快照。
+- `manifest.sha256`：备份文件校验清单。
+
+单独备份一次：
+
+```powershell
+.\deploy\backup-remote.ps1
+```
+
+安装每日自动备份 timer：
+
+```powershell
+.\deploy\backup-remote.ps1 -InstallDailyTimer
+```
+
+常用参数：
+
+```powershell
+.\deploy\backup-remote.ps1 -BackupRoot /opt/lwylink/backups -RetentionDays 30
+.\deploy\backup-remote.ps1 -SkipRedis
+.\deploy\backup-remote.ps1 -SkipDatabase
+.\deploy\backup-remote.ps1 -SkipConfigs
+```
+
+每日 timer 会安装 `/usr/local/sbin/lwylink-backup`、`lwylink-backup.service` 和 `lwylink-backup.timer`，默认每天 03:20 运行。真实恢复前先解压备份并校验 `manifest.sha256`。
+
+## Prometheus 指标与告警
+
+控制端暴露 Prometheus 文本指标：
+
+```text
+GET /metrics
+```
+
+当前覆盖 TURN 扣费失败、coturn usage 日志延迟、房间在线数、Overlay 连接数、relay/TURN 流量、节点掉线和下载趋势。告警规则模板在 `deploy/prometheus-alerts.yml`。
+
 ## TURN 语音兜底
 
 WebRTC 语音在普通 NAT 下会优先走 P2P；遇到严格 NAT、企业网络或 UDP 映射异常时，需要 TURN 中继兜底。控制端支持 TURN REST 短期凭据，长效 `staticAuthSecret` 只保存在 coturn 和控制端配置中，客户端只拿短期用户名和密码。
@@ -211,7 +270,7 @@ Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
 .\deploy\setup-turn.ps1 -ValidateOnly
 ```
 
-安装并配置 coturn，同时更新本机 `configs/control.prod.json` 的 `voiceTURNCredential`：
+安装并配置 coturn，同时更新本机 `configs/control.prod.json` 的 `voiceTURNCredential` 和服务端 TURN usage log 计费路径：
 
 ```powershell
 .\deploy\setup-turn.ps1 -UpdateLocalControlConfig
@@ -234,7 +293,7 @@ Copy-Item .\deploy\turn.example.json .\configs\turn.local.json
 - 不要提交 `configs/turn.local.json`、`configs/control.prod.json` 或真实 `staticAuthSecret`。
 - 云安全组/防火墙需要允许 `3478/udp` 和 relay 端口池 UDP 入站。
 - 没有 TLS TURN 时优先使用 `turn:域名:3478?transport=udp`；`turns:` 需要证书路径和 `-EnableTLS`。
-- TURN 会消耗服务器带宽，后续可把 TURN 流量统计接入账号流量额度。
+- TURN 会消耗服务器带宽。`setup-turn.ps1 -UpdateLocalControlConfig` 会把 `usageLogPath` 设置为 `/var/log/lwylink/coturn.log`，控制端按 coturn 服务端 usage 日志扣账号中继流量；客户端 WebRTC stats 只作为未配置 usage log 时的测试兜底。
 
 ## 新增房间节点
 

@@ -21,6 +21,9 @@
     "urls": [],
     "staticAuthSecret": "",
     "ttlSeconds": 3600,
-    "usernamePrefix": "lwylink"
+    "usernamePrefix": "lwylink",
+    "usageLogPath": "",
+    "usageStatePath": "data/coturn-usage.offset",
+    "usagePollIntervalSeconds": 10
   }
 }

@@ -5,6 +5,7 @@ import {
   CircleX,
   Copy,
   Crown,
+  ClipboardList,
   DoorOpen,
   Gamepad2,
   Headphones,
@@ -14,6 +15,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  MoreHorizontal,
   Megaphone,
   Network,
   Power,
@@ -38,9 +40,11 @@ import {
   membershipTone,
   passwordMaxLength,
   passwordMinLength,
+  roomCapacityLimit,
   serverHostFromAPI,
   statusText,
   statusTone,
+  trafficPeriodLabel,
   updateStatusText,
   updateStatusTone,
   userLabel,
@@ -91,6 +95,7 @@ export function Rule({ ok, text }: { ok: boolean; text: string }) {
 }
 
 export function MemberRow({
+  index,
   member,
   isSelf,
   transportLabel,
@@ -101,6 +106,7 @@ export function MemberRow({
   onKick,
   onTransfer,
 }: {
+  index: number;
   member: RoomMember;
   isSelf: boolean;
   transportLabel?: string;
@@ -114,6 +120,7 @@ export function MemberRow({
   return (
     <div className={speaking ? "member-row speaking" : "member-row"}>
       <div className="member-identity">
+        <span className="member-index">{index}</span>
         <span className={`presence ${member.online ? "online" : ""}`} />
         <div>
           <strong>
@@ -140,14 +147,21 @@ export function MemberRow({
           <span className="role">成员</span>
         )}
         {canManage && (
-          <div className="member-actions">
-            <Button size="small" icon={<Crown size={13} />} disabled={disabled} onClick={onTransfer}>
-              转让
-            </Button>
-            <Button size="small" icon={<UserMinus size={13} />} disabled={disabled} onClick={onKick}>
-              移出
-            </Button>
-          </div>
+          <details className="member-actions">
+            <summary aria-label="玩家操作" title="玩家操作">
+              <MoreHorizontal size={16} />
+            </summary>
+            <div className="member-action-menu">
+              <button type="button" disabled={disabled} onClick={onTransfer}>
+                <Crown size={14} />
+                转让房主
+              </button>
+              <button type="button" disabled={disabled} onClick={onKick}>
+                <UserMinus size={14} />
+                移出房间
+              </button>
+            </div>
+          </details>
         )}
       </div>
     </div>
@@ -173,6 +187,7 @@ export function RoomControlPanel({
   isOwner,
   disabled,
   onCopyKey,
+  onCopyDiagnostics,
   onConnect,
   onDeleteRoom,
   onLeaveRoom,
@@ -183,6 +198,7 @@ export function RoomControlPanel({
   isOwner: boolean;
   disabled: boolean;
   onCopyKey: () => void;
+  onCopyDiagnostics: () => void;
   onConnect: () => void;
   onDeleteRoom: () => void;
   onLeaveRoom: () => void;
@@ -227,6 +243,9 @@ export function RoomControlPanel({
       </div>
 
       <div className="command-actions room-control-actions">
+        <button className="room-icon-action" type="button" title="复制网络诊断" onClick={onCopyDiagnostics} aria-label="复制网络诊断">
+          <ClipboardList size={17} />
+        </button>
         {!connectionRunning && (
           <button className="room-icon-action primary" type="button" disabled={disabled} title="启动虚拟网络" onClick={onConnect} aria-label="启动虚拟网络">
             <PlugZap size={17} />
@@ -282,9 +301,10 @@ export function RoomPlayersPanel({
       </div>
 
       <div className="member-table">
-        {members.map((member) => (
+        {members.map((member, index) => (
           <MemberRow
             key={member.userID}
+            index={index + 1}
             member={member}
             isSelf={member.userID === currentUserID}
             transportLabel={memberTransportLabel(member, currentUserID, connectionRunning, directPeerIPSet, transportMode)}
@@ -375,8 +395,6 @@ export function AccountPage({
   apiBaseURL,
   interfaceName,
   connection,
-  currentRoom,
-  currentMember,
   canSubmitAuth,
   isBusy,
   onAuthModeChange,
@@ -394,8 +412,6 @@ export function AccountPage({
   apiBaseURL: string;
   interfaceName: string;
   connection: ConnectionState;
-  currentRoom?: Room;
-  currentMember?: RoomMember;
   canSubmitAuth: boolean;
   isBusy: boolean;
   onAuthModeChange: (mode: AuthMode) => void;
@@ -530,16 +546,23 @@ export function AccountPage({
     );
   }
 
+  const roomLimit = roomCapacityLimit(user);
+  const accountCreated = formatAccountDate(user.createdAt);
+  const accountRole = user.role === "admin" ? "管理员" : "玩家";
+  const trafficSummary = `${formatBytes(user.relayTrafficRemainingBytes)} / ${formatBytes(user.relayTrafficQuotaBytes)}`;
+
   return (
     <section className="account-grid">
       <div className="surface account-session">
         <Avatar user={user} size="hero" />
         <div className="account-main">
-          <span>当前会话</span>
+          <span>账号中心</span>
           <h2>{userLabel(user.displayName, user.username)}</h2>
+          <small>{user.email}</small>
           <div className="account-tags">
             <span className={`member-chip ${membershipTone(user.membership)}`}>{membershipLabel(user.membership)}</span>
             <span className="member-chip neutral">{user.disabled ? "已禁用" : "账号正常"}</span>
+            {user.role === "admin" && <span className="member-chip neutral">管理员</span>}
           </div>
         </div>
         <div className="account-actions">
@@ -549,16 +572,30 @@ export function AccountPage({
         </div>
       </div>
 
-      <div className="surface data-panel">
+      <div className="surface data-panel profile-panel">
         <div className="surface-head">
-          <h2>网络状态</h2>
-          <Network size={18} />
+          <div>
+            <span className="eyebrow">Profile</span>
+            <h2>玩家资料</h2>
+          </div>
+          <UserPlus size={18} />
+        </div>
+        <div className="profile-summary">
+          <div>
+            <span>用户编号</span>
+            <strong>#{user.id}</strong>
+          </div>
+          <div>
+            <span>注册时间</span>
+            <strong>{accountCreated}</strong>
+          </div>
         </div>
         <div className="data-grid">
-          <Metric label="连接" value={statusText(connection.status)} />
-          <Metric label="虚拟 IP" value={connection.ip || "-"} />
-          <Metric label="房间在线" value={currentMember?.online ? "在线" : "未连接"} />
-          <Metric label="当前房间" value={currentRoom?.name ?? "未加入"} wide />
+          <Metric label="身份" value={membershipLabel(user.membership)} />
+          <Metric label="最大房间人数" value={`${roomLimit} 人`} />
+          <Metric label="账号角色" value={accountRole} />
+          <Metric label="中继剩余" value={trafficSummary} wide />
+          <Metric label="计费周期" value={trafficPeriodLabel(user.relayTrafficPeriod)} wide />
         </div>
       </div>
 
@@ -584,6 +621,13 @@ export function AccountPage({
       </form>
     </section>
   );
+}
+
+function formatAccountDate(value?: string) {
+  if (!value) {
+    return "-";
+  }
+  return new Date(value).toLocaleDateString();
 }
 
 function isVoiceSpeaking(voiceState: VoiceState, userID: number) {
@@ -631,19 +675,22 @@ function voiceRTCDiagnostic(stats: WebRTCVoiceStats[], voiceState: VoiceState) {
   const avgRTT = averageNumber(qualityStats.map((item) => item.roundTripTimeMS).filter((item) => item > 0));
   const avgJitter = averageNumber(qualityStats.map((item) => item.jitterMS).filter((item) => item > 0));
   const lost = qualityStats.reduce((sum, item) => sum + Math.max(0, item.packetsLost), 0);
+  const directHighLatency = usingDirect && !usingRelay && avgRTT >= 350;
   const label =
     connected.length === 0 && reconnecting.length > 0
       ? "语音重连中"
       : usingRelay
         ? "TURN 语音"
+        : directHighLatency
+          ? "P2P 高延迟"
         : usingDirect
           ? "P2P 语音"
           : connected.length > 0
             ? "高清语音"
             : "语音连接中";
-  const tone = usingRelay ? "warn" : connected.length > 0 ? "good" : "";
+  const tone = usingRelay || directHighLatency ? "warn" : connected.length > 0 ? "good" : "";
   const detail = [
-    avgRTT > 0 ? `RTT ${avgRTT}ms` : "",
+    avgRTT > 0 ? `链路RTT ${avgRTT}ms` : "",
     avgJitter > 0 ? `抖动 ${avgJitter}ms` : "",
     lost > 0 ? `丢包 ${lost}` : "",
   ].filter(Boolean).join(" · ");
@@ -783,7 +830,7 @@ export function RoomCommsPanel({
         onToggleVoiceMic={onToggleVoiceMic}
         onLeaveVoice={onLeaveVoice}
       />
-      <div className="chat-list" ref={chatListRef}>
+      <div className={chatMessages.length === 0 && pendingChats.length === 0 ? "chat-list empty" : "chat-list"} ref={chatListRef}>
         {chatMessages.map((message) => (
           <ChatBubble key={message.id} message={message} mine={message.userID === currentUserID} />
         ))}

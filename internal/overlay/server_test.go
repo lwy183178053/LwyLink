@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"net"
 	"slices"
 	"testing"
@@ -53,6 +54,54 @@ func TestForwardIPDropsForgedSource(t *testing.T) {
 
 	assertNoPacket(t, peer, "room peer")
 	assertNoPacket(t, from, "sender")
+}
+
+func TestForwardRelayProbeRoutesRequestAndReply(t *testing.T) {
+	srv, from, peer, _ := newForwardTestServer()
+	request, err := json.Marshal(RelayProbePayload{
+		Seq:    7,
+		FromIP: from.lease.IP,
+		ToIP:   peer.lease.IP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.forwardRelayProbe(from, request)
+
+	reqFrame := assertFrame(t, peer, "request target")
+	assertRelayProbeControl(t, reqFrame, "request")
+	assertNoPacket(t, from, "request sender")
+
+	reply, err := json.Marshal(RelayProbePayload{
+		Seq:    7,
+		FromIP: peer.lease.IP,
+		ToIP:   from.lease.IP,
+		Reply:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.forwardRelayProbe(peer, reply)
+
+	replyFrame := assertFrame(t, from, "reply target")
+	assertRelayProbeControl(t, replyFrame, "reply")
+}
+
+func TestForwardRelayProbeRejectsForgedSource(t *testing.T) {
+	srv, from, peer, _ := newForwardTestServer()
+	request, err := json.Marshal(RelayProbePayload{
+		Seq:    7,
+		FromIP: "172.16.1.99",
+		ToIP:   peer.lease.IP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.forwardRelayProbe(from, request)
+
+	assertNoPacket(t, peer, "target peer")
 }
 
 func TestDeleteUDPPairsLockedKeepsUnrelatedPairs(t *testing.T) {
@@ -319,19 +368,40 @@ func testIPv4Packet(src, dst string) []byte {
 
 func assertPacket(t *testing.T, sess *session, name string) {
 	t.Helper()
+	frame := assertFrame(t, sess, name)
+	if frame.typ != FrameIP {
+		t.Fatalf("%s received frame type=%d, want FrameIP", name, frame.typ)
+	}
+	if len(frame.payload) == 0 {
+		t.Fatalf("%s received empty payload", name)
+	}
+	if _, pkt, err := UnpackIPPayload(frame.payload); err != nil || len(pkt) == 0 {
+		t.Fatalf("%s received bad payload: len=%d err=%v", name, len(frame.payload), err)
+	}
+}
+
+func assertFrame(t *testing.T, sess *session, name string) outboundFrame {
+	t.Helper()
 	select {
 	case frame := <-sess.send:
-		if frame.typ != FrameIP {
-			t.Fatalf("%s received frame type=%d, want FrameIP", name, frame.typ)
-		}
-		if len(frame.payload) == 0 {
-			t.Fatalf("%s received empty payload", name)
-		}
-		if _, pkt, err := UnpackIPPayload(frame.payload); err != nil || len(pkt) == 0 {
-			t.Fatalf("%s received bad payload: len=%d err=%v", name, len(frame.payload), err)
-		}
+		return frame
 	default:
-		t.Fatalf("%s did not receive packet", name)
+		t.Fatalf("%s did not receive frame", name)
+		return outboundFrame{}
+	}
+}
+
+func assertRelayProbeControl(t *testing.T, frame outboundFrame, name string) {
+	t.Helper()
+	if frame.typ != FrameUDPControl {
+		t.Fatalf("%s frame type=%d, want FrameUDPControl", name, frame.typ)
+	}
+	var control UDPControl
+	if err := json.Unmarshal(frame.payload, &control); err != nil {
+		t.Fatalf("%s bad control payload: %v", name, err)
+	}
+	if control.Type != UDPControlRelayProbe || control.RelayProbe == nil {
+		t.Fatalf("%s control=%+v, want relay probe", name, control)
 	}
 }
 

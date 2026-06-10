@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -22,17 +23,21 @@ const (
 	TransportModeUDPDirect   = "udp-direct"
 	TransportModeUDPDisabled = "udp-disabled"
 
-	udpRegisterInterval     = 2 * time.Second
-	udpProbeInterval        = 500 * time.Millisecond
-	udpProbeWindow          = 6 * time.Second
-	udpProbeRetryMin        = 5 * time.Second
-	udpProbeRetryMax        = 30 * time.Second
-	udpKeepaliveEvery       = time.Second
-	udpWarmupDuration       = 3 * time.Second
-	udpDirectFreshFor       = 8 * time.Second
-	udpDirectTimeout        = 20 * time.Second
-	udpDisableFailureWindow = 45 * time.Second
-	udpDisableFailureLimit  = 3
+	udpRegisterInterval      = 2 * time.Second
+	udpProbeInterval         = 500 * time.Millisecond
+	udpProbeWindow           = 6 * time.Second
+	udpProbeRetryMin         = 5 * time.Second
+	udpProbeRetryMax         = 30 * time.Second
+	udpKeepaliveEvery        = time.Second
+	udpWarmupDuration        = 3 * time.Second
+	udpDirectFreshFor        = 8 * time.Second
+	udpDirectTimeout         = 20 * time.Second
+	udpDirectMaxHealthyRTT   = 350 * time.Millisecond
+	udpDirectSwitchMargin    = 30 * time.Millisecond
+	udpDirectHighRTTLimit    = 3
+	udpDirectQualityCooldown = 20 * time.Second
+	udpDisableFailureWindow  = 45 * time.Second
+	udpDisableFailureLimit   = 3
 )
 
 type udpSendDecision int
@@ -51,12 +56,20 @@ type TransportStatus struct {
 }
 
 type TransportPeerDiagnostic struct {
-	VirtualIP          string
-	CandidateCount     int
-	SelectedType       string
-	LastProbeAt        time.Time
-	FailedProbes       int
-	LastObservedPeerAt time.Time
+	VirtualIP           string
+	CandidateCount      int
+	CandidateTypes      []string
+	SelectedType        string
+	SelectedPath        string
+	LastProbeAt         time.Time
+	LastSuccessAt       time.Time
+	LastFailureAt       time.Time
+	LastRTT             time.Duration
+	FailedProbes        int
+	ConsecutiveFailures int
+	FailureReason       string
+	DisabledReason      string
+	LastObservedPeerAt  time.Time
 }
 
 type udpManagerConfig struct {
@@ -67,6 +80,7 @@ type udpManagerConfig struct {
 	RoomID     int64
 	UserID     int64
 	VirtualIP  string
+	RelayRTT   func(peerIP string) time.Duration
 	OnPacket   func([]byte)
 	OnStatus   func(TransportStatus)
 	OnDisabled func()
@@ -79,20 +93,27 @@ type udpManager struct {
 	conn   *net.UDPConn
 	server *net.UDPAddr
 
-	mu         sync.Mutex
-	seq        uint64
-	pathsByIP  map[string]*udpPeerPath
-	pathsByID  map[string]*udpPeerPath
-	closeOnce  sync.Once
-	closeErr   error
-	hasStatus  bool
-	lastStatus TransportStatus
-	disabled   bool
-	failures   []time.Time
-	reflexive  []string
-	lifecycle  sync.Mutex
-	closed     bool
-	wg         sync.WaitGroup
+	mu             sync.Mutex
+	seq            uint64
+	pathsByIP      map[string]*udpPeerPath
+	pathsByID      map[string]*udpPeerPath
+	closeOnce      sync.Once
+	closeErr       error
+	hasStatus      bool
+	lastStatus     TransportStatus
+	disabled       bool
+	disabledReason string
+	failures       []time.Time
+	reflexive      []string
+	controlSent    map[uint64]udpControlSent
+	lifecycle      sync.Mutex
+	closed         bool
+	wg             sync.WaitGroup
+}
+
+type udpControlSent struct {
+	sessionID string
+	sentAt    time.Time
 }
 
 type udpPeerPath struct {
@@ -106,14 +127,21 @@ type udpPeerPath struct {
 	replay             *overlay.UDPReplayCache
 
 	active   bool
+	selected bool
 	probing  bool
 	lastSeen time.Time
 	readyAt  time.Time
 
-	failedProbes    int
-	nextProbeAt     time.Time
-	lastProbeAt     time.Time
-	probeGeneration uint64
+	failedProbes        int
+	consecutiveFailures int
+	nextProbeAt         time.Time
+	lastProbeAt         time.Time
+	lastSuccessAt       time.Time
+	lastFailureAt       time.Time
+	lastRTT             time.Duration
+	highRTTSamples      int
+	failureReason       string
+	probeGeneration     uint64
 }
 
 type udpCandidateEndpoint struct {
@@ -148,13 +176,14 @@ func startUDPManager(ctx context.Context, cfg udpManagerConfig) (*udpManager, er
 	}
 	managerCtx, cancel := context.WithCancel(ctx)
 	m := &udpManager{
-		cfg:       cfg,
-		ctx:       managerCtx,
-		cancel:    cancel,
-		conn:      conn,
-		server:    server,
-		pathsByIP: make(map[string]*udpPeerPath),
-		pathsByID: make(map[string]*udpPeerPath),
+		cfg:         cfg,
+		ctx:         managerCtx,
+		cancel:      cancel,
+		conn:        conn,
+		server:      server,
+		pathsByIP:   make(map[string]*udpPeerPath),
+		pathsByID:   make(map[string]*udpPeerPath),
+		controlSent: make(map[uint64]udpControlSent),
 	}
 	m.refreshSTUNReflexive()
 	_ = conn.SetReadDeadline(time.Time{})
@@ -244,6 +273,15 @@ func (m *udpManager) SendPayloadToPeer(dstIP string, packetType byte, payload []
 		}
 		return udpSendRelay
 	}
+	relayPeerRTT := m.relayPeerRTT(dstIP)
+	if !udpPathDirectSelected(path, now) {
+		if !udpPathShouldSelectDirect(path, relayPeerRTT) {
+			m.mu.Unlock()
+			return udpSendRelay
+		}
+		path.selected = true
+		m.emitStatusLocked()
+	}
 	endpoint := path.endpoint
 	sessionID := path.sessionID
 	key := cloneBytes(path.sendKey)
@@ -309,11 +347,13 @@ func (m *udpManager) handlePacket(remote *net.UDPAddr, raw []byte) {
 func (m *udpManager) handlePeerPacket(sessionID, peerVirtualIP string, packet overlay.UDPPacket) {
 	switch packet.Type {
 	case overlay.UDPTypeProbe:
-		m.replyControl(sessionID, overlay.UDPTypeProbeAck)
+		m.replyControl(sessionID, overlay.UDPTypeProbeAck, packet.Seq)
 	case overlay.UDPTypeProbeAck:
+		m.noteControlAck(sessionID, packet.Payload)
 	case overlay.UDPTypePing:
-		m.replyControl(sessionID, overlay.UDPTypePong)
+		m.replyControl(sessionID, overlay.UDPTypePong, packet.Seq)
 	case overlay.UDPTypePong:
+		m.noteControlAck(sessionID, packet.Payload)
 	case overlay.UDPTypeIP:
 		if !m.acceptPeerIPPacket(peerVirtualIP, packet.Payload) {
 			return
@@ -379,8 +419,10 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 		endpoints := cloneUDPCandidateEndpoints(path.candidateEndpoints)
 		key := cloneBytes(path.sendKey)
 		seqs := make([]uint64, len(endpoints))
+		now := time.Now()
 		for i := range seqs {
 			seqs[i] = m.nextSeqLocked()
+			m.noteControlSentLocked(sessionID, seqs[i], now)
 		}
 		m.mu.Unlock()
 		for i, endpoint := range endpoints {
@@ -396,10 +438,14 @@ func (m *udpManager) probeLoop(virtualIP, sessionID string, generation uint64) {
 	}
 	m.mu.Lock()
 	if path := m.pathsByIP[virtualIP]; path != nil && path.sessionID == sessionID && !path.active && path.probeGeneration == generation {
+		now := time.Now()
 		path.probing = false
 		path.failedProbes++
-		path.nextProbeAt = time.Now().Add(udpProbeRetryDelay(path.failedProbes))
-		m.recordFailureLocked(time.Now())
+		path.consecutiveFailures++
+		path.lastFailureAt = now
+		path.failureReason = "probe timeout"
+		path.nextProbeAt = now.Add(udpProbeRetryDelay(path.failedProbes))
+		m.recordFailureLocked(now)
 		m.emitStatusLocked()
 	}
 	m.mu.Unlock()
@@ -433,6 +479,7 @@ func (m *udpManager) keepaliveLoop() {
 					key:       cloneBytes(path.sendKey),
 					seq:       m.nextSeqLocked(),
 				})
+				m.noteControlSentLocked(path.sessionID, pings[len(pings)-1].seq, now)
 				continue
 			}
 			if probe, ok := m.startProbeTargetLocked(path, now); ok {
@@ -450,7 +497,7 @@ func (m *udpManager) keepaliveLoop() {
 	}
 }
 
-func (m *udpManager) replyControl(sessionID string, packetType byte) {
+func (m *udpManager) replyControl(sessionID string, packetType byte, receivedSeq uint64) {
 	m.mu.Lock()
 	current := m.pathsByID[sessionID]
 	if current == nil {
@@ -462,7 +509,7 @@ func (m *udpManager) replyControl(sessionID string, packetType byte) {
 	key := cloneBytes(current.sendKey)
 	seq := m.nextSeqLocked()
 	m.mu.Unlock()
-	_ = m.sendEncrypted(endpoint, packetType, peerSessionID, key, seq, []byte("ok"))
+	_ = m.sendEncrypted(endpoint, packetType, peerSessionID, key, seq, udpControlAckPayload(receivedSeq))
 }
 
 func (m *udpManager) notePeerSeen(sessionID string, remote *net.UDPAddr) {
@@ -476,15 +523,103 @@ func (m *udpManager) notePeerSeen(sessionID string, remote *net.UDPAddr) {
 		cp := *remote
 		path.endpoint = &cp
 	}
-	path.lastSeen = time.Now()
+	now := time.Now()
+	path.lastSeen = now
+	path.lastSuccessAt = path.lastSeen
+	if !path.nextProbeAt.IsZero() && now.Before(path.nextProbeAt) && path.failureReason != "" {
+		m.emitStatusLocked()
+		return
+	}
+	wasActive := path.active
 	if !path.active {
 		path.readyAt = path.lastSeen
+		path.selected = false
 	}
 	path.active = true
 	path.probing = false
 	path.failedProbes = 0
+	path.consecutiveFailures = 0
+	path.failureReason = ""
 	path.nextProbeAt = time.Time{}
+	if !wasActive {
+		path.highRTTSamples = 0
+	}
 	m.emitStatusLocked()
+}
+
+func (m *udpManager) noteControlSentLocked(sessionID string, seq uint64, sentAt time.Time) {
+	if m.controlSent == nil {
+		m.controlSent = make(map[uint64]udpControlSent)
+	}
+	m.controlSent[seq] = udpControlSent{sessionID: sessionID, sentAt: sentAt}
+	if len(m.controlSent) <= 512 {
+		return
+	}
+	cutoff := sentAt.Add(-time.Minute)
+	for itemSeq, item := range m.controlSent {
+		if item.sentAt.Before(cutoff) || len(m.controlSent) > 512 {
+			delete(m.controlSent, itemSeq)
+		}
+	}
+}
+
+func (m *udpManager) noteControlAck(sessionID string, payload []byte) {
+	seq, ok := udpControlAckSeq(payload)
+	if !ok {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sent, ok := m.controlSent[seq]
+	if !ok || sent.sessionID != sessionID {
+		return
+	}
+	delete(m.controlSent, seq)
+	path := m.pathsByID[sessionID]
+	if path == nil {
+		return
+	}
+	rtt := time.Since(sent.sentAt)
+	if rtt <= 0 || rtt > time.Minute {
+		return
+	}
+	path.lastRTT = rtt
+	path.lastSuccessAt = time.Now()
+	if path.active {
+		relayPeerRTT := m.relayPeerRTT(path.virtualIP)
+		if udpPathDirectWorseThanRelay(path, relayPeerRTT) || (relayPeerRTT <= 0 && rtt > udpDirectMaxHealthyRTT) {
+			path.highRTTSamples++
+			if path.highRTTSamples >= udpDirectHighRTTLimit {
+				m.markPathQualityPoorLocked(path, path.lastSuccessAt, fmt.Sprintf("direct rtt high: %s", rtt.Round(time.Millisecond)))
+			}
+		} else {
+			path.highRTTSamples = 0
+		}
+	}
+	m.emitStatusLocked()
+}
+
+func (m *udpManager) markPathQualityPoorLocked(path *udpPeerPath, now time.Time, reason string) {
+	if path == nil {
+		return
+	}
+	resetInactiveUDPPath(path)
+	path.probing = false
+	path.highRTTSamples = 0
+	path.lastFailureAt = now
+	path.failureReason = reason
+	path.nextProbeAt = now.Add(udpDirectQualityCooldown)
+}
+
+func (m *udpManager) relayPeerRTT(peerIP string) time.Duration {
+	if m.cfg.RelayRTT == nil {
+		return 0
+	}
+	rtt := m.cfg.RelayRTT(peerIP)
+	if rtt <= 0 {
+		return 0
+	}
+	return rtt
 }
 
 func (m *udpManager) markInactive(sessionID string) {
@@ -494,6 +629,9 @@ func (m *udpManager) markInactive(sessionID string) {
 	if path := m.pathsByID[sessionID]; path != nil {
 		now := time.Now()
 		resetInactiveUDPPath(path)
+		path.consecutiveFailures++
+		path.lastFailureAt = now
+		path.failureReason = "direct path inactive"
 		m.recordFailureLocked(now)
 		probe, shouldProbe = m.startProbeTargetLocked(path, now)
 		m.emitStatusLocked()
@@ -525,10 +663,17 @@ func (m *udpManager) updatePeerPathLocked(virtualIP string, endpoints []udpCandi
 		path.recvKey = recvKey
 		path.replay = overlay.NewUDPReplayCache(0)
 		path.active = false
+		path.selected = false
 		path.probing = false
 		path.failedProbes = 0
+		path.consecutiveFailures = 0
 		path.nextProbeAt = time.Time{}
 		path.readyAt = time.Time{}
+		path.lastFailureAt = time.Time{}
+		path.lastSuccessAt = time.Time{}
+		path.lastRTT = 0
+		path.highRTTSamples = 0
+		path.failureReason = ""
 	}
 	m.pathsByID[path.sessionID] = path
 
@@ -574,6 +719,27 @@ func udpPathDirectReady(path *udpPeerPath, now time.Time) bool {
 	return now.Sub(path.lastSeen) <= udpDirectFreshFor
 }
 
+func udpPathDirectSelected(path *udpPeerPath, now time.Time) bool {
+	return udpPathDirectReady(path, now) && path.selected
+}
+
+func udpPathShouldSelectDirect(path *udpPeerPath, relayPeerRTT time.Duration) bool {
+	if path == nil || path.lastRTT <= 0 {
+		return false
+	}
+	if relayPeerRTT > 0 {
+		return path.lastRTT+udpDirectSwitchMargin < relayPeerRTT
+	}
+	return path.lastRTT <= udpDirectMaxHealthyRTT
+}
+
+func udpPathDirectWorseThanRelay(path *udpPeerPath, relayPeerRTT time.Duration) bool {
+	if path == nil || path.lastRTT <= 0 || relayPeerRTT <= 0 {
+		return false
+	}
+	return path.lastRTT > relayPeerRTT+udpDirectSwitchMargin
+}
+
 func udpPathNeedsMirror(path *udpPeerPath, now time.Time) bool {
 	if path == nil || path.lastSeen.IsZero() {
 		return false
@@ -593,9 +759,47 @@ func resetInactiveUDPPath(path *udpPeerPath) {
 		return
 	}
 	path.active = false
+	path.selected = false
 	path.failedProbes = 0
+	path.consecutiveFailures = 0
 	path.nextProbeAt = time.Time{}
 	path.readyAt = time.Time{}
+	path.highRTTSamples = 0
+	path.failureReason = ""
+}
+
+func udpControlAckPayload(seq uint64) []byte {
+	payload := make([]byte, 8)
+	binary.BigEndian.PutUint64(payload, seq)
+	return payload
+}
+
+func udpControlAckSeq(payload []byte) (uint64, bool) {
+	if len(payload) != 8 {
+		return 0, false
+	}
+	return binary.BigEndian.Uint64(payload), true
+}
+
+func udpPathDiagnosticState(path *udpPeerPath, now time.Time) string {
+	switch {
+	case path == nil:
+		return ""
+	case udpPathDirectSelected(path, now):
+		return "selected"
+	case path.active:
+		return "candidate"
+	case path.probing:
+		return "probing"
+	case !path.nextProbeAt.IsZero() && now.Before(path.nextProbeAt) && path.failureReason != "":
+		return "cooldown"
+	case path.failedProbes > 0:
+		return "failed"
+	case len(path.candidateEndpoints) > 0:
+		return "new"
+	default:
+		return "relay"
+	}
 }
 
 func udpProbeRetryDelay(failures int) time.Duration {
@@ -647,46 +851,7 @@ func (m *udpManager) emitStatusLocked() {
 	if m.cfg.OnStatus == nil {
 		return
 	}
-	if m.disabled {
-		status := TransportStatus{Mode: TransportModeUDPDisabled, Message: "中继连接"}
-		if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
-			return
-		}
-		m.hasStatus = true
-		m.lastStatus = cloneTransportStatus(status)
-		go m.cfg.OnStatus(status)
-		return
-	}
-	probing := false
-	directIPs := make([]string, 0)
-	diagnostics := make([]TransportPeerDiagnostic, 0, len(m.pathsByIP))
-	now := time.Now()
-	for _, path := range m.pathsByIP {
-		if udpPathDirectReady(path, now) {
-			directIPs = append(directIPs, path.virtualIP)
-		}
-		if path.probing {
-			probing = true
-		}
-		diagnostics = append(diagnostics, TransportPeerDiagnostic{
-			VirtualIP:          path.virtualIP,
-			CandidateCount:     len(path.candidateEndpoints),
-			SelectedType:       udpCandidateTypeForAddr(path.candidateEndpoints, path.endpoint),
-			LastProbeAt:        path.lastProbeAt,
-			FailedProbes:       path.failedProbes,
-			LastObservedPeerAt: path.lastSeen,
-		})
-	}
-	sort.Strings(directIPs)
-	sort.Slice(diagnostics, func(i, j int) bool { return diagnostics[i].VirtualIP < diagnostics[j].VirtualIP })
-	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "中继连接", DirectIPs: directIPs, Diagnostics: diagnostics}
-	if len(directIPs) > 0 {
-		status.Mode = TransportModeUDPDirect
-		status.Message = fmt.Sprintf("P2P 直连 · %d 条隧道", len(directIPs))
-	} else if probing {
-		status.Mode = TransportModeUDPProbing
-		status.Message = "正在探测更优路径"
-	}
+	status := m.transportStatusLocked(time.Now())
 	if m.hasStatus && transportStatusEqual(status, m.lastStatus) {
 		return
 	}
@@ -695,14 +860,102 @@ func (m *udpManager) emitStatusLocked() {
 	go m.cfg.OnStatus(status)
 }
 
-func cloneTransportStatus(status TransportStatus) TransportStatus {
-	status.DirectIPs = append([]string(nil), status.DirectIPs...)
-	status.Diagnostics = append([]TransportPeerDiagnostic(nil), status.Diagnostics...)
+func (m *udpManager) transportStatusLocked(now time.Time) TransportStatus {
+	if m.disabled {
+		return TransportStatus{Mode: TransportModeUDPDisabled, Message: "中继连接", Diagnostics: m.transportDiagnosticsLocked(now)}
+	}
+	probing := false
+	directIPs := make([]string, 0)
+	for _, path := range m.pathsByIP {
+		if udpPathDirectSelected(path, now) {
+			directIPs = append(directIPs, path.virtualIP)
+		}
+		if path.probing {
+			probing = true
+		}
+	}
+	diagnostics := m.transportDiagnosticsLocked(now)
+	sort.Strings(directIPs)
+	status := TransportStatus{Mode: TransportModeTCPRelay, Message: "中继连接", DirectIPs: directIPs, Diagnostics: diagnostics}
+	if len(directIPs) > 0 {
+		status.Mode = TransportModeUDPDirect
+		status.Message = fmt.Sprintf("P2P 直连 · %d 条隧道", len(directIPs))
+	} else if probing {
+		status.Mode = TransportModeUDPProbing
+		status.Message = "正在探测更优路径"
+	}
 	return status
 }
 
+func (m *udpManager) transportDiagnosticsLocked(now time.Time) []TransportPeerDiagnostic {
+	diagnostics := make([]TransportPeerDiagnostic, 0, len(m.pathsByIP))
+	for _, path := range m.pathsByIP {
+		diagnostics = append(diagnostics, TransportPeerDiagnostic{
+			VirtualIP:           path.virtualIP,
+			CandidateCount:      len(path.candidateEndpoints),
+			CandidateTypes:      udpCandidateTypes(path.candidateEndpoints),
+			SelectedType:        udpCandidateTypeForAddr(path.candidateEndpoints, path.endpoint),
+			SelectedPath:        udpPathDiagnosticState(path, now),
+			LastProbeAt:         path.lastProbeAt,
+			LastSuccessAt:       path.lastSuccessAt,
+			LastFailureAt:       path.lastFailureAt,
+			LastRTT:             path.lastRTT,
+			FailedProbes:        path.failedProbes,
+			ConsecutiveFailures: path.consecutiveFailures,
+			FailureReason:       path.failureReason,
+			DisabledReason:      m.disabledReason,
+			LastObservedPeerAt:  path.lastSeen,
+		})
+	}
+	sort.Slice(diagnostics, func(i, j int) bool { return diagnostics[i].VirtualIP < diagnostics[j].VirtualIP })
+	return diagnostics
+}
+
+func cloneTransportStatus(status TransportStatus) TransportStatus {
+	status.DirectIPs = append([]string(nil), status.DirectIPs...)
+	status.Diagnostics = cloneTransportPeerDiagnostics(status.Diagnostics)
+	return status
+}
+
+func cloneTransportPeerDiagnostics(items []TransportPeerDiagnostic) []TransportPeerDiagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]TransportPeerDiagnostic, 0, len(items))
+	for _, item := range items {
+		item.CandidateTypes = append([]string(nil), item.CandidateTypes...)
+		out = append(out, item)
+	}
+	return out
+}
+
 func transportStatusEqual(a, b TransportStatus) bool {
-	return a.Mode == b.Mode && a.Message == b.Message && slices.Equal(a.DirectIPs, b.DirectIPs) && slices.Equal(a.Diagnostics, b.Diagnostics)
+	return a.Mode == b.Mode && a.Message == b.Message && slices.Equal(a.DirectIPs, b.DirectIPs) && transportDiagnosticsEqual(a.Diagnostics, b.Diagnostics)
+}
+
+func transportDiagnosticsEqual(a, b []TransportPeerDiagnostic) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].VirtualIP != b[i].VirtualIP ||
+			a[i].CandidateCount != b[i].CandidateCount ||
+			!slices.Equal(a[i].CandidateTypes, b[i].CandidateTypes) ||
+			a[i].SelectedType != b[i].SelectedType ||
+			a[i].SelectedPath != b[i].SelectedPath ||
+			!a[i].LastProbeAt.Equal(b[i].LastProbeAt) ||
+			!a[i].LastSuccessAt.Equal(b[i].LastSuccessAt) ||
+			!a[i].LastFailureAt.Equal(b[i].LastFailureAt) ||
+			a[i].LastRTT != b[i].LastRTT ||
+			a[i].FailedProbes != b[i].FailedProbes ||
+			a[i].ConsecutiveFailures != b[i].ConsecutiveFailures ||
+			a[i].FailureReason != b[i].FailureReason ||
+			a[i].DisabledReason != b[i].DisabledReason ||
+			!a[i].LastObservedPeerAt.Equal(b[i].LastObservedPeerAt) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *udpManager) recordFailureLocked(now time.Time) {
@@ -721,6 +974,7 @@ func (m *udpManager) recordFailureLocked(now time.Time) {
 		return
 	}
 	m.disabled = true
+	m.disabledReason = fmt.Sprintf("udp probing disabled after %d failures in %s", udpDisableFailureLimit, udpDisableFailureWindow)
 	m.failures = nil
 	for _, path := range m.pathsByIP {
 		resetInactiveUDPPath(path)

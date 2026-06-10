@@ -11,6 +11,8 @@ export namespace main {
 	    installArgs: string;
 	    fileName: string;
 	    sizeBytes: number;
+	    downloadedBytes: number;
+	    progress: number;
 	    sha256: string;
 	
 	    static createFrom(source: any = {}) {
@@ -29,15 +31,25 @@ export namespace main {
 	        this.installArgs = source["installArgs"];
 	        this.fileName = source["fileName"];
 	        this.sizeBytes = source["sizeBytes"];
+	        this.downloadedBytes = source["downloadedBytes"];
+	        this.progress = source["progress"];
 	        this.sha256 = source["sha256"];
 	    }
 	}
 	export class TransportDiagnostic {
 	    virtualIP: string;
 	    candidateCount: number;
+	    candidateTypes: string[];
 	    selectedType: string;
+	    selectedPath: string;
 	    lastProbeAt: string;
+	    lastSuccessAt: string;
+	    lastFailureAt: string;
+	    lastRTTMS: number;
 	    failedProbes: number;
+	    consecutiveFailures: number;
+	    failureReason: string;
+	    disabledReason: string;
 	    lastObservedPeerAt: string;
 	
 	    static createFrom(source: any = {}) {
@@ -48,9 +60,17 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.virtualIP = source["virtualIP"];
 	        this.candidateCount = source["candidateCount"];
+	        this.candidateTypes = source["candidateTypes"];
 	        this.selectedType = source["selectedType"];
+	        this.selectedPath = source["selectedPath"];
 	        this.lastProbeAt = source["lastProbeAt"];
+	        this.lastSuccessAt = source["lastSuccessAt"];
+	        this.lastFailureAt = source["lastFailureAt"];
+	        this.lastRTTMS = source["lastRTTMS"];
 	        this.failedProbes = source["failedProbes"];
+	        this.consecutiveFailures = source["consecutiveFailures"];
+	        this.failureReason = source["failureReason"];
+	        this.disabledReason = source["disabledReason"];
 	        this.lastObservedPeerAt = source["lastObservedPeerAt"];
 	    }
 	}

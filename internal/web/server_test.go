@@ -111,6 +111,7 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 		VoiceParticipants:     2,
 		VoiceSpeakers:         1,
 		RelayTrafficUsedBytes: 2048,
+		TURNTrafficUsedBytes:  4096,
 		DownloadsLastHour:     3,
 		DownloadsLastDay:      12,
 		Releases:              1,
@@ -120,9 +121,41 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	rec = httptest.NewRecorder()
 	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
 	html = rec.Body.String()
-	for _, want := range []string{"系统健康", "Overlay 在线连接", "节点异常", "近 24 小时 12 次", "0.2.1", "node: last check failed"} {
+	for _, want := range []string{"系统健康", "Overlay 在线连接", "TURN 流量", "4.0 KB", "节点异常", "近 24 小时 12 次", "0.2.1", "node: last check failed"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered metrics html missing %q", want)
+		}
+	}
+
+	data.Active = "turn-usage"
+	data.Title = "TURN 对账"
+	data.TurnUsageUserID = 42
+	data.TurnUsageDate = "2026-06-10"
+	data.TurnUsage = turnUsagePage{
+		Summaries: []turnUsageDailySummary{{
+			UserID:       42,
+			Date:         "2026-06-10",
+			ChargedBytes: 1024,
+			FailedBytes:  512,
+			Events:       2,
+			Failures:     1,
+		}},
+		Events: []turnUsageEvent{{
+			UserID:       42,
+			Source:       "coturn",
+			Bytes:        512,
+			Status:       turnUsageStatusFailed,
+			ErrorMessage: "quota exceeded",
+			RawLine:      "usage: username=<2000:u42:lwylink>",
+			ReportedAt:   time.Date(2026, 6, 10, 8, 0, 0, 0, time.UTC),
+		}},
+	}
+	rec = httptest.NewRecorder()
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
+	html = rec.Body.String()
+	for _, want := range []string{"TURN 扣费对账", "2026-06-10", "quota exceeded", "usage: username"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered turn usage html missing %q", want)
 		}
 	}
 
@@ -134,6 +167,34 @@ func TestAdminTemplateRendersOverviewAndTrafficDialog(t *testing.T) {
 	for _, want := range []string{"traffic-dialog", "data-open-traffic", `placeholder="例如 1024"`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("rendered users html missing %q", want)
+		}
+	}
+
+	data.Active = "rooms"
+	data.Title = "房间"
+	data.RoomNetworkDiagnostics = map[int64][]room.NetworkDiagnosticReport{
+		1: {{
+			RoomID:        1,
+			UserID:        7,
+			Status:        "connected",
+			TransportMode: "udp-direct",
+			IP:            "172.16.1.10",
+			UpdatedAt:     time.Date(2026, 6, 8, 12, 1, 0, 0, time.UTC),
+			TransportDiagnostics: []room.TransportDiagnostic{{
+				VirtualIP:           "172.16.1.11",
+				SelectedPath:        "selected",
+				SelectedType:        "lan",
+				LastRTTMS:           12,
+				ConsecutiveFailures: 0,
+			}},
+		}},
+	}
+	rec = httptest.NewRecorder()
+	NewServer("127.0.0.1:0", data.Token, nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{}).renderAdmin(rec, data)
+	html = rec.Body.String()
+	for _, want := range []string{"路径诊断", "udp-direct", "172.16.1.11", "RTT 12ms"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered rooms html missing %q", want)
 		}
 	}
 
@@ -184,6 +245,38 @@ func TestReadJSONRejectsTrailingJSON(t *testing.T) {
 	}
 	if err := readJSON(req, &body); err == nil {
 		t.Fatalf("readJSON accepted trailing JSON")
+	}
+}
+
+func TestHealthzReturnsOK(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	srv.handleHealthz(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("healthz body missing ok=true: %s", rec.Body.String())
+	}
+}
+
+func TestAdminTurnUsageWithoutLedgerRendersEmptyPage(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "admin-token", nil, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/admin/turn-usage?token=admin-token", nil)
+	rec := httptest.NewRecorder()
+
+	srv.handleAdminTurnUsage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"TURN 扣费对账", "暂无 TURN usage 记录", "暂无明细"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("rendered turn usage empty page missing %q", want)
+		}
 	}
 }
 
@@ -260,11 +353,11 @@ func TestTurnRESTICEServerUsesShortLivedCredential(t *testing.T) {
 		StaticAuthSecret: "shared-secret",
 		TTLSeconds:       600,
 		UsernamePrefix:   "lwylink",
-	}, now)
+	}, now, 7)
 	if !ok {
 		t.Fatalf("turn REST server was not generated")
 	}
-	if got, want := server.Username, "1600:lwylink"; got != want {
+	if got, want := server.Username, "1600:u7:lwylink"; got != want {
 		t.Fatalf("username=%q, want %q", got, want)
 	}
 	mac := hmac.New(sha1.New, []byte("shared-secret"))
@@ -275,6 +368,32 @@ func TestTurnRESTICEServerUsesShortLivedCredential(t *testing.T) {
 	}
 	if len(server.URLs) != 1 || server.URLs[0] != "turn:turn.example.com:3478" {
 		t.Fatalf("urls not normalized: %+v", server.URLs)
+	}
+}
+
+func TestAPIJSONBodyLimitRejectsOversizedBody(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Payload string `json:"payload"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	})
+	body := `{"payload":"` + strings.Repeat("x", int(maxAPIJSONBodyBytes)+1) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	withAPIJSONBodyLimit(mux).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "request body too large") {
+		t.Fatalf("body limit error not returned: %s", rec.Body.String())
 	}
 }
 
@@ -402,6 +521,33 @@ func TestLoginDisabledAccountReturnsForbidden(t *testing.T) {
 	srv.handleLogin(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s, want 403", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLoginRateLimitReturnsTooManyRequests(t *testing.T) {
+	repo := &smokeAccountRepo{users: make(map[string]account.User)}
+	accounts := account.NewService(repo, "secret", &smokeSessionStore{sessions: make(map[int64]string)})
+	if _, err := accounts.Register(context.Background(), "limited@example.com", "secret1", "Limited"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	srv := NewServer("127.0.0.1:0", "admin-token", accounts, nil, nil, nil, nil, nil, nil, config.TURNCredentialConfig{})
+
+	for i := 0; i < rateLimitLoginAccount; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"limited@example.com","password":"wrong"}`))
+		req.RemoteAddr = "198.51.100.20:12345"
+		rec := httptest.NewRecorder()
+		srv.handleLogin(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status=%d body=%s, want 401", i+1, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"limited@example.com","password":"wrong"}`))
+	req.RemoteAddr = "198.51.100.20:12345"
+	rec := httptest.NewRecorder()
+	srv.handleLogin(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status=%d body=%s, want 429", rec.Code, rec.Body.String())
 	}
 }
 

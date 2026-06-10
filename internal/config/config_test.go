@@ -35,6 +35,9 @@ func TestControlConfigVoiceICEServersDefaultAndEnv(t *testing.T) {
 	t.Setenv("LWYLINK_VOICE_TURN_SECRET", "turn-secret")
 	t.Setenv("LWYLINK_VOICE_TURN_USERNAME_PREFIX", "lwylink")
 	t.Setenv("LWYLINK_VOICE_TURN_TTL_SECONDS", "600")
+	t.Setenv("LWYLINK_VOICE_TURN_USAGE_LOG", "/var/log/lwylink/coturn.log")
+	t.Setenv("LWYLINK_VOICE_TURN_USAGE_STATE", "/opt/lwylink/data/coturn-usage.offset")
+	t.Setenv("LWYLINK_VOICE_TURN_USAGE_POLL_SECONDS", "5")
 	applyControlEnvOverrides(&cfg)
 	if got, want := len(cfg.VoiceICEServers), 2; got != want {
 		t.Fatalf("voice ICE server count=%d, want %d", got, want)
@@ -47,5 +50,10 @@ func TestControlConfigVoiceICEServersDefaultAndEnv(t *testing.T) {
 	}
 	if got, want := len(cfg.VoiceTURNCredential.URLs), 2; got != want {
 		t.Fatalf("turn REST urls=%d, want %d", got, want)
+	}
+	if cfg.VoiceTURNCredential.UsageLogPath != "/var/log/lwylink/coturn.log" ||
+		cfg.VoiceTURNCredential.UsageStatePath != "/opt/lwylink/data/coturn-usage.offset" ||
+		cfg.VoiceTURNCredential.UsagePollIntervalSeconds != 5 {
+		t.Fatalf("turn usage env not parsed: %+v", cfg.VoiceTURNCredential)
 	}
 }

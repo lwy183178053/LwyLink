@@ -132,6 +132,26 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			INDEX idx_email_verifications_email_purpose_created (email, purpose, created_at),
 			INDEX idx_email_verifications_ip_created (ip, created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS turn_usage_events (
+			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			event_key VARCHAR(96) NULL,
+			user_id BIGINT NOT NULL,
+			source VARCHAR(32) NOT NULL DEFAULT 'coturn',
+			bytes BIGINT NOT NULL,
+			status VARCHAR(32) NOT NULL,
+			error_message TEXT NULL,
+			raw_line TEXT NULL,
+			reported_at TIMESTAMP NOT NULL,
+			retry_count INT NOT NULL DEFAULT 0,
+			next_retry_at TIMESTAMP NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE INDEX uniq_turn_usage_events_event_key (event_key),
+			INDEX idx_turn_usage_events_user_reported (user_id, reported_at),
+			INDEX idx_turn_usage_events_reported (reported_at),
+			INDEX idx_turn_usage_events_retry (status, next_retry_at),
+			INDEX idx_turn_usage_events_status (status, reported_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`INSERT IGNORE INTO app_settings (setting_key, setting_value)
 		 VALUES ('announcement', '官方 QQ 群：715516422')`,
 	}
@@ -162,6 +182,24 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `ALTER TABLE client_releases MODIFY COLUMN mandatory BOOLEAN NOT NULL DEFAULT TRUE`); err != nil {
 		return fmt.Errorf("migrate client_releases.mandatory: %w", err)
 	}
+	if err := ensureColumn(ctx, db, "turn_usage_events", "event_key", "VARCHAR(96) NULL AFTER id"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.event_key: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "turn_usage_events", "retry_count", "INT NOT NULL DEFAULT 0 AFTER reported_at"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.retry_count: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "turn_usage_events", "next_retry_at", "TIMESTAMP NULL AFTER retry_count"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.next_retry_at: %w", err)
+	}
+	if err := ensureColumn(ctx, db, "turn_usage_events", "updated_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.updated_at: %w", err)
+	}
+	if err := ensureIndex(ctx, db, "turn_usage_events", "uniq_turn_usage_events_event_key", "UNIQUE INDEX `uniq_turn_usage_events_event_key` (`event_key`)"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.event_key index: %w", err)
+	}
+	if err := ensureIndex(ctx, db, "turn_usage_events", "idx_turn_usage_events_retry", "INDEX `idx_turn_usage_events_retry` (`status`, `next_retry_at`)"); err != nil {
+		return fmt.Errorf("migrate turn_usage_events.retry index: %w", err)
+	}
 	return nil
 }
 
@@ -179,5 +217,22 @@ func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition str
 		return nil
 	}
 	_, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s", table, column, definition))
+	return err
+}
+
+func ensureIndex(ctx context.Context, db *sql.DB, table, indexName, definition string) error {
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		   FROM information_schema.STATISTICS
+		  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+		table, indexName,
+	).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE `%s` ADD %s", table, definition))
 	return err
 }

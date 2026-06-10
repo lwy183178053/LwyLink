@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": false,
+    "outDir": "test-dist",
+    "rootDir": "src",
+    "isolatedModules": false
+  },
+  "include": ["src/webrtcChatLogic.ts", "src/webrtcPathPolicy.ts"]
+}

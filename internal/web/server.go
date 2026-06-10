@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/LwyV-Labs/LwyLink/internal/account"
@@ -29,6 +30,37 @@ import (
 
 const maxAdminReleaseUploadBodyBytes = (512 << 20) + (1 << 20)
 const maxVoiceRelayTrafficReportBytes int64 = 32 << 20
+const maxAPIJSONBodyBytes int64 = 256 << 10
+
+const (
+	apiRateLimitWindow            = time.Minute
+	rateLimitLoginIP              = 30
+	rateLimitLoginAccount         = 10
+	rateLimitRegisterIP           = 20
+	rateLimitRegisterAccount      = 6
+	rateLimitPasswordIP           = 20
+	rateLimitPasswordAccount      = 6
+	rateLimitPasswordUser         = 10
+	rateLimitRoomCreateIP         = 40
+	rateLimitRoomCreateUser       = 20
+	rateLimitRoomJoinIP           = 60
+	rateLimitRoomJoinUser         = 20
+	rateLimitRoomActionIP         = 120
+	rateLimitRoomActionUser       = 60
+	rateLimitRoomChatIP           = 240
+	rateLimitRoomChatUser         = 120
+	rateLimitVoiceActionIP        = 180
+	rateLimitVoiceActionUser      = 120
+	rateLimitVoiceSignalIP        = 300
+	rateLimitVoiceSignalUser      = 300
+	rateLimitVoiceTrafficIP       = 180
+	rateLimitVoiceTrafficUser     = 90
+	rateLimitNetworkDiagIP        = 180
+	rateLimitNetworkDiagUser      = 90
+	rateLimitSmokeRegisterIP      = 80
+	rateLimitSmokeRegisterAccount = 10
+	rateLimitAdminIP              = 180
+)
 
 type Server struct {
 	addr            string
@@ -41,13 +73,18 @@ type Server struct {
 	mail            *mail.Service
 	voiceICEServers []config.ICEServerConfig
 	voiceTURN       config.TURNCredentialConfig
-	downloadLimiter *downloadLimiter
+	downloadLimiter *windowLimiter
+	apiLimiter      *windowLimiter
+	turnTrafficUsed atomic.Int64
+	turnChargeFails atomic.Int64
+	turnUsage       *coturnUsageCollector
+	turnLedger      *turnUsageLedger
 	httpServer      *http.Server
 }
 
 // NewServer exposes the JSON client API and the embedded admin console.
 func NewServer(addr, adminToken string, accounts *account.Service, settings *appsettings.Service, rooms *room.Service, nodes *node.Service, releases *clientrelease.Service, mailSvc *mail.Service, voiceICEServers []config.ICEServerConfig, voiceTURN config.TURNCredentialConfig) *Server {
-	return &Server{
+	s := &Server{
 		addr:            addr,
 		adminToken:      adminToken,
 		accounts:        accounts,
@@ -58,14 +95,31 @@ func NewServer(addr, adminToken string, accounts *account.Service, settings *app
 		mail:            mailSvc,
 		voiceICEServers: normalizeICEServers(voiceICEServers),
 		voiceTURN:       voiceTURN,
-		downloadLimiter: newDownloadLimiter(downloadRateLimitWindow),
+		downloadLimiter: newWindowLimiter(downloadRateLimitWindow),
+		apiLimiter:      newWindowLimiter(apiRateLimitWindow),
+	}
+	if accounts != nil {
+		s.turnUsage = newCoturnUsageCollector(voiceTURN, s.chargeCoturnTURNTraffic)
+	}
+	return s
+}
+
+func (s *Server) SetTurnUsageLedger(ledger *turnUsageLedger) {
+	s.turnLedger = ledger
+	if s.turnUsage != nil {
+		s.turnUsage.SetLedger(ledger)
 	}
 }
 
 // ListenAndServe registers all HTTP routes and shuts down gracefully when the
 // parent context is canceled by the process supervisor.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if s.turnUsage != nil {
+		s.turnUsage.Start(ctx)
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/metrics", s.handlePrometheusMetrics)
 	mux.HandleFunc("/api/register", s.handleRegister)
 	mux.HandleFunc("/api/smoke/register", s.handleSmokeRegister)
 	mux.HandleFunc("/api/login", s.handleLogin)
@@ -86,6 +140,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/rooms/voice/webrtc/ice", s.handleRoomVoiceWebRTCICE)
 	mux.HandleFunc("/api/rooms/voice/webrtc/signal", s.handleRoomVoiceWebRTCSignal)
 	mux.HandleFunc("/api/rooms/voice/webrtc/traffic", s.handleRoomVoiceWebRTCTraffic)
+	mux.HandleFunc("/api/rooms/network-diagnostics", s.handleRoomNetworkDiagnostics)
 	mux.HandleFunc("/api/rooms/events", s.handleRoomEvents)
 	mux.HandleFunc("/api/rooms/leave", s.handleLeaveRoom)
 	mux.HandleFunc("/api/rooms/kick", s.handleKickRoomMember)
@@ -98,6 +153,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/", s.handleSite)
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/admin/metrics", s.handleAdminMetrics)
+	mux.HandleFunc("/admin/turn-usage", s.handleAdminTurnUsage)
 	mux.HandleFunc("/admin/nodes", s.handleAdminNodes)
 	mux.HandleFunc("/admin/users", s.handleAdminUsers)
 	mux.HandleFunc("/admin/users/status", s.handleAdminUserStatus)
@@ -116,7 +172,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	s.httpServer = &http.Server{
 		Addr:              s.addr,
-		Handler:           withCORS(mux),
+		Handler:           withAccessLog(withCORS(withAPIJSONBodyLimit(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -135,6 +191,29 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return err
 }
 
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"generatedAt": time.Now().UTC(),
+	})
+}
+
+func (s *Server) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	body, err := s.prometheusMetrics(r.Context(), time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(body))
+}
+
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -147,6 +226,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowAccountAPIRate(r, "register", account.NormalizeEmail(req.Email), rateLimitRegisterIP, rateLimitRegisterAccount) {
+		writeError(w, http.StatusTooManyRequests, "registration requests are too frequent")
 		return
 	}
 	if err := s.requireEmailVerification(r.Context(), req.Email, mail.PurposeRegister, req.EmailCode); err != nil {
@@ -169,6 +252,10 @@ func (s *Server) handleSmokeRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "admin token required")
 		return
 	}
+	if !s.allowIPAPIRate(r, "smoke-register", rateLimitSmokeRegisterIP) {
+		writeError(w, http.StatusTooManyRequests, "smoke registration requests are too frequent")
+		return
+	}
 	var req struct {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
@@ -176,6 +263,10 @@ func (s *Server) handleSmokeRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowAPIRate(rateKey("smoke-register", "account", account.NormalizeEmail(req.Email)), rateLimitSmokeRegisterAccount) {
+		writeError(w, http.StatusTooManyRequests, "smoke registration requests are too frequent")
 		return
 	}
 	if !strings.HasSuffix(account.NormalizeEmail(req.Email), "@smoke.lwylink.test") {
@@ -231,6 +322,10 @@ func (s *Server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowAccountAPIRate(r, "password-reset", account.NormalizeEmail(req.Email), rateLimitPasswordIP, rateLimitPasswordAccount) {
+		writeError(w, http.StatusTooManyRequests, "password reset requests are too frequent")
+		return
+	}
 	if err := s.requireEmailVerification(r.Context(), req.Email, mail.PurposePasswordReset, req.EmailCode); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -257,6 +352,10 @@ func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "password-change", user.ID, rateLimitPasswordIP, rateLimitPasswordUser) {
+		writeError(w, http.StatusTooManyRequests, "password change requests are too frequent")
 		return
 	}
 	if err := s.accounts.ChangePassword(r.Context(), user.ID, req.OldPassword, req.NewPassword); err != nil {
@@ -306,6 +405,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowAccountAPIRate(r, "login", account.NormalizeEmail(req.Email), rateLimitLoginIP, rateLimitLoginAccount) {
+		writeError(w, http.StatusTooManyRequests, "login requests are too frequent")
 		return
 	}
 	result, err := s.accounts.Login(r.Context(), req.Email, req.Password)
@@ -364,6 +467,10 @@ func (s *Server) handleRooms(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if !s.allowUserAPIRate(r, "room-create", user.ID, rateLimitRoomCreateIP, rateLimitRoomCreateUser) {
+			writeError(w, http.StatusTooManyRequests, "room creation requests are too frequent")
+			return
+		}
 		roomInfo, err := s.rooms.CreateRoom(r.Context(), user.ID, req.Name, req.MaxMembers)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -391,6 +498,10 @@ func (s *Server) handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "room-join", user.ID, rateLimitRoomJoinIP, rateLimitRoomJoinUser) {
+		writeError(w, http.StatusTooManyRequests, "room join requests are too frequent")
+		return
+	}
 	roomInfo, err := s.rooms.JoinRoom(r.Context(), user.ID, req.RoomPublicKey)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -413,6 +524,10 @@ func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "room-action", user.ID, rateLimitRoomActionIP, rateLimitRoomActionUser) {
+		writeError(w, http.StatusTooManyRequests, "room action requests are too frequent")
 		return
 	}
 	if err := s.rooms.DeleteRoom(r.Context(), user.ID, req.RoomID); err != nil {
@@ -459,6 +574,10 @@ func (s *Server) handleRoomChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "room-chat", user.ID, rateLimitRoomChatIP, rateLimitRoomChatUser) {
+		writeError(w, http.StatusTooManyRequests, "room chat requests are too frequent")
 		return
 	}
 	chat, err := s.rooms.SendChatWithTrafficCharge(r.Context(), user.ID, req.RoomID, req.Message, func(bytes int64) error {
@@ -510,6 +629,10 @@ func (s *Server) handleJoinRoomVoice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "voice-action", user.ID, rateLimitVoiceActionIP, rateLimitVoiceActionUser) {
+		writeError(w, http.StatusTooManyRequests, "voice requests are too frequent")
+		return
+	}
 	state, err := s.rooms.JoinVoice(r.Context(), user.ID, req.RoomID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -532,6 +655,10 @@ func (s *Server) handleLeaveRoomVoice(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "voice-action", user.ID, rateLimitVoiceActionIP, rateLimitVoiceActionUser) {
+		writeError(w, http.StatusTooManyRequests, "voice requests are too frequent")
 		return
 	}
 	state, err := s.rooms.LeaveVoice(r.Context(), user.ID, req.RoomID)
@@ -559,6 +686,10 @@ func (s *Server) handleRoomVoiceMic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "voice-action", user.ID, rateLimitVoiceActionIP, rateLimitVoiceActionUser) {
+		writeError(w, http.StatusTooManyRequests, "voice requests are too frequent")
+		return
+	}
 	state, err := s.rooms.SetVoiceSpeaking(r.Context(), user.ID, req.RoomID, req.Speaking)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -571,14 +702,19 @@ func (s *Server) handleRoomVoiceWebRTCICE(w http.ResponseWriter, r *http.Request
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	if _, err := s.userFromRequest(r); err != nil {
+	user, err := s.userFromRequest(r)
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "voice-ice", user.ID, rateLimitVoiceActionIP, rateLimitVoiceActionUser) {
+		writeError(w, http.StatusTooManyRequests, "voice ICE requests are too frequent")
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
 		ICEServers []config.ICEServerConfig `json:"iceServers"`
 	}{
-		ICEServers: s.voiceICEConfig(time.Now()),
+		ICEServers: s.voiceICEConfig(time.Now(), user.ID),
 	})
 }
 
@@ -599,6 +735,10 @@ func (s *Server) handleRoomVoiceWebRTCSignal(w http.ResponseWriter, r *http.Requ
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "voice-signal", user.ID, rateLimitVoiceSignalIP, rateLimitVoiceSignalUser) {
+		writeError(w, http.StatusTooManyRequests, "voice signaling requests are too frequent")
 		return
 	}
 	if len(req.Payload) > 64*1024 {
@@ -630,6 +770,10 @@ func (s *Server) handleRoomVoiceWebRTCTraffic(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "voice-traffic", user.ID, rateLimitVoiceTrafficIP, rateLimitVoiceTrafficUser) {
+		writeError(w, http.StatusTooManyRequests, "voice traffic reports are too frequent")
+		return
+	}
 	if req.RoomID <= 0 {
 		writeError(w, http.StatusBadRequest, "bad roomID")
 		return
@@ -647,12 +791,69 @@ func (s *Server) handleRoomVoiceWebRTCTraffic(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusForbidden, "请先加入语音房")
 		return
 	}
-	if err := s.accounts.ConsumeRelayTraffic(r.Context(), user.ID, req.Bytes); err != nil {
-		writeError(w, statusForAccountError(err, http.StatusBadRequest), err.Error())
+	authoritative := s.turnUsageAuthoritative()
+	chargedBytes := req.Bytes
+	if authoritative {
+		log.Printf("ignore client TURN traffic charge because coturn usage accounting is enabled user=%d room=%d bytes=%d", user.ID, req.RoomID, req.Bytes)
+		chargedBytes = 0
+	} else {
+		event := turnUsageEvent{
+			UserID:     user.ID,
+			Bytes:      req.Bytes,
+			Source:     "client",
+			Status:     turnUsageStatusCharged,
+			ReportedAt: time.Now(),
+		}
+		if err := s.accounts.ConsumeRelayTraffic(r.Context(), user.ID, req.Bytes); err != nil {
+			event.Status = turnUsageStatusFailed
+			event.ErrorMessage = err.Error()
+			s.recordTurnUsageEvent(r.Context(), event)
+			s.turnChargeFails.Add(1)
+			writeError(w, statusForAccountError(err, http.StatusBadRequest), err.Error())
+			return
+		}
+		s.turnTrafficUsed.Add(req.Bytes)
+		s.notifyUserUpdated(r.Context(), user.ID)
+		s.recordTurnUsageEvent(r.Context(), event)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"chargedBytes":  chargedBytes,
+		"authoritative": authoritative,
+	})
+}
+
+func (s *Server) handleRoomNetworkDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	s.notifyUserUpdated(r.Context(), user.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "chargedBytes": req.Bytes})
+	user, err := s.userFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "network-diagnostics", user.ID, rateLimitNetworkDiagIP, rateLimitNetworkDiagUser) {
+		writeError(w, http.StatusTooManyRequests, "network diagnostic reports are too frequent")
+		return
+	}
+	var report room.NetworkDiagnosticReport
+	if err := readJSON(r, &report); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.rooms == nil {
+		writeError(w, http.StatusBadRequest, "room service is unavailable")
+		return
+	}
+	if len(report.TransportDiagnostics) > 128 {
+		writeError(w, http.StatusBadRequest, "network diagnostic report is too large")
+		return
+	}
+	if err := s.rooms.ReportNetworkDiagnostics(r.Context(), user.ID, report); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func voiceStateHasParticipant(state room.VoiceState, userID int64) bool {
@@ -733,6 +934,10 @@ func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "room-action", user.ID, rateLimitRoomActionIP, rateLimitRoomActionUser) {
+		writeError(w, http.StatusTooManyRequests, "room action requests are too frequent")
+		return
+	}
 	if err := s.rooms.LeaveRoom(r.Context(), user.ID, req.RoomID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -757,6 +962,10 @@ func (s *Server) handleKickRoomMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.allowUserAPIRate(r, "room-action", user.ID, rateLimitRoomActionIP, rateLimitRoomActionUser) {
+		writeError(w, http.StatusTooManyRequests, "room action requests are too frequent")
+		return
+	}
 	if err := s.rooms.KickMember(r.Context(), user.ID, req.RoomID, req.UserID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -779,6 +988,10 @@ func (s *Server) handleTransferRoomOwner(w http.ResponseWriter, r *http.Request)
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowUserAPIRate(r, "room-action", user.ID, rateLimitRoomActionIP, rateLimitRoomActionUser) {
+		writeError(w, http.StatusTooManyRequests, "room action requests are too frequent")
 		return
 	}
 	roomInfo, err := s.rooms.TransferOwner(r.Context(), user.ID, req.RoomID, req.UserID)
@@ -861,6 +1074,10 @@ func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 }
 
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !s.allowIPAPIRate(r, "admin", rateLimitAdminIP) {
+		writeError(w, http.StatusTooManyRequests, "admin requests are too frequent")
+		return false
+	}
 	if s.adminAuthorized(r) {
 		return true
 	}
@@ -958,13 +1175,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func normalizeICEServers(servers []config.ICEServerConfig) []config.ICEServerConfig {
 	out := make([]config.ICEServerConfig, 0, len(servers))
 	for _, server := range servers {
-		urls := make([]string, 0, len(server.URLs))
-		for _, rawURL := range server.URLs {
-			rawURL = strings.TrimSpace(rawURL)
-			if rawURL != "" {
-				urls = append(urls, rawURL)
-			}
-		}
+		urls := normalizeICEURLs(server.URLs)
 		if len(urls) == 0 {
 			continue
 		}
@@ -980,22 +1191,16 @@ func normalizeICEServers(servers []config.ICEServerConfig) []config.ICEServerCon
 	return out
 }
 
-func (s *Server) voiceICEConfig(now time.Time) []config.ICEServerConfig {
+func (s *Server) voiceICEConfig(now time.Time, userID int64) []config.ICEServerConfig {
 	servers := normalizeICEServers(s.voiceICEServers)
-	if turn, ok := turnRESTICEServer(s.voiceTURN, now); ok {
+	if turn, ok := turnRESTICEServer(s.voiceTURN, now, userID); ok {
 		servers = append(servers, turn)
 	}
 	return servers
 }
 
-func turnRESTICEServer(cfg config.TURNCredentialConfig, now time.Time) (config.ICEServerConfig, bool) {
-	urls := make([]string, 0, len(cfg.URLs))
-	for _, rawURL := range cfg.URLs {
-		rawURL = strings.TrimSpace(rawURL)
-		if rawURL != "" {
-			urls = append(urls, rawURL)
-		}
-	}
+func turnRESTICEServer(cfg config.TURNCredentialConfig, now time.Time, userID int64) (config.ICEServerConfig, bool) {
+	urls := normalizeICEURLs(cfg.URLs)
 	secret := strings.TrimSpace(cfg.StaticAuthSecret)
 	if len(urls) == 0 || secret == "" {
 		return config.ICEServerConfig{}, false
@@ -1006,6 +1211,9 @@ func turnRESTICEServer(cfg config.TURNCredentialConfig, now time.Time) (config.I
 	}
 	expiry := now.Add(time.Duration(ttl) * time.Second).Unix()
 	username := strconv.FormatInt(expiry, 10)
+	if userID > 0 {
+		username += fmt.Sprintf(":u%d", userID)
+	}
 	if prefix := strings.TrimSpace(cfg.UsernamePrefix); prefix != "" {
 		username += ":" + prefix
 	}
@@ -1019,6 +1227,17 @@ func turnRESTICEServer(cfg config.TURNCredentialConfig, now time.Time) (config.I
 	}, true
 }
 
+func normalizeICEURLs(values []string) []string {
+	urls := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -1030,6 +1249,98 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func withAPIJSONBodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/") {
+			r.Body = http.MaxBytesReader(w, r.Body, maxAPIJSONBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) turnUsageAuthoritative() bool {
+	if s.turnUsage == nil {
+		return false
+	}
+	stats := s.turnUsageStats(time.Now())
+	return stats.LastPollAt.IsZero() || stats.LogAvailable
+}
+
+func (s *Server) chargeCoturnTURNTraffic(ctx context.Context, event turnUsageEvent) error {
+	if event.UserID <= 0 || event.Bytes <= 0 {
+		return nil
+	}
+	if s.accounts == nil {
+		s.turnTrafficUsed.Add(event.Bytes)
+		return nil
+	}
+	if err := s.accounts.ConsumeRelayTraffic(ctx, event.UserID, event.Bytes); err != nil {
+		return err
+	}
+	s.turnTrafficUsed.Add(event.Bytes)
+	s.notifyUserUpdated(ctx, event.UserID)
+	return nil
+}
+
+func (s *Server) recordTurnUsageEvent(ctx context.Context, event turnUsageEvent) {
+	if s.turnLedger == nil {
+		return
+	}
+	if err := s.turnLedger.Record(ctx, event); err != nil {
+		log.Printf("turn usage ledger record failed user=%d bytes=%d source=%s: %v", event.UserID, event.Bytes, event.Source, err)
+	}
+}
+
+func withAccessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		recorder := &accessLogResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		entry := map[string]any{
+			"event":       "http_request",
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"status":      recorder.status,
+			"bytes":       recorder.bytes,
+			"duration_ms": time.Since(start).Milliseconds(),
+			"ip":          clientIP(r),
+			"user_agent":  r.UserAgent(),
+		}
+		if requestID := strings.TrimSpace(r.Header.Get("X-Request-ID")); requestID != "" {
+			entry["request_id"] = requestID
+		}
+		data, err := json.Marshal(entry)
+		if err != nil {
+			log.Printf("http_request status=%d method=%s path=%s", recorder.status, r.Method, r.URL.Path)
+			return
+		}
+		log.Print(string(data))
+	})
+}
+
+type accessLogResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *accessLogResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *accessLogResponseWriter) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += n
+	return n, err
+}
+
+func (w *accessLogResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -1164,6 +1475,9 @@ func (s *Server) handleAdminRooms(w http.ResponseWriter, r *http.Request) {
 	data := s.adminListPageData("rooms", "房间", "/admin/rooms", listReq, hasNext)
 	data.Stats = stats
 	data.Rooms = rooms
+	if s.rooms != nil {
+		data.RoomNetworkDiagnostics = s.rooms.NetworkDiagnostics(roomIDs(rooms))
+	}
 	s.renderAdmin(w, data)
 }
 
@@ -1216,10 +1530,67 @@ func (s *Server) handleAdminReleases(w http.ResponseWriter, r *http.Request) {
 	s.renderAdmin(w, data)
 }
 
+func (s *Server) handleAdminTurnUsage(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	if s.turnLedger == nil {
+		page, perPage := adminPagination(r.URL.Query().Get("page"), r.URL.Query().Get("perPage"))
+		data := s.adminListPageData("turn-usage", "TURN 对账", "/admin/turn-usage", adminListRequest{Page: page, PerPage: perPage}, false)
+		data.TurnUsage = turnUsagePage{}
+		s.renderAdmin(w, data)
+		return
+	}
+	userID, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("userID")), 10, 64)
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	var start, end time.Time
+	if date != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "date must use YYYY-MM-DD")
+			return
+		}
+		start = parsed
+		end = parsed.AddDate(0, 0, 1)
+	}
+	page, perPage := adminPagination(r.URL.Query().Get("page"), r.URL.Query().Get("perPage"))
+	usage, err := s.turnLedger.List(r.Context(), turnUsageFilter{
+		UserID:    userID,
+		StartTime: start,
+		EndTime:   end,
+		Limit:     perPage,
+		Offset:    dbutil.Offset((page - 1) * perPage),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stats, err := s.adminStats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	hasNext := usage.HasMore
+	data := s.adminListPageData("turn-usage", "TURN 对账", "/admin/turn-usage", adminListRequest{Page: page, PerPage: perPage}, hasNext)
+	data.Stats = stats
+	data.TurnUsage = usage
+	data.TurnUsageUserID = userID
+	data.TurnUsageDate = date
+	data.CurrentURL = s.adminTurnUsageURL(userID, date, page, perPage)
+	if page > 1 {
+		data.PrevURL = s.adminTurnUsageURL(userID, date, page-1, perPage)
+	}
+	if hasNext {
+		data.NextURL = s.adminTurnUsageURL(userID, date, page+1, perPage)
+	}
+	s.renderAdmin(w, data)
+}
+
 func (s *Server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 	data.Nav = []adminNavItem{
 		{Key: "overview", Label: "概览", URL: s.adminURL("/admin")},
 		{Key: "metrics", Label: "监控", URL: s.adminURL("/admin/metrics")},
+		{Key: "turn-usage", Label: "TURN 对账", URL: s.adminURL("/admin/turn-usage")},
 		{Key: "nodes", Label: "节点", URL: s.adminURL("/admin/nodes")},
 		{Key: "users", Label: "玩家", URL: s.adminURL("/admin/users")},
 		{Key: "rooms", Label: "房间", URL: s.adminURL("/admin/rooms")},
@@ -1462,27 +1833,31 @@ func (s *Server) adminAuthorized(r *http.Request) bool {
 }
 
 type adminPageData struct {
-	Active       string
-	Title        string
-	CurrentURL   string
-	Token        string
-	Query        string
-	Status       string
-	Page         int
-	PerPage      int
-	HasPrev      bool
-	HasNext      bool
-	PrevURL      string
-	NextURL      string
-	Stats        adminStats
-	Metrics      adminMetrics
-	Nav          []adminNavItem
-	Users        []account.User
-	Rooms        []room.Room
-	Nodes        []node.Node
-	Releases     []clientrelease.Release
-	Announcement string
-	ReadOnlyRows bool
+	Active                 string
+	Title                  string
+	CurrentURL             string
+	Token                  string
+	Query                  string
+	Status                 string
+	Page                   int
+	PerPage                int
+	HasPrev                bool
+	HasNext                bool
+	PrevURL                string
+	NextURL                string
+	Stats                  adminStats
+	Metrics                adminMetrics
+	Nav                    []adminNavItem
+	Users                  []account.User
+	Rooms                  []room.Room
+	RoomNetworkDiagnostics map[int64][]room.NetworkDiagnosticReport
+	TurnUsage              turnUsagePage
+	TurnUsageUserID        int64
+	TurnUsageDate          string
+	Nodes                  []node.Node
+	Releases               []clientrelease.Release
+	Announcement           string
+	ReadOnlyRows           bool
 }
 
 type adminListRequest struct {
@@ -1521,11 +1896,17 @@ type adminMetrics struct {
 	ActiveUsers           int                    `json:"activeUsers"`
 	Rooms                 int                    `json:"rooms"`
 	OpenRooms             int                    `json:"openRooms"`
+	OnlineRooms           int                    `json:"onlineRooms"`
 	OverlayConnections    int                    `json:"overlayConnections"`
+	AppOnlineUsers        int                    `json:"appOnlineUsers"`
 	VoiceRooms            int                    `json:"voiceRooms"`
 	VoiceParticipants     int                    `json:"voiceParticipants"`
 	VoiceSpeakers         int                    `json:"voiceSpeakers"`
 	RelayTrafficUsedBytes int64                  `json:"relayTrafficUsedBytes"`
+	TURNTrafficUsedBytes  int64                  `json:"turnTrafficUsedBytes"`
+	TURNChargeFailures    int64                  `json:"turnChargeFailures"`
+	CoturnLogLagSeconds   float64                `json:"coturnLogLagSeconds"`
+	CoturnLastUsageAt     time.Time              `json:"coturnLastUsageAt,omitempty"`
 	DownloadsLastHour     int                    `json:"downloadsLastHour"`
 	DownloadsLastDay      int                    `json:"downloadsLastDay"`
 	Releases              int                    `json:"releases"`
@@ -1580,6 +1961,7 @@ func (s *Server) adminMetrics(ctx context.Context) (adminMetrics, error) {
 	metrics.Users = userStats.Total
 	metrics.ActiveUsers = userStats.Active
 	metrics.RelayTrafficUsedBytes = userStats.RelayTrafficUsedBytes
+	metrics.TURNTrafficUsedBytes = s.turnTrafficUsed.Load()
 
 	roomStats, err := s.rooms.Stats(ctx)
 	if err != nil {
@@ -1591,7 +1973,21 @@ func (s *Server) adminMetrics(ctx context.Context) (adminMetrics, error) {
 	metrics.VoiceRooms = voiceStats.Rooms
 	metrics.VoiceParticipants = voiceStats.Participants
 	metrics.VoiceSpeakers = voiceStats.Speakers
-	metrics.OverlayConnections = s.overlayConnectionCount(ctx, &metrics)
+	onlineMetrics, err := s.rooms.OnlineMetrics(ctx)
+	if err != nil {
+		metrics.RecentErrors = append(metrics.RecentErrors, "online metrics: "+err.Error())
+	} else {
+		metrics.OnlineRooms = onlineMetrics.OnlineRooms
+		metrics.OverlayConnections = onlineMetrics.OverlayConnections
+		metrics.AppOnlineUsers = onlineMetrics.AppOnlineUsers
+	}
+	turnStats := s.turnUsageStats(time.Now())
+	metrics.TURNChargeFailures = turnStats.ChargeFailures + s.turnChargeFails.Load()
+	metrics.CoturnLogLagSeconds = turnStats.LogLagSeconds
+	metrics.CoturnLastUsageAt = turnStats.LastUsageAt
+	if turnStats.LastProcessError != "" {
+		metrics.RecentErrors = append(metrics.RecentErrors, "coturn usage: "+turnStats.LastProcessError)
+	}
 
 	if s.nodes != nil {
 		nodes, err := s.nodes.List(ctx)
@@ -1629,34 +2025,96 @@ func (s *Server) adminMetrics(ctx context.Context) (adminMetrics, error) {
 	return metrics, nil
 }
 
-func (s *Server) overlayConnectionCount(ctx context.Context, metrics *adminMetrics) int {
-	if s.rooms == nil {
-		return 0
+func (s *Server) turnUsageStats(now time.Time) coturnUsageStats {
+	if s.turnUsage == nil {
+		return coturnUsageStats{}
 	}
-	rooms, err := s.rooms.Search(ctx, room.Filter{Status: room.StatusOpen, Limit: 1000})
+	return s.turnUsage.Stats(now)
+}
+
+func (s *Server) prometheusMetrics(ctx context.Context, now time.Time) (string, error) {
+	metrics, err := s.adminMetrics(ctx)
 	if err != nil {
-		metrics.RecentErrors = append(metrics.RecentErrors, "overlay metrics: "+err.Error())
-		return 0
+		return "", err
 	}
-	connections := 0
-	for _, item := range rooms {
-		members, err := s.rooms.ListMembers(ctx, item.OwnerUserID, item.ID)
-		if err != nil {
-			continue
-		}
-		for _, member := range members {
-			if member.VirtualIP != "" {
-				connections++
-			}
+	turnStats := s.turnUsageStats(now)
+	nodeDown := 0
+	for _, item := range metrics.Nodes {
+		if item.Enabled && item.Status != node.StatusOnline {
+			nodeDown++
 		}
 	}
-	return connections
+
+	var b strings.Builder
+	writePromMetric(&b, "lwylink_users_total", "Total registered users.", float64(metrics.Users))
+	writePromMetric(&b, "lwylink_users_active", "Active user accounts.", float64(metrics.ActiveUsers))
+	writePromMetric(&b, "lwylink_rooms_total", "Total rooms.", float64(metrics.Rooms))
+	writePromMetric(&b, "lwylink_rooms_open", "Open rooms.", float64(metrics.OpenRooms))
+	writePromMetric(&b, "lwylink_rooms_online", "Open rooms with at least one online member.", float64(metrics.OnlineRooms))
+	writePromMetric(&b, "lwylink_overlay_connections", "Online overlay member connections.", float64(metrics.OverlayConnections))
+	writePromMetric(&b, "lwylink_room_app_online_users", "Room members with active app presence.", float64(metrics.AppOnlineUsers))
+	writePromMetric(&b, "lwylink_voice_participants", "Current WebRTC voice participants.", float64(metrics.VoiceParticipants))
+	writePromMetric(&b, "lwylink_relay_traffic_used_bytes", "Account relay traffic used in the current period.", float64(metrics.RelayTrafficUsedBytes))
+	writePromMetric(&b, "lwylink_turn_traffic_used_bytes", "TURN relay traffic observed by coturn/client reporting.", float64(metrics.TURNTrafficUsedBytes))
+	writePromCounter(&b, "lwylink_turn_charge_failures_total", "TURN traffic charge failures.", float64(metrics.TURNChargeFailures))
+	writePromMetric(&b, "lwylink_coturn_usage_collector_enabled", "Whether coturn usage log collection is enabled.", boolMetric(turnStats.Enabled))
+	writePromMetric(&b, "lwylink_coturn_usage_log_available", "Whether the configured coturn usage log was readable on the last poll.", boolMetric(turnStats.LogAvailable))
+	writePromCounter(&b, "lwylink_coturn_usage_processed_total", "Processed coturn usage lines.", float64(turnStats.ProcessedLines))
+	writePromMetric(&b, "lwylink_coturn_log_lag_seconds", "Seconds since coturn usage log was last modified.", turnStats.LogLagSeconds)
+	writePromMetric(&b, "lwylink_nodes_total", "Configured server nodes.", float64(len(metrics.Nodes)))
+	writePromMetric(&b, "lwylink_nodes_down", "Enabled nodes that are not online.", float64(nodeDown))
+	writePromMetric(&b, "lwylink_downloads_last_hour", "Client downloads in the last hour.", float64(metrics.DownloadsLastHour))
+	writePromMetric(&b, "lwylink_downloads_last_day", "Client downloads in the last day.", float64(metrics.DownloadsLastDay))
+	if !turnStats.LastUsageAt.IsZero() {
+		writePromMetric(&b, "lwylink_coturn_last_usage_timestamp_seconds", "Unix timestamp of the last processed coturn usage line.", float64(turnStats.LastUsageAt.Unix()))
+	}
+	if !turnStats.LastPollAt.IsZero() {
+		writePromMetric(&b, "lwylink_coturn_last_poll_timestamp_seconds", "Unix timestamp of the last coturn usage log poll.", float64(turnStats.LastPollAt.Unix()))
+	}
+	return b.String(), nil
+}
+
+func boolMetric(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func writePromMetric(b *strings.Builder, name, help string, value float64) {
+	fmt.Fprintf(b, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(b, "# TYPE %s gauge\n", name)
+	fmt.Fprintf(b, "%s %g\n", name, value)
+}
+
+func writePromCounter(b *strings.Builder, name, help string, value float64) {
+	fmt.Fprintf(b, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(b, "# TYPE %s counter\n", name)
+	fmt.Fprintf(b, "%s %g\n", name, value)
 }
 
 func (s *Server) adminURL(path string) string {
 	values := url.Values{}
 	values.Set("token", s.adminToken)
 	return path + "?" + values.Encode()
+}
+
+func (s *Server) adminTurnUsageURL(userID int64, date string, page, perPage int) string {
+	values := url.Values{}
+	values.Set("token", s.adminToken)
+	if userID > 0 {
+		values.Set("userID", strconv.FormatInt(userID, 10))
+	}
+	if strings.TrimSpace(date) != "" {
+		values.Set("date", strings.TrimSpace(date))
+	}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if perPage > 0 && perPage != defaultAdminPerPage {
+		values.Set("perPage", strconv.Itoa(perPage))
+	}
+	return "/admin/turn-usage?" + values.Encode()
 }
 
 func (s *Server) clientReleaseDownloadURL(r *http.Request, release clientrelease.Release) string {
@@ -1787,6 +2245,23 @@ func (s *Server) adminURLFromForm(path string, r *http.Request, statusField stri
 	return s.adminURLWithFilters(path, r.FormValue("q"), r.FormValue(statusField), page, perPage)
 }
 
+func roomIDs(rooms []room.Room) []int64 {
+	out := make([]int64, 0, len(rooms))
+	for _, item := range rooms {
+		if item.ID > 0 {
+			out = append(out, item.ID)
+		}
+	}
+	return out
+}
+
+func roomDiagnostics(items map[int64][]room.NetworkDiagnosticReport, roomID int64) []room.NetworkDiagnosticReport {
+	if len(items) == 0 || roomID <= 0 {
+		return nil
+	}
+	return items[roomID]
+}
+
 func (s *Server) adminPageURLs(path string, listReq adminListRequest, hasNext bool) (string, string) {
 	prevURL := ""
 	if listReq.Page > 1 {
@@ -1898,11 +2373,11 @@ func activeClass(active, key string) string {
 
 func statusClass(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case node.StatusOnline, room.StatusOpen:
+	case node.StatusOnline, room.StatusOpen, turnUsageStatusCharged:
 		return "good"
 	case node.StatusPaused, node.StatusUnknown:
 		return "warn"
-	case node.StatusDisabled, room.StatusClosed:
+	case node.StatusDisabled, room.StatusClosed, turnUsageStatusFailed:
 		return "bad"
 	default:
 		return "neutral"

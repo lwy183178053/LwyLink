@@ -15,11 +15,16 @@ param(
   [switch]$SkipSmoke,
   [switch]$SkipClientRelease,
   [switch]$SkipBuild,
+  [switch]$SkipBackup,
+  [switch]$SkipPostReleaseCheck,
   [switch]$SkipTests,
   [switch]$NoVet,
   [switch]$NoInstallWails,
   [switch]$Commit,
-  [switch]$ValidateReleaseApiURL
+  [switch]$ValidateReleaseApiURL,
+  [switch]$InstallDailyBackup,
+  [string]$BackupRoot = "",
+  [int]$BackupRetentionDays = 14
 )
 
 $ErrorActionPreference = "Stop"
@@ -278,6 +283,24 @@ if (-not $SkipBuild) {
 }
 
 if (-not $SkipDeploy) {
+  if (-not $SkipBackup) {
+    Invoke-Step "发布前远端备份" {
+      $args = @("-File", ".\deploy\backup-remote.ps1", "-RemoteRoot", $RemoteRoot, "-RetentionDays", "$BackupRetentionDays")
+      if ($HostName -ne "") { $args += @("-HostName", $HostName) }
+      if ($User -ne "") { $args += @("-User", $User) }
+      if ($Port -ne 0) { $args += @("-Port", "$Port") }
+      if ($Password -ne "") { $args += @("-Password", $Password) }
+      if ($BackupRoot -ne "") { $args += @("-BackupRoot", $BackupRoot) }
+      if ($InstallDailyBackup) { $args += "-InstallDailyTimer" }
+      powershell -NoProfile -ExecutionPolicy Bypass @args
+      if ($LASTEXITCODE -ne 0) {
+        throw "发布前备份失败"
+      }
+    }
+  } else {
+    Write-Host "`n==> 跳过发布前备份" -ForegroundColor Cyan
+  }
+
   Invoke-Step "部署并重启服务端" {
     $args = @("-File", ".\deploy\upload-deploy.ps1", "-RemoteRoot", $RemoteRoot)
     if ($HostName -ne "") { $args += @("-HostName", $HostName) }
@@ -299,6 +322,24 @@ if (-not $SkipDeploy) {
 if (-not $SkipClientRelease) {
   Invoke-Step "发布 Windows 客户端" {
     Publish-ClientRelease
+  }
+}
+
+if (-not $SkipDeploy -and -not $SkipClientRelease -and -not $SkipPostReleaseCheck) {
+  Invoke-Step "发布后自动巡检" {
+    $args = @("-File", ".\deploy\post-release-check.ps1", "-ExpectedVersion", $Version)
+    if ($HostName -ne "") { $args += @("-HostName", $HostName) }
+    if ($User -ne "") { $args += @("-User", $User) }
+    if ($Port -ne 0) { $args += @("-Port", "$Port") }
+    if ($Password -ne "") { $args += @("-Password", $Password) }
+    if ($ApiURL -ne "") { $args += @("-ApiURL", $ApiURL) }
+    if ($OverlayAddr -ne "") { $args += @("-OverlayAddr", $OverlayAddr) }
+    if ($AdminToken -ne "") { $args += @("-AdminToken", $AdminToken) }
+    if ($SkipSmoke) { $args += "-SkipSmoke" }
+    powershell -NoProfile -ExecutionPolicy Bypass @args
+    if ($LASTEXITCODE -ne 0) {
+      throw "发布后自动巡检失败"
+    }
   }
 }
 

@@ -21,7 +21,11 @@ import (
 	"github.com/LwyV-Labs/LwyLink/internal/tcpx"
 )
 
-const MaxChatMessageRunes = 500
+const (
+	MaxChatMessageRunes   = 500
+	networkDiagnosticTTL  = 5 * time.Minute
+	maxNetworkDiagnostics = 512
+)
 
 func NormalizeChatMessage(message string) (string, error) {
 	message = strings.TrimSpace(message)
@@ -79,6 +83,8 @@ type Service struct {
 	roomSubnetPrefix int
 	voiceMu          sync.Mutex
 	voiceRooms       map[int64]map[int64]VoiceParticipant
+	diagnosticMu     sync.Mutex
+	networkReports   map[int64]map[int64]NetworkDiagnosticReport
 }
 
 func NewService(repo *Repository, runtime RuntimeStore, nodes NodeScheduler, roomNetworkBase string, roomSubnetPrefix int) *Service {
@@ -89,6 +95,7 @@ func NewService(repo *Repository, runtime RuntimeStore, nodes NodeScheduler, roo
 		roomNetworkBase:  roomNetworkBase,
 		roomSubnetPrefix: roomSubnetPrefix,
 		voiceRooms:       make(map[int64]map[int64]VoiceParticipant),
+		networkReports:   make(map[int64]map[int64]NetworkDiagnosticReport),
 	}
 }
 
@@ -432,11 +439,13 @@ func (s *Service) SendVoiceSignal(ctx context.Context, fromUserID, roomID, toUse
 	if _, err := s.EnsureMember(ctx, roomID, toUserID); err != nil {
 		return VoiceSignal{}, fmt.Errorf("target user is not a room member")
 	}
-	if !s.voiceParticipantExists(roomID, fromUserID) {
-		return VoiceSignal{}, fmt.Errorf("请先加入语音房")
-	}
-	if !s.voiceParticipantExists(roomID, toUserID) {
-		return VoiceSignal{}, fmt.Errorf("target user has not joined voice")
+	if !chatSignalType(signalType) {
+		if !s.voiceParticipantExists(roomID, fromUserID) {
+			return VoiceSignal{}, fmt.Errorf("请先加入语音房")
+		}
+		if !s.voiceParticipantExists(roomID, toUserID) {
+			return VoiceSignal{}, fmt.Errorf("target user has not joined voice")
+		}
 	}
 	signal := VoiceSignal{
 		RoomID:     roomID,
@@ -458,6 +467,178 @@ func (s *Service) SendVoiceSignal(ctx context.Context, fromUserID, roomID, toUse
 
 func (s *Service) Search(ctx context.Context, filter Filter) ([]Room, error) {
 	return s.repo.List(ctx, filter)
+}
+
+type OnlineMetrics struct {
+	OnlineRooms        int
+	OverlayConnections int
+	AppOnlineUsers     int
+}
+
+func (s *Service) OnlineMetrics(ctx context.Context) (OnlineMetrics, error) {
+	if s == nil || s.runtime == nil {
+		return OnlineMetrics{}, nil
+	}
+	rooms, err := s.repo.ListOpen(ctx)
+	if err != nil {
+		return OnlineMetrics{}, err
+	}
+	var metrics OnlineMetrics
+	for _, item := range rooms {
+		online, err := s.runtime.RoomOnlineUsers(ctx, item.ID)
+		if err != nil {
+			return metrics, err
+		}
+		if len(online) > 0 {
+			metrics.OnlineRooms++
+		}
+		for _, virtualIP := range online {
+			if virtualIP != "" {
+				metrics.OverlayConnections++
+			} else {
+				metrics.AppOnlineUsers++
+			}
+		}
+	}
+	return metrics, nil
+}
+
+func (s *Service) ReportNetworkDiagnostics(ctx context.Context, userID int64, report NetworkDiagnosticReport) error {
+	if report.RoomID <= 0 {
+		return fmt.Errorf("bad roomID")
+	}
+	if _, err := s.EnsureMember(ctx, report.RoomID, userID); err != nil {
+		return err
+	}
+	report.UserID = userID
+	report.UpdatedAt = time.Now()
+	report.DirectPeerIPs = append([]string(nil), report.DirectPeerIPs...)
+	report.TransportDiagnostics = cloneTransportDiagnostics(report.TransportDiagnostics)
+
+	s.diagnosticMu.Lock()
+	defer s.diagnosticMu.Unlock()
+	if s.networkReports == nil {
+		s.networkReports = make(map[int64]map[int64]NetworkDiagnosticReport)
+	}
+	s.pruneNetworkReportsLocked(report.UpdatedAt)
+	reports := s.networkReports[report.RoomID]
+	if reports == nil {
+		reports = make(map[int64]NetworkDiagnosticReport)
+		s.networkReports[report.RoomID] = reports
+	}
+	reports[userID] = report
+	return nil
+}
+
+func (s *Service) NetworkDiagnostics(roomIDs []int64) map[int64][]NetworkDiagnosticReport {
+	now := time.Now()
+	wanted := make(map[int64]struct{}, len(roomIDs))
+	for _, roomID := range roomIDs {
+		if roomID > 0 {
+			wanted[roomID] = struct{}{}
+		}
+	}
+	out := make(map[int64][]NetworkDiagnosticReport, len(wanted))
+	s.diagnosticMu.Lock()
+	defer s.diagnosticMu.Unlock()
+	s.pruneNetworkReportsLocked(now)
+	for roomID, byUser := range s.networkReports {
+		if _, ok := wanted[roomID]; !ok {
+			continue
+		}
+		reports := make([]NetworkDiagnosticReport, 0, len(byUser))
+		for _, report := range byUser {
+			reports = append(reports, cloneNetworkDiagnosticReport(report))
+		}
+		sort.Slice(reports, func(i, j int) bool {
+			if reports[i].UpdatedAt.Equal(reports[j].UpdatedAt) {
+				return reports[i].UserID < reports[j].UserID
+			}
+			return reports[i].UpdatedAt.After(reports[j].UpdatedAt)
+		})
+		out[roomID] = reports
+	}
+	return out
+}
+
+func (s *Service) clearNetworkDiagnostics(roomID int64, userIDs ...int64) {
+	s.diagnosticMu.Lock()
+	defer s.diagnosticMu.Unlock()
+	if len(userIDs) == 0 {
+		delete(s.networkReports, roomID)
+		return
+	}
+	reports := s.networkReports[roomID]
+	for _, userID := range userIDs {
+		delete(reports, userID)
+	}
+	if len(reports) == 0 {
+		delete(s.networkReports, roomID)
+	}
+}
+
+func (s *Service) pruneNetworkReportsLocked(now time.Time) {
+	cutoff := now.Add(-networkDiagnosticTTL)
+	kept := make([]networkReportRef, 0, len(s.networkReports))
+	for roomID, byUser := range s.networkReports {
+		for userID, report := range byUser {
+			if report.UpdatedAt.Before(cutoff) {
+				delete(byUser, userID)
+				continue
+			}
+			kept = append(kept, networkReportRef{
+				roomID:    roomID,
+				userID:    userID,
+				updatedAt: report.UpdatedAt,
+			})
+		}
+		if len(byUser) == 0 {
+			delete(s.networkReports, roomID)
+		}
+	}
+	if len(kept) <= maxNetworkDiagnostics {
+		return
+	}
+	sort.Slice(kept, func(i, j int) bool {
+		if kept[i].updatedAt.Equal(kept[j].updatedAt) {
+			if kept[i].roomID == kept[j].roomID {
+				return kept[i].userID < kept[j].userID
+			}
+			return kept[i].roomID < kept[j].roomID
+		}
+		return kept[i].updatedAt.Before(kept[j].updatedAt)
+	})
+	for _, item := range kept[:len(kept)-maxNetworkDiagnostics] {
+		byUser := s.networkReports[item.roomID]
+		delete(byUser, item.userID)
+		if len(byUser) == 0 {
+			delete(s.networkReports, item.roomID)
+		}
+	}
+}
+
+type networkReportRef struct {
+	roomID    int64
+	userID    int64
+	updatedAt time.Time
+}
+
+func cloneNetworkDiagnosticReport(report NetworkDiagnosticReport) NetworkDiagnosticReport {
+	report.DirectPeerIPs = append([]string(nil), report.DirectPeerIPs...)
+	report.TransportDiagnostics = cloneTransportDiagnostics(report.TransportDiagnostics)
+	return report
+}
+
+func cloneTransportDiagnostics(items []TransportDiagnostic) []TransportDiagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]TransportDiagnostic, 0, len(items))
+	for _, item := range items {
+		item.CandidateTypes = append([]string(nil), item.CandidateTypes...)
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *Service) Stats(ctx context.Context) (Stats, error) {
@@ -563,10 +744,10 @@ func (s *Service) CloseRoom(ctx context.Context, roomID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.deactivateRoomKey(ctx, room); err != nil {
+	if err := s.repo.SetStatus(ctx, roomID, StatusClosed); err != nil {
 		return err
 	}
-	if err := s.repo.SetStatus(ctx, roomID, StatusClosed); err != nil {
+	if err := s.deactivateRoomKey(ctx, room); err != nil {
 		return err
 	}
 	s.publishRoomEventToMembers(ctx, RoomEvent{Type: RoomEventClosed, RoomID: roomID})
@@ -578,10 +759,11 @@ func (s *Service) ReopenRoom(ctx context.Context, roomID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.repo.SetStatus(ctx, roomID, StatusOpen); err != nil {
+	if err := s.activateRoomKey(ctx, room); err != nil {
 		return err
 	}
-	if err := s.activateRoomKey(ctx, room); err != nil {
+	if err := s.repo.SetStatus(ctx, roomID, StatusOpen); err != nil {
+		_ = s.deactivateRoomKey(ctx, room)
 		return err
 	}
 	s.publishRoomEventToMembers(ctx, RoomEvent{Type: RoomEventReopened, RoomID: roomID})
@@ -612,6 +794,7 @@ func (s *Service) LeaveRoom(ctx context.Context, requesterUserID, roomID int64) 
 	}
 	voiceState, voiceChanged := s.removeVoiceParticipant(room, requesterUserID)
 	s.deleteRoomUserOnline(ctx, roomID, requesterUserID)
+	s.clearNetworkDiagnostics(roomID, requesterUserID)
 	s.publishRoomEventToMembers(ctx, RoomEvent{
 		Type:         RoomEventMemberLeft,
 		RoomID:       roomID,
@@ -649,6 +832,7 @@ func (s *Service) KickMember(ctx context.Context, requesterUserID, roomID, targe
 	}
 	voiceState, voiceChanged := s.removeVoiceParticipant(room, targetUserID)
 	s.deleteRoomUserOnline(ctx, roomID, targetUserID)
+	s.clearNetworkDiagnostics(roomID, targetUserID)
 	s.publishRoomEventToMembers(ctx, RoomEvent{
 		Type:         RoomEventMemberKicked,
 		RoomID:       roomID,
@@ -721,13 +905,14 @@ func (s *Service) DeleteRoomsOwnedBy(ctx context.Context, ownerUserID int64) err
 
 func (s *Service) deleteRoom(ctx context.Context, room Room, actorUserID int64) error {
 	userIDs := s.roomUserIDs(ctx, room.ID)
-	if err := s.deactivateRoomKey(ctx, room); err != nil {
-		return err
-	}
 	if err := s.repo.Delete(ctx, room.ID); err != nil {
 		return err
 	}
+	if err := s.deactivateRoomKey(ctx, room); err != nil {
+		log.Printf("delete room key cleanup failed room=%d: %v", room.ID, err)
+	}
 	s.clearVoiceRoom(room.ID)
+	s.clearNetworkDiagnostics(room.ID)
 	if s.runtime != nil {
 		s.runtime.DeleteRoomOnline(ctx, room.ID)
 	}
@@ -978,6 +1163,15 @@ func uniquePositiveUserIDs(ids []int64) []int64 {
 func validVoiceSignalType(signalType string) bool {
 	switch signalType {
 	case "offer", "answer", "ice", "hangup":
+		return true
+	default:
+		return chatSignalType(signalType)
+	}
+}
+
+func chatSignalType(signalType string) bool {
+	switch signalType {
+	case "chat-offer", "chat-answer", "chat-ice", "chat-hangup":
 		return true
 	default:
 		return false

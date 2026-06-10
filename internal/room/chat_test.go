@@ -32,3 +32,14 @@ func TestChatRelayTrafficBytes(t *testing.T) {
 		t.Fatalf("ChatRelayTrafficBytes min recipients=%d, want %d", got, want)
 	}
 }
+
+func TestWebRTCSignalTypesAllowChatDataChannel(t *testing.T) {
+	for _, signalType := range []string{"offer", "answer", "ice", "hangup", "chat-offer", "chat-answer", "chat-ice", "chat-hangup"} {
+		if !validVoiceSignalType(signalType) {
+			t.Fatalf("signal type %q should be valid", signalType)
+		}
+	}
+	if validVoiceSignalType("chat-bad") {
+		t.Fatalf("invalid chat signal type was accepted")
+	}
+}

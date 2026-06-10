@@ -1,5 +1,7 @@
 import { SendVoiceWebRTCSignal } from "../wailsjs/go/main/App";
 import type { Room, VoiceSettings } from "./types";
+import { buildDataChatPayload, chatSignalType, decodeDataChatMessage, type DataChatSender } from "./webrtcChatLogic";
+import { hasRelayICEServer, nextVoiceDirectRetryState, nextVoiceRelayFallbackState } from "./webrtcPathPolicy";
 
 export type WebRTCVoiceSignal = {
   roomID: number;
@@ -12,6 +14,8 @@ export type WebRTCVoiceSignal = {
 export type WebRTCVoiceStats = {
   peerUserID: number;
   candidateType: string;
+  localCandidateType: string;
+  remoteCandidateType: string;
   connectionState: RTCPeerConnectionState;
   iceConnectionState: RTCIceConnectionState;
   roundTripTimeMS: number;
@@ -19,6 +23,16 @@ export type WebRTCVoiceStats = {
   packetsLost: number;
   bytesSent: number;
   bytesReceived: number;
+};
+
+export type WebRTCDataChatMessage = {
+  id: string;
+  roomID: number;
+  userID: number;
+  username: string;
+  displayName: string;
+  message: string;
+  createdAt: string;
 };
 
 type WebRTCVoiceCallbacks = {
@@ -32,6 +46,11 @@ type VoiceMemberRef = {
   userID: number;
 };
 
+type ForcedVoiceRelay = {
+  directRTTAtFallbackMS: number;
+  relayWorseSamples: number;
+};
+
 const defaultICEServers: RTCIceServer[] = [{ urls: "stun:stun.lwylink.xyz:3478" }];
 const reconnectDelayMS = 2500;
 const disconnectGraceMS = 5000;
@@ -41,6 +60,7 @@ export class WebRTCVoiceSession {
   private readonly selfUserID: number;
   private settings: VoiceSettings;
   private readonly iceServers: RTCIceServer[];
+  private readonly relayAvailable: boolean;
   private readonly callbacks: WebRTCVoiceCallbacks;
   private stream?: MediaStream;
   private audioContext?: AudioContext;
@@ -56,6 +76,8 @@ export class WebRTCVoiceSession {
   private reconnectTimers = new Map<number, number>();
   private voiceMemberIDs = new Set<number>();
   private lastTrafficTotals = new Map<number, number>();
+  private forcedRelayPeers = new Map<number, ForcedVoiceRelay>();
+  private highDirectRTTSamples = new Map<number, number>();
   private statsTimer: number | null = null;
 
   constructor(room: Room, selfUserID: number, settings: VoiceSettings, iceServers: RTCIceServer[], callbacks: WebRTCVoiceCallbacks) {
@@ -63,6 +85,7 @@ export class WebRTCVoiceSession {
     this.selfUserID = selfUserID;
     this.settings = settings;
     this.iceServers = normalizeICEServers(iceServers);
+    this.relayAvailable = hasRelayICEServer(this.iceServers);
     this.callbacks = callbacks;
   }
 
@@ -73,9 +96,9 @@ export class WebRTCVoiceSession {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: this.settings.inputDeviceID ? { exact: this.settings.inputDeviceID } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: this.settings.echoCancellation,
+        noiseSuppression: this.settings.noiseSuppression,
+        autoGainControl: this.settings.autoGainControl,
         channelCount: 1,
       },
       video: false,
@@ -127,6 +150,8 @@ export class WebRTCVoiceSession {
     this.voiceMemberIDs = nextIDs;
     for (const peerUserID of [...this.peers.keys()]) {
       if (!nextIDs.has(peerUserID)) {
+        this.forcedRelayPeers.delete(peerUserID);
+        this.highDirectRTTSamples.delete(peerUserID);
         this.closePeer(peerUserID);
       }
     }
@@ -144,6 +169,31 @@ export class WebRTCVoiceSession {
     const payload = decodeSignalPayload(signal.payload);
     if (signal.type === "hangup") {
       this.closePeer(signal.fromUserID);
+      this.scheduleReconnect(signal.fromUserID);
+      return;
+    }
+    if (signal.type === "relay-fallback") {
+      this.forceRelayForPeer(signal.fromUserID, relayFallbackRTTMS(payload));
+      this.closePeer(signal.fromUserID);
+      if (this.shouldInitiate(signal.fromUserID)) {
+        window.setTimeout(() => {
+          if (this.voiceMemberIDs.has(signal.fromUserID) && !this.peers.has(signal.fromUserID)) {
+            void this.ensurePeer(signal.fromUserID, true).catch((err) => this.callbacks.onError(errorMessage(err)));
+          }
+        }, 150);
+      }
+      return;
+    }
+    if (signal.type === "direct-retry") {
+      this.clearForcedRelayForPeer(signal.fromUserID);
+      this.closePeer(signal.fromUserID);
+      if (this.shouldInitiate(signal.fromUserID)) {
+        window.setTimeout(() => {
+          if (this.voiceMemberIDs.has(signal.fromUserID) && !this.peers.has(signal.fromUserID)) {
+            void this.ensurePeer(signal.fromUserID, true).catch((err) => this.callbacks.onError(errorMessage(err)));
+          }
+        }, 150);
+      }
       return;
     }
     const peer = await this.ensurePeer(signal.fromUserID, false);
@@ -178,6 +228,8 @@ export class WebRTCVoiceSession {
     this.pendingICE.clear();
     this.voiceMemberIDs.clear();
     this.lastTrafficTotals.clear();
+    this.forcedRelayPeers.clear();
+    this.highDirectRTTSamples.clear();
     for (const peerUserID of [...this.peers.keys()]) {
       this.closePeer(peerUserID);
     }
@@ -205,13 +257,14 @@ export class WebRTCVoiceSession {
     if (existing) {
       return existing;
     }
-    const peer = new RTCPeerConnection({ iceServers: this.iceServers });
+    const peer = new RTCPeerConnection(this.peerConnectionConfig(peerUserID));
     this.peers.set(peerUserID, peer);
     const sendStream = this.destination?.stream ?? this.stream;
     sendStream?.getTracks().forEach((track) => peer.addTrack(track, sendStream));
     peer.onicecandidate = (event) => {
       if (event.candidate) {
-        void this.sendSignal(peerUserID, "ice", event.candidate.toJSON()).catch((err) => this.callbacks.onError(errorMessage(err)));
+        const candidate = event.candidate.toJSON();
+        void this.sendSignal(peerUserID, "ice", candidate).catch((err) => this.callbacks.onError(errorMessage(err)));
       }
     };
     peer.ontrack = (event) => {
@@ -322,6 +375,7 @@ export class WebRTCVoiceSession {
     this.peers.delete(peerUserID);
     this.pendingICE.delete(peerUserID);
     this.lastTrafficTotals.delete(peerUserID);
+    this.highDirectRTTSamples.delete(peerUserID);
     this.clearDisconnectTimer(peerUserID);
     peer.close();
     removeRemoteAudio(peerUserID);
@@ -353,6 +407,7 @@ export class WebRTCVoiceSession {
       if (stats) {
         out.push(stats);
         relayTrafficBytes += this.relayTrafficDelta(stats);
+        this.evaluatePathQuality(stats);
       }
     }
     this.callbacks.onStats?.(out);
@@ -365,10 +420,84 @@ export class WebRTCVoiceSession {
     const total = Math.max(0, Math.floor(stats.bytesSent + stats.bytesReceived));
     const previous = this.lastTrafficTotals.get(stats.peerUserID);
     this.lastTrafficTotals.set(stats.peerUserID, total);
-    if (previous === undefined || stats.candidateType !== "relay" || total <= previous) {
+    if (previous === undefined || stats.localCandidateType !== "relay" || total <= previous) {
       return 0;
     }
     return total - previous;
+  }
+
+  private peerConnectionConfig(peerUserID: number): RTCConfiguration {
+    return {
+      iceServers: this.iceServers,
+      iceTransportPolicy: this.forcedRelayPeers.has(peerUserID) && this.relayAvailable ? "relay" : "all",
+    };
+  }
+
+  private forceRelayForPeer(peerUserID: number, directRTTAtFallbackMS: number) {
+    if (!this.relayAvailable || peerUserID <= 0 || !this.voiceMemberIDs.has(peerUserID)) {
+      return false;
+    }
+    this.forcedRelayPeers.set(peerUserID, { directRTTAtFallbackMS, relayWorseSamples: 0 });
+    this.highDirectRTTSamples.delete(peerUserID);
+    return true;
+  }
+
+  private clearForcedRelayForPeer(peerUserID: number) {
+    this.forcedRelayPeers.delete(peerUserID);
+    this.highDirectRTTSamples.delete(peerUserID);
+  }
+
+  private evaluatePathQuality(stats: WebRTCVoiceStats) {
+    const forcedRelay = this.forcedRelayPeers.get(stats.peerUserID);
+    if (forcedRelay) {
+      const retryState = nextVoiceDirectRetryState({
+        candidateType: stats.candidateType,
+        roundTripTimeMS: stats.roundTripTimeMS,
+        directRTTAtFallbackMS: forcedRelay.directRTTAtFallbackMS,
+        currentSamples: forcedRelay.relayWorseSamples,
+        relayForced: true,
+      });
+      forcedRelay.relayWorseSamples = retryState.samples;
+      if (retryState.shouldRetryDirect) {
+        this.clearForcedRelayForPeer(stats.peerUserID);
+        void this.sendSignal(stats.peerUserID, "direct-retry", {
+          reason: "relay-rtt-worse",
+          roundTripTimeMS: stats.roundTripTimeMS,
+        }).catch(() => undefined);
+        this.closePeer(stats.peerUserID);
+        if (this.shouldInitiate(stats.peerUserID)) {
+          window.setTimeout(() => {
+            if (this.voiceMemberIDs.has(stats.peerUserID) && !this.peers.has(stats.peerUserID)) {
+              void this.ensurePeer(stats.peerUserID, true).catch((err) => this.callbacks.onError(errorMessage(err)));
+            }
+          }, 150);
+        }
+      }
+      return;
+    }
+    const state = nextVoiceRelayFallbackState({
+      candidateType: stats.candidateType,
+      roundTripTimeMS: stats.roundTripTimeMS,
+      currentSamples: this.highDirectRTTSamples.get(stats.peerUserID) ?? 0,
+      relayAvailable: this.relayAvailable,
+      relayForced: false,
+    });
+    this.highDirectRTTSamples.set(stats.peerUserID, state.samples);
+    if (!state.shouldFallback || !this.forceRelayForPeer(stats.peerUserID, stats.roundTripTimeMS)) {
+      return;
+    }
+    void this.sendSignal(stats.peerUserID, "relay-fallback", {
+      reason: "high-direct-rtt",
+      roundTripTimeMS: stats.roundTripTimeMS,
+    }).catch(() => undefined);
+    this.closePeer(stats.peerUserID);
+    if (this.shouldInitiate(stats.peerUserID)) {
+      window.setTimeout(() => {
+        if (this.voiceMemberIDs.has(stats.peerUserID) && !this.peers.has(stats.peerUserID)) {
+          void this.ensurePeer(stats.peerUserID, true).catch((err) => this.callbacks.onError(errorMessage(err)));
+        }
+      }, 150);
+    }
   }
 
   private playRemoteStream(peerUserID: number, stream: MediaStream) {
@@ -405,6 +534,242 @@ export class WebRTCVoiceSession {
   }
 }
 
+type WebRTCChatCallbacks = {
+  onError: (message: string) => void;
+  onDataChat: (message: WebRTCDataChatMessage) => void;
+};
+
+export class WebRTCChatSession {
+  private readonly room: Room;
+  private readonly selfUserID: number;
+  private readonly iceServers: RTCIceServer[];
+  private readonly callbacks: WebRTCChatCallbacks;
+  private peers = new Map<number, RTCPeerConnection>();
+  private channels = new Map<number, RTCDataChannel>();
+  private pendingICE = new Map<number, RTCIceCandidateInit[]>();
+  private reconnectTimers = new Map<number, number>();
+  private memberIDs = new Set<number>();
+  private closing = false;
+
+  constructor(room: Room, selfUserID: number, iceServers: RTCIceServer[], callbacks: WebRTCChatCallbacks) {
+    this.room = room;
+    this.selfUserID = selfUserID;
+    this.iceServers = normalizeICEServers(iceServers);
+    this.callbacks = callbacks;
+  }
+
+  get roomID() {
+    return this.room.id;
+  }
+
+  async start(members: VoiceMemberRef[]) {
+    if (typeof RTCPeerConnection === "undefined") {
+      return;
+    }
+    await this.syncMembers(members);
+  }
+
+  async syncMembers(members: VoiceMemberRef[]) {
+    const nextIDs = new Set(
+      members
+        .map((member) => member.userID)
+        .filter((userID) => userID > 0 && userID !== this.selfUserID),
+    );
+    this.memberIDs = nextIDs;
+    for (const peerUserID of [...this.peers.keys()]) {
+      if (!nextIDs.has(peerUserID)) {
+        this.closePeer(peerUserID);
+      }
+    }
+    for (const peerUserID of nextIDs) {
+      if (!this.peers.has(peerUserID) && this.selfUserID < peerUserID) {
+        await this.ensurePeer(peerUserID, true);
+      }
+    }
+  }
+
+  sendChat(message: string, sender: DataChatSender = {}) {
+    if (this.memberIDs.size === 0 || this.channels.size < this.memberIDs.size) {
+      return undefined;
+    }
+    for (const peerUserID of this.memberIDs) {
+      if (this.channels.get(peerUserID)?.readyState !== "open") {
+        return undefined;
+      }
+    }
+    const payload = buildDataChatPayload({
+      roomID: this.room.id,
+      selfUserID: this.selfUserID,
+      message,
+      sender,
+    });
+    if (!payload) {
+      return undefined;
+    }
+    const encoded = JSON.stringify(payload);
+    for (const peerUserID of this.memberIDs) {
+      try {
+        this.channels.get(peerUserID)?.send(encoded);
+      } catch (err) {
+        this.callbacks.onError(errorMessage(err));
+        return undefined;
+      }
+    }
+    return payload;
+  }
+
+  async handleSignal(signal: WebRTCVoiceSignal) {
+    if (signal.roomID !== this.room.id || signal.toUserID !== this.selfUserID || signal.fromUserID <= 0) {
+      return;
+    }
+    const signalType = chatSignalType(signal.type);
+    if (signalType === "") {
+      return;
+    }
+    if (signalType === "hangup") {
+      this.closePeer(signal.fromUserID);
+      this.scheduleReconnect(signal.fromUserID);
+      return;
+    }
+    const payload = decodeSignalPayload(signal.payload);
+    const peer = await this.ensurePeer(signal.fromUserID, false);
+    if (signalType === "offer") {
+      await peer.setRemoteDescription(payload as RTCSessionDescriptionInit);
+      await this.flushPendingICE(signal.fromUserID, peer);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await this.sendSignal(signal.fromUserID, "answer", answer);
+      return;
+    }
+    if (signalType === "answer") {
+      await peer.setRemoteDescription(payload as RTCSessionDescriptionInit);
+      await this.flushPendingICE(signal.fromUserID, peer);
+      return;
+    }
+    if (signalType === "ice" && payload) {
+      await this.addICECandidate(signal.fromUserID, peer, payload as RTCIceCandidateInit);
+    }
+  }
+
+  async close() {
+    this.closing = true;
+    await Promise.all([...this.peers.keys()].map((peerUserID) => this.sendSignal(peerUserID, "hangup", {}).catch(() => undefined)));
+    for (const peerUserID of [...this.peers.keys()]) {
+      this.closePeer(peerUserID);
+    }
+    this.reconnectTimers.forEach((timer) => window.clearTimeout(timer));
+    this.reconnectTimers.clear();
+    this.pendingICE.clear();
+    this.memberIDs.clear();
+  }
+
+  private async ensurePeer(peerUserID: number, initiator: boolean) {
+    const existing = this.peers.get(peerUserID);
+    if (existing) {
+      return existing;
+    }
+    const peer = new RTCPeerConnection({ iceServers: this.iceServers });
+    this.peers.set(peerUserID, peer);
+    peer.ondatachannel = (event) => this.attachChannel(peerUserID, event.channel);
+    peer.onicecandidate = (event) => {
+      if (event.candidate) {
+        const candidate = event.candidate.toJSON();
+        void this.sendSignal(peerUserID, "ice", candidate).catch((err) => this.callbacks.onError(errorMessage(err)));
+      }
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === "failed" || peer.connectionState === "closed") {
+        this.closePeer(peerUserID);
+        this.scheduleReconnect(peerUserID);
+      }
+    };
+    if (initiator) {
+      this.attachChannel(peerUserID, peer.createDataChannel("lwylink-chat", { ordered: true }));
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      await this.sendSignal(peerUserID, "offer", offer);
+    }
+    return peer;
+  }
+
+  private attachChannel(peerUserID: number, channel: RTCDataChannel) {
+    if (channel.label !== "lwylink-chat") {
+      return;
+    }
+    this.channels.get(peerUserID)?.close();
+    this.channels.set(peerUserID, channel);
+    channel.onmessage = (event) => {
+      const message = decodeDataChatMessage(event.data, this.room.id, peerUserID);
+      if (message) {
+        this.callbacks.onDataChat(message);
+      }
+    };
+    channel.onclose = () => {
+      if (this.channels.get(peerUserID) === channel) {
+        this.channels.delete(peerUserID);
+      }
+    };
+  }
+
+  private async addICECandidate(peerUserID: number, peer: RTCPeerConnection, candidate: RTCIceCandidateInit) {
+    if (!peer.remoteDescription) {
+      const pending = this.pendingICE.get(peerUserID) ?? [];
+      pending.push(candidate);
+      this.pendingICE.set(peerUserID, pending.slice(-32));
+      return;
+    }
+    await peer.addIceCandidate(candidate).catch(() => undefined);
+  }
+
+  private async flushPendingICE(peerUserID: number, peer: RTCPeerConnection) {
+    const pending = this.pendingICE.get(peerUserID);
+    if (!pending || !peer.remoteDescription) {
+      return;
+    }
+    this.pendingICE.delete(peerUserID);
+    for (const candidate of pending) {
+      await peer.addIceCandidate(candidate).catch(() => undefined);
+    }
+  }
+
+  private async sendSignal(toUserID: number, type: string, payload: unknown) {
+    await SendVoiceWebRTCSignal({
+      roomID: this.room.id,
+      toUserID,
+      type: `chat-${type}`,
+      payload: encodeSignalPayload(payload),
+    });
+  }
+
+  private scheduleReconnect(peerUserID: number) {
+    if (this.closing || !this.memberIDs.has(peerUserID) || this.selfUserID >= peerUserID || this.reconnectTimers.has(peerUserID)) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      this.reconnectTimers.delete(peerUserID);
+      if (this.memberIDs.has(peerUserID) && !this.peers.has(peerUserID)) {
+        void this.ensurePeer(peerUserID, true).catch((err) => this.callbacks.onError(errorMessage(err)));
+      }
+    }, reconnectDelayMS);
+    this.reconnectTimers.set(peerUserID, timer);
+  }
+
+  private closePeer(peerUserID: number) {
+    if (!this.memberIDs.has(peerUserID)) {
+      const timer = this.reconnectTimers.get(peerUserID);
+      if (timer) {
+        window.clearTimeout(timer);
+        this.reconnectTimers.delete(peerUserID);
+      }
+    }
+    this.channels.get(peerUserID)?.close();
+    this.channels.delete(peerUserID);
+    this.pendingICE.delete(peerUserID);
+    this.peers.get(peerUserID)?.close();
+    this.peers.delete(peerUserID);
+  }
+}
+
 export async function listVoiceDevices() {
   if (!navigator.mediaDevices?.enumerateDevices) {
     return { inputs: [], outputs: [] };
@@ -424,12 +789,14 @@ function viewDevice(device: MediaDeviceInfo) {
 }
 
 function viewPeerStats(peerUserID: number, peer: RTCPeerConnection, report: RTCStatsReport): WebRTCVoiceStats | undefined {
-  let selectedPair: any;
-  let inbound: any;
-  let outbound: any;
-  let transport: any;
-  let candidateType = "";
-  report.forEach((item: any) => {
+  let selectedPair: VoiceRTCStatsItem | undefined;
+  let inbound: VoiceRTCStatsItem | undefined;
+  let outbound: VoiceRTCStatsItem | undefined;
+  let transport: VoiceRTCStatsItem | undefined;
+  let localCandidateType = "";
+  let remoteCandidateType = "";
+  report.forEach((raw) => {
+    const item = raw as VoiceRTCStatsItem;
     if (item.type === "candidate-pair" && item.state === "succeeded" && item.selected) {
       selectedPair = item;
     }
@@ -444,18 +811,25 @@ function viewPeerStats(peerUserID: number, peer: RTCPeerConnection, report: RTCS
     }
   });
   if (!selectedPair && transport?.selectedCandidatePairId) {
-    selectedPair = report.get(transport.selectedCandidatePairId) as any;
+    selectedPair = report.get(transport.selectedCandidatePairId) as VoiceRTCStatsItem | undefined;
   }
   if (selectedPair?.localCandidateId) {
-    const local = report.get(selectedPair.localCandidateId) as any;
-    candidateType = local?.candidateType || "";
+    const local = report.get(selectedPair.localCandidateId) as VoiceRTCStatsItem | undefined;
+    localCandidateType = local?.candidateType || "";
+  }
+  if (selectedPair?.remoteCandidateId) {
+    const remote = report.get(selectedPair.remoteCandidateId) as VoiceRTCStatsItem | undefined;
+    remoteCandidateType = remote?.candidateType || "";
   }
   if (!selectedPair && !inbound && !outbound) {
     return undefined;
   }
+  const candidateType = localCandidateType === "relay" || remoteCandidateType === "relay" ? "relay" : localCandidateType || remoteCandidateType;
   return {
     peerUserID,
     candidateType,
+    localCandidateType,
+    remoteCandidateType,
     connectionState: peer.connectionState,
     iceConnectionState: peer.iceConnectionState,
     roundTripTimeMS: Math.round(Number(selectedPair?.currentRoundTripTime || 0) * 1000),
@@ -465,6 +839,21 @@ function viewPeerStats(peerUserID: number, peer: RTCPeerConnection, report: RTCS
     bytesReceived: Number(inbound?.bytesReceived || 0),
   };
 }
+
+type VoiceRTCStatsItem = RTCStats & {
+  kind?: string;
+  state?: string;
+  selected?: boolean;
+  selectedCandidatePairId?: string;
+  localCandidateId?: string;
+  remoteCandidateId?: string;
+  candidateType?: string;
+  currentRoundTripTime?: number;
+  jitter?: number;
+  packetsLost?: number;
+  bytesSent?: number;
+  bytesReceived?: number;
+};
 
 function playRemoteStream(peerUserID: number, stream: MediaStream) {
   const id = remoteAudioID(peerUserID);
@@ -505,6 +894,14 @@ function decodeSignalPayload(payload: unknown) {
     return text ? JSON.parse(text) : {};
   }
   return payload;
+}
+
+function relayFallbackRTTMS(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return 0;
+  }
+  const value = (payload as { roundTripTimeMS?: unknown }).roundTripTimeMS;
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function errorMessage(err: unknown) {

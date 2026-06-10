@@ -57,7 +57,7 @@ func (s *Server) handleClientReleaseTicket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ip := clientIP(r)
-	if !s.allowDownloadRate("ticket:ip:"+ip, downloadTicketIPLimit) || !s.allowDownloadRate(fmt.Sprintf("ticket:user:%d", user.ID), downloadTicketUserLimit) {
+	if !s.allowDownloadRate(rateKey("ticket", "ip", ip), downloadTicketIPLimit) || !s.allowDownloadRate(rateKey("ticket", "user", strconv.FormatInt(user.ID, 10)), downloadTicketUserLimit) {
 		writeError(w, http.StatusTooManyRequests, "download requests are too frequent")
 		return
 	}
@@ -126,10 +126,10 @@ func (s *Server) authorizeClientDownload(r *http.Request, release clientrelease.
 
 func (s *Server) allowClientDownload(r *http.Request, auth downloadAuth) bool {
 	ip := clientIP(r)
-	if !s.allowDownloadRate("download:ip:"+ip, downloadIPLimit) {
+	if !s.allowDownloadRate(rateKey("download", "ip", ip), downloadIPLimit) {
 		return false
 	}
-	if auth.userID > 0 && !s.allowDownloadRate(fmt.Sprintf("download:user:%d", auth.userID), downloadUserLimit) {
+	if auth.userID > 0 && !s.allowDownloadRate(rateKey("download", "user", strconv.FormatInt(auth.userID, 10)), downloadUserLimit) {
 		return false
 	}
 	return true
@@ -141,6 +141,32 @@ func (s *Server) allowDownloadRate(key string, limit int) bool {
 		return true
 	}
 	return limiter.Allow(key, limit)
+}
+
+func (s *Server) allowAPIRate(key string, limit int) bool {
+	limiter := s.apiLimiter
+	if limiter == nil {
+		return true
+	}
+	return limiter.Allow(key, limit)
+}
+
+func (s *Server) allowIPAPIRate(r *http.Request, scope string, limit int) bool {
+	return s.allowAPIRate(rateKey(scope, "ip", clientIP(r)), limit)
+}
+
+func (s *Server) allowAccountAPIRate(r *http.Request, scope, accountKey string, ipLimit, accountLimit int) bool {
+	return s.allowIPAPIRate(r, scope, ipLimit) &&
+		s.allowAPIRate(rateKey(scope, "account", accountKey), accountLimit)
+}
+
+func (s *Server) allowUserAPIRate(r *http.Request, scope string, userID int64, ipLimit, userLimit int) bool {
+	return s.allowIPAPIRate(r, scope, ipLimit) &&
+		s.allowAPIRate(rateKey(scope, "user", strconv.FormatInt(userID, 10)), userLimit)
+}
+
+func rateKey(scope, dimension, value string) string {
+	return scope + ":" + dimension + ":" + value
 }
 
 func (s *Server) logClientDownload(r *http.Request, release clientrelease.Release, userID int64, result string) {
@@ -210,20 +236,20 @@ func signDownloadPayload(secret []byte, payload string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-type downloadLimiter struct {
+type windowLimiter struct {
 	mu     sync.Mutex
 	window time.Duration
 	hits   map[string][]time.Time
 }
 
-func newDownloadLimiter(window time.Duration) *downloadLimiter {
-	return &downloadLimiter{
+func newWindowLimiter(window time.Duration) *windowLimiter {
+	return &windowLimiter{
 		window: window,
 		hits:   make(map[string][]time.Time),
 	}
 }
 
-func (l *downloadLimiter) Allow(key string, limit int) bool {
+func (l *windowLimiter) Allow(key string, limit int) bool {
 	if l == nil || limit <= 0 {
 		return true
 	}

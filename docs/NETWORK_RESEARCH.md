@@ -265,7 +265,7 @@ NAT 打洞改进 backlog 见 `docs/NAT_TRAVERSAL_BACKLOG.md`。
 - 部署并验证 TURN 兜底。
 - 记录 ICE candidate 类型、RTT、jitter、packet loss。
 - UI 展示 P2P/TURN/连接不佳的原因，而不是只显示笼统状态。
-- TURN 流量后续纳入账号额度或至少进入可观测统计。
+- TURN 流量通过 coturn 服务端 `usage:` 日志纳入账号额度；客户端 WebRTC stats 只作为未配置 coturn usage log 时的测试兜底。
 
 ### 打洞路径诊断
 

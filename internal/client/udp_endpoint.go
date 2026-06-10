@@ -150,19 +150,6 @@ func cloneUDPCandidateEndpoints(endpoints []udpCandidateEndpoint) []udpCandidate
 	return out
 }
 
-func cloneUDPAddrs(addrs []*net.UDPAddr) []*net.UDPAddr {
-	if len(addrs) == 0 {
-		return nil
-	}
-	out := make([]*net.UDPAddr, 0, len(addrs))
-	for _, addr := range addrs {
-		if addr != nil {
-			out = append(out, cloneUDPAddr(addr))
-		}
-	}
-	return out
-}
-
 func udpCandidateSlicesEqual(left, right []udpCandidateEndpoint) bool {
 	if len(left) != len(right) {
 		return false
@@ -186,6 +173,19 @@ func udpCandidateTypeForAddr(endpoints []udpCandidateEndpoint, addr *net.UDPAddr
 		}
 	}
 	return ""
+}
+
+func udpCandidateTypes(endpoints []udpCandidateEndpoint) []string {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint.Type != "" {
+			out = append(out, endpoint.Type)
+		}
+	}
+	return out
 }
 
 func udpAddrString(addr *net.UDPAddr) string {

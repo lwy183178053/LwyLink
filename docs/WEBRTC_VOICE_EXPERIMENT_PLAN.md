@@ -212,20 +212,16 @@ The WebRTC peer lifecycle now handles two common real-world issues:
 - Early ICE candidates are buffered until the remote SDP is applied.
 - Short `disconnected` states use a grace window before rebuilding the peer connection.
 
-Latest WebRTC stats are exposed for manual inspection:
-
-```js
-window.__lwylinkWebRTCVoiceStats
-```
+Latest WebRTC stats are visible through the compact voice indicator and the client network diagnostic export.
 
 Known gaps after promotion to default:
 
 - There must be a deployed TURN server before restrictive NAT voice can be considered complete.
 - ICE servers are server-provided; production should use a controlled LwyLink STUN/TURN service instead of depending on public STUN.
-- TURN REST short-lived credentials are supported in config, but coturn is not deployed yet.
-- WebRTC stats are exposed through a debug global and a compact voice UI indicator.
+- TURN REST short-lived credentials and coturn usage-log accounting are supported in config; production still needs deployment verification.
+- WebRTC stats are exposed through the compact voice UI indicator and the network diagnostic export.
 - Dynamic voice membership and reconnection need to be verified with real multi-client tests.
-- TURN relay traffic is now integrated through client-reported WebRTC stats when the selected candidate type is `relay`; a future coturn-side accounting hook would be more authoritative.
+- TURN relay traffic is charged from coturn-side `usage:` logs when `voiceTURNCredential.usageLogPath` is configured; client-reported WebRTC stats remain a test fallback when coturn accounting is not enabled.
 
 Next engineering step:
 
@@ -244,11 +240,7 @@ When testing a new voice build, record both subjective audio quality and the com
 - Jitter: spikes correlate with choppy audio or robotic transitions.
 - Packet loss: repeated increases mean the issue is likely network path quality, not microphone gain.
 
-The debug global is still available for deeper inspection:
-
-```js
-window.__lwylinkWebRTCVoiceStats
-```
+Use the network diagnostic export when a test needs raw WebRTC path evidence.
 
 ## What Not To Do
 

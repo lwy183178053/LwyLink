@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ const (
 	statusError         = "error"
 )
 
-var AppVersion = "0.2.8"
+var AppVersion = "0.2.1"
 
 type App struct {
 	ctx context.Context
@@ -56,15 +57,19 @@ type App struct {
 	roomEventsSeq    int64
 	roomEventsCancel context.CancelFunc
 
-	updateSeq          int64
-	preparedUpdatePath string
-	update             UpdateState
-	lastManualUpdateAt time.Time
+	updateSeq                 int64
+	preparedUpdatePath        string
+	update                    UpdateState
+	lastManualUpdateAt        time.Time
+	upgradeTestInstallStarted bool
 
 	tray               *trayController
 	allowQuit          bool
 	trayNoticeShown    bool
 	notificationsReady bool
+
+	lastDiagnosticReportSignature string
+	lastDiagnosticReportAt        time.Time
 }
 
 type SettingsInput struct {
@@ -241,12 +246,20 @@ type ConnectionState struct {
 }
 
 type TransportDiagnostic struct {
-	VirtualIP          string `json:"virtualIP"`
-	CandidateCount     int    `json:"candidateCount"`
-	SelectedType       string `json:"selectedType"`
-	LastProbeAt        string `json:"lastProbeAt"`
-	FailedProbes       int    `json:"failedProbes"`
-	LastObservedPeerAt string `json:"lastObservedPeerAt"`
+	VirtualIP           string   `json:"virtualIP"`
+	CandidateCount      int      `json:"candidateCount"`
+	CandidateTypes      []string `json:"candidateTypes"`
+	SelectedType        string   `json:"selectedType"`
+	SelectedPath        string   `json:"selectedPath"`
+	LastProbeAt         string   `json:"lastProbeAt"`
+	LastSuccessAt       string   `json:"lastSuccessAt"`
+	LastFailureAt       string   `json:"lastFailureAt"`
+	LastRTTMS           int64    `json:"lastRTTMS"`
+	FailedProbes        int      `json:"failedProbes"`
+	ConsecutiveFailures int      `json:"consecutiveFailures"`
+	FailureReason       string   `json:"failureReason"`
+	DisabledReason      string   `json:"disabledReason"`
+	LastObservedPeerAt  string   `json:"lastObservedPeerAt"`
 }
 
 type fetchedRoomState struct {
@@ -346,16 +359,22 @@ func (a *App) applyRoomMutationResult(ctx context.Context, apiBaseURL string, ap
 }
 
 func (a *App) startup(ctx context.Context) {
+	diagnosticLogf("startup begin")
 	a.ctx = ctx
 	a.initializeNotifications(ctx)
 	a.registerTray()
 	if err := tun.EnsureWintunDLL(); err != nil {
+		diagnosticLogf("startup wintun error: %v", err)
 		a.mu.Lock()
 		a.connection = newConnectionState(statusError, friendlyConnectionError(err))
 		a.commitStateLocked()
 		return
 	}
-	saved, hasSaved, _ := loadSavedLogin()
+	saved, hasSaved, savedErr := loadSavedLogin()
+	if savedErr != nil {
+		diagnosticLogf("startup saved_login_error=%v", savedErr)
+	}
+	diagnosticLogf("startup saved_login=%t", hasSaved)
 	a.mu.Lock()
 	if hasSaved {
 		a.apiBaseURL = saved.APIBaseURL
@@ -378,9 +397,11 @@ func (a *App) startup(ctx context.Context) {
 	if hasSaved {
 		go a.autoLogin(saved)
 	}
+	diagnosticLogf("startup complete")
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	diagnosticLogf("shutdown begin")
 	a.mu.Lock()
 	a.cancelConnectionLocked()
 	a.cancelRoomEventsLocked()
@@ -388,6 +409,7 @@ func (a *App) shutdown(ctx context.Context) {
 	_ = tun.EnableFirewallProfiles()
 	a.cleanupNotifications(ctx)
 	a.stopTray()
+	diagnosticLogf("shutdown complete")
 }
 
 func (a *App) CurrentState() AppState {
@@ -597,6 +619,9 @@ func (a *App) autoLogin(saved savedLogin) {
 	}
 	a.api = api
 	a.applyAuthenticatedUserLocked(res.User, roomState, roomErr == nil)
+	if shouldRestartUpdateDownloadAfterAuth(a.update) {
+		a.startUpdateCheckLocked("登录成功，正在下载更新")
+	}
 	a.commitStateLocked()
 }
 
@@ -743,6 +768,10 @@ func (a *App) LeaveRoomVoice(roomID int64) (AppState, error) {
 	if roomID <= 0 {
 		roomID = a.currentRoom.ID
 	}
+	if roomID != a.currentRoom.ID {
+		a.mu.Unlock()
+		return AppState{}, fmt.Errorf("只能离开当前房间语音")
+	}
 	apiBaseURL := a.apiBaseURL
 	api := a.api.Clone()
 	a.mu.Unlock()
@@ -752,9 +781,9 @@ func (a *App) LeaveRoomVoice(roomID int64) (AppState, error) {
 		return AppState{}, err
 	}
 	a.mu.Lock()
-	if a.apiBaseURL != apiBaseURL {
+	if a.apiBaseURL != apiBaseURL || a.currentRoom == nil || a.currentRoom.ID != roomID {
 		a.mu.Unlock()
-		return AppState{}, fmt.Errorf("服务器状态已变化，请重试")
+		return AppState{}, fmt.Errorf("当前房间已变化，请重试")
 	}
 	a.voiceState = voiceState
 	return a.commitStateLocked(), nil
@@ -1010,7 +1039,6 @@ func (a *App) startRoomConnectionLocked(selected room.Room, message string) erro
 func (a *App) Disconnect() (AppState, error) {
 	a.mu.Lock()
 	if a.connectCancel == nil {
-		a.resetVoiceLocked()
 		a.connection = newConnectionState(statusDisconnected, "未连接")
 		return a.commitStateLocked(), nil
 	}
@@ -1035,9 +1063,12 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 			})
 		},
 		OnTransportState: func(status client.TransportStatus) {
-			a.updateConnection(seq, func(state *ConnectionState) {
+			connection, api, ok := a.updateConnection(seq, func(state *ConnectionState) {
 				applyTransportStatus(state, status)
 			})
+			if ok {
+				go a.reportNetworkDiagnostics(api, connection)
+			}
 		},
 	})
 
@@ -1053,18 +1084,20 @@ func (a *App) runConnection(seq int64, ctx context.Context, selected room.Room, 
 	} else {
 		a.connection = newConnectionState(statusDisconnected, "已断开")
 	}
-	a.resetVoiceLocked()
 	a.commitStateLocked()
 }
 
-func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) {
+func (a *App) updateConnection(seq int64, apply func(*ConnectionState)) (ConnectionState, *client.API, bool) {
 	a.mu.Lock()
 	if a.connectSeq != seq {
 		a.mu.Unlock()
-		return
+		return ConnectionState{}, nil, false
 	}
 	apply(&a.connection)
+	connection := a.connection
+	api := a.api.Clone()
 	a.commitStateLocked()
+	return connection, api, true
 }
 
 func applyTransportStatus(state *ConnectionState, status client.TransportStatus) {
@@ -1083,12 +1116,89 @@ func viewTransportDiagnostics(items []client.TransportPeerDiagnostic) []Transpor
 	out := make([]TransportDiagnostic, 0, len(items))
 	for _, item := range items {
 		out = append(out, TransportDiagnostic{
-			VirtualIP:          item.VirtualIP,
-			CandidateCount:     item.CandidateCount,
-			SelectedType:       item.SelectedType,
-			LastProbeAt:        formatOptionalTime(item.LastProbeAt),
-			FailedProbes:       item.FailedProbes,
-			LastObservedPeerAt: formatOptionalTime(item.LastObservedPeerAt),
+			VirtualIP:           item.VirtualIP,
+			CandidateCount:      item.CandidateCount,
+			CandidateTypes:      append([]string(nil), item.CandidateTypes...),
+			SelectedType:        item.SelectedType,
+			SelectedPath:        item.SelectedPath,
+			LastProbeAt:         formatOptionalTime(item.LastProbeAt),
+			LastSuccessAt:       formatOptionalTime(item.LastSuccessAt),
+			LastFailureAt:       formatOptionalTime(item.LastFailureAt),
+			LastRTTMS:           item.LastRTT.Milliseconds(),
+			FailedProbes:        item.FailedProbes,
+			ConsecutiveFailures: item.ConsecutiveFailures,
+			FailureReason:       item.FailureReason,
+			DisabledReason:      item.DisabledReason,
+			LastObservedPeerAt:  formatOptionalTime(item.LastObservedPeerAt),
+		})
+	}
+	return out
+}
+
+func (a *App) reportNetworkDiagnostics(api *client.API, connection ConnectionState) {
+	if api == nil || connection.RoomID <= 0 {
+		return
+	}
+	report := room.NetworkDiagnosticReport{
+		RoomID:               connection.RoomID,
+		Status:               connection.Status,
+		Message:              connection.Message,
+		IP:                   connection.IP,
+		TransportMode:        connection.TransportMode,
+		DirectPeerIPs:        append([]string(nil), connection.DirectPeerIPs...),
+		TransportDiagnostics: roomTransportDiagnostics(connection.TransportDiagnostics),
+	}
+	if len(report.TransportDiagnostics) == 0 && report.TransportMode == "" {
+		return
+	}
+	if !a.shouldReportNetworkDiagnostics(report) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := api.ReportRoomNetworkDiagnostics(ctx, report); err != nil {
+		log.Printf("network diagnostic report failed: %v", err)
+	}
+}
+
+func (a *App) shouldReportNetworkDiagnostics(report room.NetworkDiagnosticReport) bool {
+	data, _ := json.Marshal(report)
+	signature := string(data)
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if signature == a.lastDiagnosticReportSignature && now.Sub(a.lastDiagnosticReportAt) < 30*time.Second {
+		return false
+	}
+	if now.Sub(a.lastDiagnosticReportAt) < 5*time.Second {
+		return false
+	}
+	a.lastDiagnosticReportSignature = signature
+	a.lastDiagnosticReportAt = now
+	return true
+}
+
+func roomTransportDiagnostics(items []TransportDiagnostic) []room.TransportDiagnostic {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]room.TransportDiagnostic, 0, len(items))
+	for _, item := range items {
+		out = append(out, room.TransportDiagnostic{
+			VirtualIP:           item.VirtualIP,
+			CandidateCount:      item.CandidateCount,
+			CandidateTypes:      append([]string(nil), item.CandidateTypes...),
+			SelectedType:        item.SelectedType,
+			SelectedPath:        item.SelectedPath,
+			LastProbeAt:         item.LastProbeAt,
+			LastSuccessAt:       item.LastSuccessAt,
+			LastFailureAt:       item.LastFailureAt,
+			LastRTTMS:           item.LastRTTMS,
+			FailedProbes:        item.FailedProbes,
+			ConsecutiveFailures: item.ConsecutiveFailures,
+			FailureReason:       item.FailureReason,
+			DisabledReason:      item.DisabledReason,
+			LastObservedPeerAt:  item.LastObservedPeerAt,
 		})
 	}
 	return out
@@ -1343,6 +1453,7 @@ func (a *App) stateLocked() AppState {
 
 func (a *App) emitState(state AppState) {
 	a.updateTray(state)
+	diagnosticWriteState(state)
 	if ctx := a.currentContext(); ctx != nil {
 		wailsRuntime.EventsEmit(ctx, "state-changed", state)
 	}

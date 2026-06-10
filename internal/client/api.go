@@ -215,6 +215,10 @@ func (a *API) ReportRoomVoiceWebRTCTraffic(ctx context.Context, roomID, bytes in
 	}, nil)
 }
 
+func (a *API) ReportRoomNetworkDiagnostics(ctx context.Context, report room.NetworkDiagnosticReport) error {
+	return a.request(ctx, http.MethodPost, "/api/rooms/network-diagnostics", report, nil)
+}
+
 func (a *API) DeleteRoom(ctx context.Context, roomID int64) error {
 	return a.request(ctx, http.MethodPost, "/api/rooms/delete", map[string]int64{"roomID": roomID}, nil)
 }

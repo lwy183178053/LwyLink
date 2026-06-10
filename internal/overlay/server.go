@@ -205,7 +205,11 @@ func (s *Server) handleSessionFrame(sess *session, typ FrameType, payload []byte
 	case FrameIP:
 		s.forwardIP(sess, payload)
 	case FramePing:
-		_ = sess.conn.Write(PackFrame(FramePing, nil))
+		_ = sess.conn.Write(PackFrame(FramePing, payload))
+	case FrameUDPControl:
+		s.handleClientUDPControl(sess, payload)
+	case FrameRelayProbe:
+		s.forwardRelayProbe(sess, payload)
 	default:
 		_ = s.writeJSON(sess.conn, FrameError, map[string]string{"error": fmt.Sprintf("unsupported frame %d", typ)})
 		sess.close()
@@ -289,6 +293,61 @@ func (s *Server) fanoutRoom(from *session, payload []byte) {
 	for _, target := range targets {
 		_ = target.enqueue(payload)
 	}
+}
+
+func (s *Server) handleClientUDPControl(sess *session, payload []byte) {
+	var control UDPControl
+	if err := json.Unmarshal(payload, &control); err != nil {
+		return
+	}
+	if control.Type != UDPControlRelayProbe || control.RelayProbe == nil {
+		return
+	}
+	raw, err := json.Marshal(control.RelayProbe)
+	if err != nil {
+		return
+	}
+	s.forwardRelayProbe(sess, raw)
+}
+
+func (s *Server) forwardRelayProbe(from *session, payload []byte) {
+	var probe RelayProbePayload
+	if err := json.Unmarshal(payload, &probe); err != nil {
+		return
+	}
+	if probe.Seq == 0 || probe.FromIP == "" || probe.ToIP == "" {
+		return
+	}
+	if !probe.Reply {
+		if probe.FromIP != from.lease.IP || probe.ToIP == from.lease.IP {
+			return
+		}
+		target := s.findByIP(from.roomID, probe.ToIP)
+		if target == nil || target == from {
+			return
+		}
+		s.enqueueRelayProbe(target, probe)
+		return
+	}
+	if probe.FromIP != from.lease.IP || probe.ToIP == from.lease.IP {
+		return
+	}
+	target := s.findByIP(from.roomID, probe.ToIP)
+	if target == nil || target == from {
+		return
+	}
+	s.enqueueRelayProbe(target, probe)
+}
+
+func (s *Server) enqueueRelayProbe(target *session, probe RelayProbePayload) {
+	raw, err := json.Marshal(UDPControl{
+		Type:       UDPControlRelayProbe,
+		RelayProbe: &probe,
+	})
+	if err != nil {
+		return
+	}
+	_ = target.enqueueFrame(FrameUDPControl, raw)
 }
 
 func (s *Server) consumeRelayTraffic(sess *session, bytes int64) bool {
@@ -449,18 +508,6 @@ func (s *Server) findByIP(roomID int64, ip string) *session {
 		return nil
 	}
 	return roomMap[ip]
-}
-
-func (s *Server) findByUserID(roomID, userID int64) *session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	roomMap := s.byRoomIP[roomID]
-	for _, sess := range roomMap {
-		if sess != nil && sess.userID == userID {
-			return sess
-		}
-	}
-	return nil
 }
 
 func (s *Server) roomPeers(from *session) []*session {

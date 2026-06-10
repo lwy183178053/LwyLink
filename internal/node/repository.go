@@ -92,22 +92,55 @@ func (r *Repository) SetEnabled(ctx context.Context, id int64, enabled bool) err
 	if !enabled {
 		status = StatusDisabled
 	}
-	_, err := r.db.ExecContext(ctx, `UPDATE server_nodes SET enabled = ?, status = ? WHERE id = ?`, enabled, status, id)
-	return err
+	res, err := r.db.ExecContext(ctx, `UPDATE server_nodes SET enabled = ?, status = ? WHERE id = ?`, enabled, status, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return r.errIfMissing(ctx, id)
+	}
+	return nil
 }
 
 func (r *Repository) SetStatus(ctx context.Context, id int64, status, lastError string) error {
+	var (
+		res sql.Result
+		err error
+	)
 	if status == StatusOnline {
-		_, err := r.db.ExecContext(ctx,
+		res, err = r.db.ExecContext(ctx,
 			`UPDATE server_nodes SET status = ?, last_seen_at = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?`,
 			status, lastError, id,
 		)
+	} else {
+		res, err = r.db.ExecContext(ctx,
+			`UPDATE server_nodes SET status = ?, last_error = ? WHERE id = ?`,
+			status, lastError, id,
+		)
+	}
+	if err != nil {
 		return err
 	}
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE server_nodes SET status = ?, last_error = ? WHERE id = ?`,
-		status, lastError, id,
-	)
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return r.errIfMissing(ctx, id)
+	}
+	return nil
+}
+
+func (r *Repository) errIfMissing(ctx context.Context, id int64) error {
+	var one int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM server_nodes WHERE id = ? LIMIT 1`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
 	return err
 }
 

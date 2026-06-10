@@ -62,13 +62,7 @@ func (c Capacity) CanOwnRoom(maxMembers int) bool {
 }
 
 func (c Capacity) allowedOptionsText() string {
-	parts := make([]string, 0, len(allRoomMemberOptions))
-	for _, option := range allRoomMemberOptions {
-		if option <= c.MaxMembers {
-			parts = append(parts, fmt.Sprintf("%d", option))
-		}
-	}
-	return strings.Join(parts, "、")
+	return roomMemberOptionsText(c.MaxMembers)
 }
 
 func (c Capacity) AllowedOptionsText() string {
@@ -76,12 +70,19 @@ func (c Capacity) AllowedOptionsText() string {
 }
 
 func (c Capacity) createRoomError() error {
-	return fmt.Errorf("%s可创建房间人数为 %s", c.Label, c.allowedOptionsText())
+	return fmt.Errorf("%s可创建房间人数为 %s", c.Label, c.AllowedOptionsText())
 }
 
 func allowedMaxMembersText() string {
+	return roomMemberOptionsText(0)
+}
+
+func roomMemberOptionsText(maxMembers int) string {
 	parts := make([]string, 0, len(allRoomMemberOptions))
 	for _, option := range allRoomMemberOptions {
+		if maxMembers > 0 && option > maxMembers {
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("%d", option))
 	}
 	return strings.Join(parts, "、")

@@ -31,13 +31,26 @@ type ConnectOptions struct {
 }
 
 type connectionRuntime struct {
-	mu          sync.RWMutex
-	secureReady bool
-	tunnel      *tun.Tunnel
-	udp         *udpManager
-	ipSeq       uint64
-	ipIDPrefix  uint64
-	seenIP      *recentPacketIDs
+	mu              sync.RWMutex
+	secureReady     bool
+	tunnel          *tun.Tunnel
+	udp             *udpManager
+	virtualIP       string
+	ipSeq           uint64
+	ipIDPrefix      uint64
+	seenIP          *recentPacketIDs
+	relayPingSeq    uint64
+	relayPings      map[uint64]time.Time
+	relayRTT        time.Duration
+	relayProbeSeq   uint64
+	relayProbes     map[uint64]relayProbeSent
+	relayPeerRTTs   map[string]time.Duration
+	relayProbePeers map[string]struct{}
+}
+
+type relayProbeSent struct {
+	peerIP string
+	sentAt time.Time
 }
 
 func (r *connectionRuntime) setSecureReady(ready bool) {
@@ -50,6 +63,18 @@ func (r *connectionRuntime) isSecureReady() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.secureReady
+}
+
+func (r *connectionRuntime) setVirtualIP(ip string) {
+	r.mu.Lock()
+	r.virtualIP = ip
+	r.mu.Unlock()
+}
+
+func (r *connectionRuntime) virtualIPValue() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.virtualIP
 }
 
 func (r *connectionRuntime) setTunnel(t *tun.Tunnel) {
@@ -95,6 +120,126 @@ func (r *connectionRuntime) closeUDP() {
 	if manager != nil {
 		_ = manager.Close()
 	}
+}
+
+func (r *connectionRuntime) nextRelayPingPayload(now time.Time) []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.relayPings == nil {
+		r.relayPings = make(map[uint64]time.Time)
+	}
+	r.relayPingSeq++
+	seq := r.relayPingSeq
+	r.relayPings[seq] = now
+	cutoff := now.Add(-30 * time.Second)
+	for itemSeq, sentAt := range r.relayPings {
+		if sentAt.Before(cutoff) || len(r.relayPings) > 64 {
+			delete(r.relayPings, itemSeq)
+		}
+	}
+	payload := make([]byte, 8)
+	binary.BigEndian.PutUint64(payload, seq)
+	return payload
+}
+
+func (r *connectionRuntime) noteRelayPong(payload []byte, now time.Time) {
+	if len(payload) != 8 {
+		return
+	}
+	seq := binary.BigEndian.Uint64(payload)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sentAt, ok := r.relayPings[seq]
+	if !ok {
+		return
+	}
+	delete(r.relayPings, seq)
+	rtt := now.Sub(sentAt)
+	if rtt <= 0 || rtt > time.Minute {
+		return
+	}
+	r.relayRTT = rtt
+}
+
+func (r *connectionRuntime) relayRTTValue() time.Duration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.relayRTT
+}
+
+func (r *connectionRuntime) setRelayProbePeers(peers []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.relayProbePeers == nil {
+		r.relayProbePeers = make(map[string]struct{})
+	}
+	next := make(map[string]struct{}, len(peers))
+	for _, peer := range peers {
+		if peer != "" {
+			next[peer] = struct{}{}
+		}
+	}
+	for peer := range r.relayPeerRTTs {
+		if _, ok := next[peer]; !ok {
+			delete(r.relayPeerRTTs, peer)
+		}
+	}
+	r.relayProbePeers = next
+}
+
+func (r *connectionRuntime) relayProbePeerList() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.relayProbePeers))
+	for peer := range r.relayProbePeers {
+		out = append(out, peer)
+	}
+	return out
+}
+
+func (r *connectionRuntime) nextRelayProbe(fromIP, peerIP string, now time.Time) overlay.RelayProbePayload {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.relayProbes == nil {
+		r.relayProbes = make(map[uint64]relayProbeSent)
+	}
+	r.relayProbeSeq++
+	seq := r.relayProbeSeq
+	r.relayProbes[seq] = relayProbeSent{peerIP: peerIP, sentAt: now}
+	cutoff := now.Add(-30 * time.Second)
+	for itemSeq, item := range r.relayProbes {
+		if item.sentAt.Before(cutoff) || len(r.relayProbes) > 256 {
+			delete(r.relayProbes, itemSeq)
+		}
+	}
+	return overlay.RelayProbePayload{Seq: seq, FromIP: fromIP, ToIP: peerIP}
+}
+
+func (r *connectionRuntime) noteRelayProbeReply(probe overlay.RelayProbePayload, now time.Time) {
+	if probe.Seq == 0 || probe.FromIP == "" || !probe.Reply {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sent, ok := r.relayProbes[probe.Seq]
+	if !ok || sent.peerIP != probe.FromIP {
+		return
+	}
+	delete(r.relayProbes, probe.Seq)
+	rtt := now.Sub(sent.sentAt)
+	if rtt <= 0 || rtt > time.Minute {
+		return
+	}
+	if r.relayPeerRTTs == nil {
+		r.relayPeerRTTs = make(map[string]time.Duration)
+	}
+	r.relayPeerRTTs[probe.FromIP] = rtt
+}
+
+func (r *connectionRuntime) relayPeerRTTValue(peerIP string) time.Duration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.relayPeerRTTs[peerIP]
 }
 
 func (r *connectionRuntime) nextIPPayload(pkt []byte) []byte {
@@ -238,6 +383,13 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				pushErr(errCh, fmt.Errorf("overlay error: %s", e["error"]))
 				_ = conn.Close()
 			case overlay.FramePing:
+				runtimeState.noteRelayPong(payload, time.Now())
+			case overlay.FrameRelayProbe:
+				var probe overlay.RelayProbePayload
+				if err := json.Unmarshal(payload, &probe); err != nil {
+					return
+				}
+				handleRelayProbeFrame(conn, runtimeState, probe)
 			case overlay.FrameUDPControl:
 				var control overlay.UDPControl
 				if err := json.Unmarshal(payload, &control); err != nil {
@@ -249,6 +401,10 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 				case overlay.UDPControlPeer:
 					if control.Peer != nil {
 						sendLatestUDPPeer(udpPeerCh, *control.Peer)
+					}
+				case overlay.UDPControlRelayProbe:
+					if control.RelayProbe != nil {
+						handleRelayProbeFrame(conn, runtimeState, *control.RelayProbe)
 					}
 				}
 			default:
@@ -285,6 +441,7 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	defer t.Close()
 	defer tun.CleanupRoute(opts.IfName, opts.Room.NetworkCIDR)
 	runtimeState.setTunnel(t)
+	runtimeState.setVirtualIP(lease.IP)
 
 	// Route configuration happens only after the server has authenticated this
 	// token and assigned a lease. On non-Windows builds this returns a stub error.
@@ -304,7 +461,15 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	defer cancel()
 	go manageUDPTransport(childCtx, opts, lease, runtimeState, udpConfigCh, udpPeerCh, udpResetCh, udpDisableCh)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		relayPingLoop(childCtx, transport, runtimeState)
+	}()
+	go func() {
+		defer wg.Done()
+		relayProbeLoop(childCtx, transport, runtimeState)
+	}()
 	go func() {
 		defer wg.Done()
 		tunToOverlay(childCtx, transport, t, runtimeState)
@@ -330,6 +495,82 @@ func ConnectRoom(ctx context.Context, opts ConnectOptions) error {
 	_ = t.Close()
 	wg.Wait()
 	return nil
+}
+
+func relayPingLoop(ctx context.Context, transport *tcpx.Client, runtimeState *connectionRuntime) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if !runtimeState.isSecureReady() {
+				continue
+			}
+			payload := runtimeState.nextRelayPingPayload(now)
+			if err := transport.Write(overlay.PackFrame(overlay.FramePing, payload)); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func relayProbeLoop(ctx context.Context, transport *tcpx.Client, runtimeState *connectionRuntime) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if !runtimeState.isSecureReady() {
+				continue
+			}
+			localIP := runtimeState.virtualIPValue()
+			if localIP == "" {
+				continue
+			}
+			for _, peerIP := range runtimeState.relayProbePeerList() {
+				probe := runtimeState.nextRelayProbe(localIP, peerIP, now)
+				raw, err := packRelayProbeControl(probe)
+				if err != nil {
+					continue
+				}
+				if err := transport.Write(raw); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+func handleRelayProbeFrame(conn *tcpx.SecureConn, runtimeState *connectionRuntime, probe overlay.RelayProbePayload) {
+	if probe.Reply {
+		runtimeState.noteRelayProbeReply(probe, time.Now())
+		return
+	}
+	localIP := runtimeState.virtualIPValue()
+	if probe.Seq == 0 || probe.FromIP == "" || probe.ToIP != localIP {
+		return
+	}
+	reply := overlay.RelayProbePayload{
+		Seq:    probe.Seq,
+		FromIP: localIP,
+		ToIP:   probe.FromIP,
+		Reply:  true,
+	}
+	raw, err := packRelayProbeControl(reply)
+	if err == nil {
+		_ = conn.Write(raw)
+	}
+}
+
+func packRelayProbeControl(probe overlay.RelayProbePayload) ([]byte, error) {
+	return overlay.PackJSON(overlay.FrameUDPControl, overlay.UDPControl{
+		Type:       overlay.UDPControlRelayProbe,
+		RelayProbe: &probe,
+	})
 }
 
 func sendLatestUDPConfig(ch chan overlay.UDPControl, control overlay.UDPControl) {
@@ -411,6 +652,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			RoomID:     opts.Room.ID,
 			UserID:     opts.UserID,
 			VirtualIP:  lease.IP,
+			RelayRTT:   runtimeState.relayPeerRTTValue,
 			OnPacket: func(pkt []byte) {
 				runtimeState.writeTunnelPayload(pkt)
 			},
@@ -440,6 +682,7 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			return
 		case peer := <-udpPeerCh:
 			knownPeers[peer.VirtualIP] = peer
+			runtimeState.setRelayProbePeers(knownPeerIPs(knownPeers))
 			if manager != nil {
 				manager.AddPeer(peer)
 			}
@@ -450,16 +693,28 @@ func manageUDPTransport(ctx context.Context, opts ConnectOptions, lease overlay.
 			closeManager()
 			latestConfig = nil
 			knownPeers = make(map[string]overlay.UDPPeerCandidate)
+			runtimeState.setRelayProbePeers(nil)
 		case <-udpDisableCh:
 			closeManager()
 			latestConfig = nil
 			knownPeers = make(map[string]overlay.UDPPeerCandidate)
+			runtimeState.setRelayProbePeers(nil)
 			udpDisabledForRun = true
 			emitDisabled()
 		case <-ticker.C:
 			startManager()
 		}
 	}
+}
+
+func knownPeerIPs(peers map[string]overlay.UDPPeerCandidate) []string {
+	out := make([]string, 0, len(peers))
+	for peerIP := range peers {
+		if peerIP != "" {
+			out = append(out, peerIP)
+		}
+	}
+	return out
 }
 
 func tunToOverlay(ctx context.Context, transport *tcpx.Client, t *tun.Tunnel, runtimeState *connectionRuntime) {

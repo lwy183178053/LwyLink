@@ -36,17 +36,19 @@ const (
 )
 
 type UpdateState struct {
-	Status         string `json:"status"`
-	Message        string `json:"message"`
-	CurrentVersion string `json:"currentVersion"`
-	LatestVersion  string `json:"latestVersion"`
-	Platform       string `json:"platform"`
-	Notes          string `json:"notes"`
-	Mandatory      bool   `json:"mandatory"`
-	InstallArgs    string `json:"installArgs"`
-	FileName       string `json:"fileName"`
-	SizeBytes      int64  `json:"sizeBytes"`
-	SHA256         string `json:"sha256"`
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	CurrentVersion  string `json:"currentVersion"`
+	LatestVersion   string `json:"latestVersion"`
+	Platform        string `json:"platform"`
+	Notes           string `json:"notes"`
+	Mandatory       bool   `json:"mandatory"`
+	InstallArgs     string `json:"installArgs"`
+	FileName        string `json:"fileName"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	DownloadedBytes int64  `json:"downloadedBytes"`
+	Progress        int    `json:"progress"`
+	SHA256          string `json:"sha256"`
 }
 
 func (a *App) CheckForUpdates() (AppState, error) {
@@ -76,10 +78,12 @@ func (a *App) InstallPreparedUpdate() (AppState, error) {
 	a.mu.Lock()
 	if a.update.Status != updateStatusReady || a.preparedUpdatePath == "" {
 		a.mu.Unlock()
+		diagnosticLogf("InstallPreparedUpdate rejected status=%s prepared=%t", a.update.Status, a.preparedUpdatePath != "")
 		return AppState{}, fmt.Errorf("更新包尚未准备好")
 	}
 	updatePath := a.preparedUpdatePath
 	installArgs := strings.TrimSpace(a.update.InstallArgs)
+	diagnosticLogf("InstallPreparedUpdate start path=%s installArgs=%q", updatePath, installArgs)
 	a.update.Status = updateStatusInstalling
 	a.update.Message = "正在启动更新程序"
 	state := a.commitStateLocked()
@@ -91,11 +95,13 @@ func (a *App) InstallPreparedUpdate() (AppState, error) {
 		err = startSelfUpdater(updatePath)
 	}
 	if err != nil {
+		diagnosticLogf("InstallPreparedUpdate failed: %v", err)
 		a.mu.Lock()
 		a.update.Status = updateStatusError
 		a.update.Message = friendlyConnectionError(err)
 		return a.commitStateLocked(), err
 	}
+	diagnosticLogf("InstallPreparedUpdate updater started")
 	if ctx := a.currentContext(); ctx != nil {
 		a.allowApplicationQuit()
 		wailsRuntime.Quit(ctx)
@@ -169,10 +175,21 @@ func (a *App) runUpdateCheck(seq int64, apiBaseURL, token string) {
 		return
 	}
 
-	downloading := updateStateFromRelease(release, updateStatusDownloading, "发现新版本，正在后台下载")
+	downloading := updateStateFromRelease(release, updateStatusDownloading, "发现新版本，正在下载")
 	a.applyUpdateState(seq, downloading, "")
 
-	path, err := downloadPreparedUpdate(ctx, apiBaseURL, token, release)
+	path, err := downloadPreparedUpdate(ctx, apiBaseURL, token, release, func(downloaded, total int64) {
+		next := updateStateFromRelease(release, updateStatusDownloading, "正在下载更新")
+		next.DownloadedBytes = downloaded
+		if total > 0 {
+			next.SizeBytes = total
+			next.Progress = int((downloaded * 100) / total)
+			if next.Progress > 100 {
+				next.Progress = 100
+			}
+		}
+		a.applyUpdateState(seq, next, "")
+	})
 	if err != nil {
 		failed := updateStateFromRelease(release, updateStatusError, "下载更新失败: "+err.Error())
 		a.applyUpdateState(seq, failed, "")
@@ -180,6 +197,8 @@ func (a *App) runUpdateCheck(seq int64, apiBaseURL, token string) {
 	}
 
 	ready := updateStateFromRelease(release, updateStatusReady, "新版本已下载，等待重启更新")
+	ready.DownloadedBytes = ready.SizeBytes
+	ready.Progress = 100
 	a.applyUpdateState(seq, ready, path)
 }
 
@@ -191,7 +210,26 @@ func (a *App) applyUpdateState(seq int64, update UpdateState, preparedPath strin
 	}
 	a.update = update
 	a.preparedUpdatePath = preparedPath
+	shouldAutoInstall := shouldAutoInstallPreparedUpdate(update, preparedPath) && !a.upgradeTestInstallStarted
+	if shouldAutoInstall {
+		a.upgradeTestInstallStarted = true
+		diagnosticLogf("upgrade test auto install scheduled")
+	}
 	a.commitStateLocked()
+	if shouldAutoInstall {
+		go func() {
+			time.Sleep(3 * time.Second)
+			if _, err := a.InstallPreparedUpdate(); err != nil {
+				diagnosticLogf("upgrade test auto install failed: %v", err)
+			}
+		}()
+	}
+}
+
+func shouldAutoInstallPreparedUpdate(update UpdateState, preparedPath string) bool {
+	return firstEnvPath("LWYLINK_UPGRADE_TEST_AUTO_INSTALL") == "1" &&
+		update.Status == updateStatusReady &&
+		preparedPath != ""
 }
 
 func runUpdaterFromArgs(args []string) (bool, error) {
@@ -266,7 +304,7 @@ func fetchLatestRelease(ctx context.Context, apiBaseURL string) (clientrelease.P
 	return release, nil
 }
 
-func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, release clientrelease.PublicRelease) (string, error) {
+func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, release clientrelease.PublicRelease, onProgress func(downloaded, total int64)) (string, error) {
 	downloadURL, err := resolveDownloadURL(apiBaseURL, release.DownloadURL)
 	if err != nil {
 		return "", err
@@ -281,6 +319,13 @@ func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, relea
 	}
 	targetPath := filepath.Join(dir, updateFileName(release, fileName))
 	if verifyFileSHA256(targetPath, release.SHA256) == nil {
+		if onProgress != nil {
+			size := release.SizeBytes
+			if info, err := os.Stat(targetPath); err == nil {
+				size = info.Size()
+			}
+			onProgress(size, size)
+		}
 		return targetPath, nil
 	}
 	tmpPath := targetPath + ".tmp"
@@ -307,11 +352,20 @@ func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, relea
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("下载 HTTP %d", resp.StatusCode)
 	}
+	total := resp.ContentLength
+	if total <= 0 {
+		total = release.SizeBytes
+	}
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	reader := &downloadProgressReader{
+		reader:     resp.Body,
+		total:      total,
+		onProgress: onProgress,
+	}
+	if _, err := io.Copy(out, reader); err != nil {
 		_ = out.Close()
 		return "", err
 	}
@@ -327,6 +381,40 @@ func downloadPreparedUpdate(ctx context.Context, apiBaseURL, token string, relea
 	}
 	complete = true
 	return targetPath, nil
+}
+
+type downloadProgressReader struct {
+	reader      io.Reader
+	total       int64
+	downloaded  int64
+	lastEmit    time.Time
+	lastEmitted int64
+	onProgress  func(downloaded, total int64)
+}
+
+func (r *downloadProgressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.downloaded += int64(n)
+		r.emitProgress(false)
+	}
+	if err == io.EOF {
+		r.emitProgress(true)
+	}
+	return n, err
+}
+
+func (r *downloadProgressReader) emitProgress(force bool) {
+	if r.onProgress == nil {
+		return
+	}
+	now := time.Now()
+	if !force && r.downloaded-r.lastEmitted < 512*1024 && now.Sub(r.lastEmit) < 350*time.Millisecond {
+		return
+	}
+	r.lastEmit = now
+	r.lastEmitted = r.downloaded
+	r.onProgress(r.downloaded, r.total)
 }
 
 func resolveDownloadURL(apiBaseURL, value string) (string, error) {
@@ -452,6 +540,10 @@ func updateStateFromRelease(release clientrelease.PublicRelease, status, message
 		SizeBytes:      release.SizeBytes,
 		SHA256:         release.SHA256,
 	}
+}
+
+func shouldRestartUpdateDownloadAfterAuth(update UpdateState) bool {
+	return update.LatestVersion != "" && update.Status == updateStatusIdle
 }
 
 func updateFileName(release clientrelease.PublicRelease, fallback string) string {

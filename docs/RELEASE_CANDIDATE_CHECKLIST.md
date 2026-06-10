@@ -8,17 +8,22 @@ real network checks so a release does not rely on a single developer machine.
 Run before every stable candidate:
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1 -Vet
 PowerShell -ExecutionPolicy Bypass -File .\deploy\build-all.ps1 -Vet
+PowerShell -ExecutionPolicy Bypass -File .\deploy\check.ps1 -Vet
 ```
 
-After deployment, run smoke against the public control API and node:
+After deployment, run the post-release check against the public control API and node:
 
 ```powershell
-go run .\cmd\lwylink-smoke -api https://www.lwylink.xyz -overlay 64.83.34.53:35768
+PowerShell -ExecutionPolicy Bypass -File .\deploy\post-release-check.ps1
 ```
 
-The release is not a candidate unless smoke prints `SMOKE OK`.
+This command expects `configs/deploy.local.json` or explicit `-HostName` /
+`-OverlayAddr` values. Use `-SkipCoturn` or `-SkipBackupTimer` only for
+environments where those components are intentionally not installed.
+
+The release is not a candidate unless healthz, latest release, smoke, coturn,
+and backup timer checks pass.
 
 ## Network Matrix
 

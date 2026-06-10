@@ -13,14 +13,18 @@ import (
 const singleInstanceID = "com.lwylink.client.windows"
 
 func main() {
+	diagnosticLogf("main start args=%q version=%s", os.Args, AppVersion)
 	if handled, err := runUpdaterFromArgs(os.Args); handled {
 		if err != nil {
+			diagnosticLogf("updater failed: %v", err)
 			log.Fatal(err)
 		}
+		diagnosticLogf("updater handled")
 		return
 	}
 
 	app := NewApp()
+	diagnosticLogf("wails run start")
 	if err := wails.Run(&options.App{
 		Title:     "LwyLink",
 		Width:     1240,
@@ -53,6 +57,8 @@ func main() {
 			app,
 		},
 	}); err != nil {
+		diagnosticLogf("wails run failed: %v", err)
 		log.Fatal(err)
 	}
+	diagnosticLogf("main exit")
 }

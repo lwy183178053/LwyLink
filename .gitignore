@@ -16,6 +16,7 @@ deploy/.env
 node_modules/
 __pycache__/
 cmd/lwylink-windows-ui/frontend/dist/
+cmd/lwylink-windows-ui/frontend/test-dist/
 !cmd/lwylink-windows-ui/build/
 cmd/lwylink-windows-ui/build/*
 !cmd/lwylink-windows-ui/build/appicon.png

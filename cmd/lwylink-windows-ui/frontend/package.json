@@ -1,11 +1,12 @@
 {
   "name": "lwylink-windows-ui",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "tsc -p tsconfig.test.json && node --test src/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

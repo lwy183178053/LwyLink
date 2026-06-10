@@ -144,6 +144,9 @@ func TestUDPManagersProbeAndDeliverDirectIPPacket(t *testing.T) {
 		RoomID:     1,
 		UserID:     10,
 		VirtualIP:  "172.16.1.10",
+		RelayRTT: func(peerIP string) time.Duration {
+			return 300 * time.Millisecond
+		},
 		OnPacket: func(pkt []byte) {
 			aDelivered <- append([]byte(nil), pkt...)
 		},
@@ -177,20 +180,24 @@ func TestUDPManagersProbeAndDeliverDirectIPPacket(t *testing.T) {
 		Key:       overlay.EncodeUDPKey(pairKey),
 	})
 
-	waitUntil(t, time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		a.mu.Lock()
-		aReady := udpPathDirectReady(a.pathsByIP["172.16.1.11"], time.Now())
+		aPath := a.pathsByIP["172.16.1.11"]
+		aReady := udpPathDirectReady(aPath, time.Now()) && aPath.lastRTT > 0
 		a.mu.Unlock()
-		b.mu.Lock()
-		bReady := udpPathDirectReady(b.pathsByIP["172.16.1.10"], time.Now())
-		b.mu.Unlock()
-		return aReady && bReady
+		return aReady
 	})
 
 	pkt := testIPv4Packet("172.16.1.10", "172.16.1.11")
 	payload := overlay.PackIPPayload(99, pkt)
 	if got := a.SendToPeer("172.16.1.11", payload); got == udpSendRelay {
 		t.Fatalf("direct send returned relay")
+	}
+	a.mu.Lock()
+	aSelected := udpPathDirectSelected(a.pathsByIP["172.16.1.11"], time.Now())
+	a.mu.Unlock()
+	if !aSelected {
+		t.Fatalf("direct path was not selected after send")
 	}
 	select {
 	case got := <-bDelivered:
@@ -227,6 +234,159 @@ func TestUDPPathNeedsMirrorOnlyDuringWarmup(t *testing.T) {
 	}
 	if udpPathNeedsMirror(path, now.Add(udpWarmupDuration*2+time.Second)) {
 		t.Fatalf("path should not resume mirroring after warmup")
+	}
+}
+
+func TestUDPPathFallsBackWhenDirectRTTStaysHigh(t *testing.T) {
+	m := newTestUDPManager()
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now()
+	path.lastSeen = time.Now()
+
+	for i := 0; i < udpDirectHighRTTLimit; i++ {
+		seq := m.nextSeqLocked()
+		m.noteControlSentLocked(path.sessionID, seq, time.Now().Add(-(udpDirectMaxHealthyRTT + 75*time.Millisecond)))
+		m.noteControlAck(path.sessionID, udpControlAckPayload(seq))
+	}
+
+	if path.active {
+		t.Fatalf("high RTT path remained active")
+	}
+	if path.nextProbeAt.IsZero() || time.Until(path.nextProbeAt) <= 0 {
+		t.Fatalf("high RTT path did not enter cooldown")
+	}
+	if !strings.Contains(path.failureReason, "direct rtt high") {
+		t.Fatalf("failureReason=%q, want direct rtt high", path.failureReason)
+	}
+	if got := udpPathDiagnosticState(path, time.Now()); got != "cooldown" {
+		t.Fatalf("diagnostic state=%q, want cooldown", got)
+	}
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendRelay {
+		t.Fatalf("high RTT send=%v, want relay", got)
+	}
+}
+
+func TestUDPPathHighRTTNeedsConsecutiveSamples(t *testing.T) {
+	m := newTestUDPManager()
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now()
+	path.lastSeen = time.Now()
+
+	for i := 0; i < udpDirectHighRTTLimit-1; i++ {
+		seq := m.nextSeqLocked()
+		m.noteControlSentLocked(path.sessionID, seq, time.Now().Add(-(udpDirectMaxHealthyRTT + 75*time.Millisecond)))
+		m.noteControlAck(path.sessionID, udpControlAckPayload(seq))
+	}
+	seq := m.nextSeqLocked()
+	m.noteControlSentLocked(path.sessionID, seq, time.Now().Add(-50*time.Millisecond))
+	m.noteControlAck(path.sessionID, udpControlAckPayload(seq))
+	for i := 0; i < udpDirectHighRTTLimit-1; i++ {
+		seq := m.nextSeqLocked()
+		m.noteControlSentLocked(path.sessionID, seq, time.Now().Add(-(udpDirectMaxHealthyRTT + 75*time.Millisecond)))
+		m.noteControlAck(path.sessionID, udpControlAckPayload(seq))
+	}
+
+	if !path.active {
+		t.Fatalf("path fell back without consecutive high RTT samples")
+	}
+	if path.failureReason != "" {
+		t.Fatalf("failureReason=%q, want empty", path.failureReason)
+	}
+}
+
+func TestUDPPathSelectsLowerLatencyTransport(t *testing.T) {
+	conn := listenTestUDP(t)
+	m := newTestUDPManager()
+	m.conn = conn
+	m.cfg.RelayRTT = func(peerIP string) time.Duration { return 200 * time.Millisecond }
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now().Add(-udpWarmupDuration)
+	path.lastSeen = time.Now()
+	path.lastRTT = 120 * time.Millisecond
+
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendDirect {
+		t.Fatalf("send=%v, want direct", got)
+	}
+	if !path.selected {
+		t.Fatalf("lower latency direct path was not selected")
+	}
+}
+
+func TestUDPPathKeepsRelayWhenDirectIsNotBetter(t *testing.T) {
+	m := newTestUDPManager()
+	m.cfg.RelayRTT = func(peerIP string) time.Duration { return 100 * time.Millisecond }
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now().Add(-udpWarmupDuration)
+	path.lastSeen = time.Now()
+	path.lastRTT = 240 * time.Millisecond
+
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendRelay {
+		t.Fatalf("send=%v, want relay", got)
+	}
+	if path.selected {
+		t.Fatalf("worse direct path was selected")
+	}
+}
+
+func TestUDPPathSelectsHealthyDirectWhenPeerRelayRTTIsUnknown(t *testing.T) {
+	conn := listenTestUDP(t)
+	m := newTestUDPManager()
+	m.conn = conn
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now().Add(-udpWarmupDuration)
+	path.lastSeen = time.Now()
+	path.lastRTT = 20 * time.Millisecond
+
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendDirect {
+		t.Fatalf("send=%v, want healthy direct before peer relay rtt is measured", got)
+	}
+	if !path.selected {
+		t.Fatalf("healthy direct path was not selected without measured peer relay rtt")
+	}
+}
+
+func TestUDPPathKeepsRelayWhenPeerRelayRTTUnknownAndDirectUnhealthy(t *testing.T) {
+	m := newTestUDPManager()
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(endpoint), "pair-1", testUDPKey(1))
+	path.active = true
+	path.readyAt = time.Now().Add(-udpWarmupDuration)
+	path.lastSeen = time.Now()
+	path.lastRTT = udpDirectMaxHealthyRTT + time.Millisecond
+
+	if got := m.SendToPeer("172.16.1.11", overlay.PackIPPayload(1, testIPv4Packet("172.16.1.10", "172.16.1.11"))); got != udpSendRelay {
+		t.Fatalf("send=%v, want relay for unhealthy direct path without relay rtt", got)
+	}
+	if path.selected {
+		t.Fatalf("unhealthy direct path was selected without measured peer relay rtt")
+	}
+}
+
+func TestUDPPathAddingPeerDoesNotResetSelectedPeer(t *testing.T) {
+	m := newTestUDPManager()
+	firstEndpoint := testUDPAddr(t, "127.0.0.1:30001")
+	first := m.updatePeerPathLocked("172.16.1.11", testUDPCandidates(firstEndpoint), "pair-1", testUDPKey(1))
+	first.active = true
+	first.selected = true
+	first.readyAt = time.Now().Add(-udpWarmupDuration)
+	first.lastSeen = time.Now()
+	first.lastRTT = 40 * time.Millisecond
+
+	secondEndpoint := testUDPAddr(t, "127.0.0.1:30002")
+	m.updatePeerPathLocked("172.16.1.12", testUDPCandidates(secondEndpoint), "pair-2", testUDPKey(2))
+
+	if !first.active || !first.selected || first.lastRTT != 40*time.Millisecond {
+		t.Fatalf("existing selected path was reset after adding peer: %+v", first)
 	}
 }
 
@@ -359,6 +519,7 @@ func TestUDPTransportStatusMessagesAreProductSafe(t *testing.T) {
 
 	path.probing = false
 	path.active = true
+	path.selected = true
 	path.lastSeen = time.Now()
 	m.emitStatusLocked()
 	waitUntil(t, time.Second, func() bool {
@@ -372,6 +533,52 @@ func TestUDPTransportStatusMessagesAreProductSafe(t *testing.T) {
 		status, ok := recorder.last()
 		return ok && status.Mode == TransportModeUDPDisabled && status.Message == "中继连接"
 	})
+}
+
+func TestUDPTransportDiagnosticsIncludePathEvidence(t *testing.T) {
+	m := newTestUDPManager()
+	now := time.Unix(100, 0)
+	endpoint := testUDPAddr(t, "127.0.0.1:30001")
+	path := m.updatePeerPathLocked("172.16.1.11", []udpCandidateEndpoint{
+		{Addr: endpoint, Type: udpCandidateTypeLAN},
+		{Addr: testUDPAddr(t, "203.0.113.9:30001"), Type: udpCandidateTypeObserved},
+	}, "pair-1", testUDPKey(1))
+	path.active = true
+	path.selected = true
+	path.readyAt = now
+	path.lastSeen = now
+	path.lastProbeAt = now.Add(-time.Second)
+	path.lastSuccessAt = now
+	path.lastFailureAt = now.Add(-2 * time.Second)
+	path.lastRTT = 25 * time.Millisecond
+	path.failedProbes = 2
+	path.consecutiveFailures = 1
+	path.failureReason = "probe timeout"
+	m.disabledReason = "udp probing disabled after repeated failures"
+
+	diagnostics := m.transportDiagnosticsLocked(now)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics=%d, want 1", len(diagnostics))
+	}
+	got := diagnostics[0]
+	if got.VirtualIP != "172.16.1.11" || got.CandidateCount != 2 {
+		t.Fatalf("bad diagnostic identity: %+v", got)
+	}
+	if !slices.Equal(got.CandidateTypes, []string{udpCandidateTypeLAN, udpCandidateTypeObserved}) {
+		t.Fatalf("candidate types=%v", got.CandidateTypes)
+	}
+	if got.SelectedType != udpCandidateTypeLAN || got.SelectedPath != "selected" {
+		t.Fatalf("selected type/path=%q/%q", got.SelectedType, got.SelectedPath)
+	}
+	if got.LastRTT != 25*time.Millisecond || got.FailedProbes != 2 || got.ConsecutiveFailures != 1 {
+		t.Fatalf("bad failure evidence: %+v", got)
+	}
+	if got.FailureReason != "probe timeout" {
+		t.Fatalf("failure reason=%q", got.FailureReason)
+	}
+	if got.DisabledReason != m.disabledReason {
+		t.Fatalf("disabled reason=%q, want %q", got.DisabledReason, m.disabledReason)
+	}
 }
 
 func TestUDPPathFallsBackBeforeItExpires(t *testing.T) {
@@ -628,14 +835,6 @@ func udpAddrStrings(endpoints []udpCandidateEndpoint) []string {
 	out := make([]string, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		out = append(out, endpoint.Addr.String())
-	}
-	return out
-}
-
-func udpCandidateTypes(endpoints []udpCandidateEndpoint) []string {
-	out := make([]string, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		out = append(out, endpoint.Type)
 	}
 	return out
 }

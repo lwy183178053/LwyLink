@@ -193,6 +193,9 @@ function Update-ControlConfig {
     staticAuthSecret = $Secret
     ttlSeconds = $TTL
     usernamePrefix = $Prefix
+    usageLogPath = "/var/log/lwylink/coturn.log"
+    usageStatePath = "/opt/lwylink/data/coturn-usage.offset"
+    usagePollIntervalSeconds = 10
   })
   Set-ObjectProperty -Object $cfg -Name "voiceICEServers" -Value @(
     [pscustomobject]@{
@@ -308,6 +311,11 @@ if ! command -v turnserver >/dev/null 2>&1; then
   apt-get install -y coturn
 fi
 install -d -m 0755 /etc/turnserver
+install -d -m 0750 /var/log/lwylink
+touch /var/log/lwylink/coturn.log
+if id turnserver >/dev/null 2>&1; then
+  chown turnserver:turnserver /var/log/lwylink /var/log/lwylink/coturn.log
+fi
 cat >/etc/turnserver.conf <<'TURNCONF'
 listening-port=$ListeningPort
 fingerprint
@@ -315,6 +323,7 @@ use-auth-secret
 static-auth-secret=$StaticAuthSecret
 realm=$Realm
 server-name=$Realm
+log-file=/var/log/lwylink/coturn.log
 no-cli
 no-tlsv1
 no-tlsv1_1

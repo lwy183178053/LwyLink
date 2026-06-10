@@ -16,6 +16,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	a.mu.Lock()
 	allowQuit := a.allowQuit
 	a.mu.Unlock()
+	diagnosticLogf("beforeClose allowQuit=%t", allowQuit)
 	if allowQuit {
 		return false
 	}
@@ -37,8 +38,10 @@ func (a *App) hideToTray(ctx context.Context, notify bool) error {
 func (a *App) showMainWindow() {
 	ctx := a.currentContext()
 	if ctx == nil {
+		diagnosticLogf("showMainWindow skipped no context")
 		return
 	}
+	diagnosticLogf("showMainWindow")
 	wailsRuntime.WindowShow(ctx)
 	wailsRuntime.WindowUnminimise(ctx)
 
@@ -52,6 +55,7 @@ func (a *App) showMainWindow() {
 }
 
 func (a *App) quitApplication() {
+	diagnosticLogf("quitApplication")
 	a.allowApplicationQuit()
 	a.stopTray()
 	ctx := a.currentContext()
@@ -64,6 +68,7 @@ func (a *App) allowApplicationQuit() {
 	a.mu.Lock()
 	a.allowQuit = true
 	a.mu.Unlock()
+	diagnosticLogf("allowApplicationQuit")
 }
 
 func (a *App) currentContext() context.Context {

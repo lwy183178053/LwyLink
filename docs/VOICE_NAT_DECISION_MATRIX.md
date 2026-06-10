@@ -200,4 +200,4 @@ WebRTC 语音已成为 Windows 客户端主路线；原生 Overlay 语音前端 
 
 ## 当前建议
 
-继续完善 WebRTC 产品路线：部署 TURN 兜底、改进路径可观测性、把 TURN 流量纳入账号额度，并持续删除已经被 WebRTC 替代的客户端旧实验代码。LwyLink Overlay 专注虚拟局域网和应用流量；底层 voice frame 只保留为传输 smoke/实验能力。
+继续完善 WebRTC 产品路线：部署 TURN 兜底、改进路径可观测性、用 coturn 服务端 usage 日志把 TURN 流量纳入账号额度，并持续删除已经被 WebRTC 替代的客户端旧实验代码。LwyLink Overlay 专注虚拟局域网和应用流量；底层 voice frame 不再保留产品或实验传输路径。

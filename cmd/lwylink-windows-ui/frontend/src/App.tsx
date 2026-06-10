@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Spinner } from "@fluentui/react-components";
 import {
-  Copy,
   Gamepad2,
   Minus,
   PlugZap,
@@ -61,7 +60,6 @@ import {
   statusTone,
   trafficPeriodLabel,
   trafficUsedPercent,
-  updateStatusText,
   type LoginForm,
   type PageKey,
   type RoomForm,
@@ -71,8 +69,9 @@ import {
 } from "./client-ui";
 import { AccountPage, Avatar, NavButton, RoomCommsPanel, RoomControlPanel, RoomEntryPage, RoomPlayersPanel, SettingsPage } from "./components";
 import appIcon from "./assets/lwylink-icon.png";
-import { WebRTCVoiceSession, listVoiceDevices, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
-import type { AppState, VoiceSettings } from "./types";
+import { appendDedupedDataChatMessage, isCurrentDataChatMessage, shouldFallbackToServerChat } from "./webrtcChatLogic";
+import { WebRTCChatSession, WebRTCVoiceSession, listVoiceDevices, type WebRTCDataChatMessage, type WebRTCVoiceSignal, type WebRTCVoiceStats } from "./webrtcVoice";
+import type { AppState, ChatMessage, VoiceSettings } from "./types";
 import { emptyState } from "./types";
 
 type NoticeTone = "info" | "success" | "error";
@@ -88,10 +87,10 @@ export default function App() {
   const [notice, setNotice] = useState<{ id: number; text: string; tone: NoticeTone } | null>(null);
   const [chatText, setChatText] = useState("");
   const [pendingChats, setPendingChats] = useState<PendingChat[]>([]);
+  const [p2pChatMessages, setP2PChatMessages] = useState<ChatMessage[]>([]);
   const [chatSending, setChatSending] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceMicActive, setVoiceMicActive] = useState(false);
-  const [voiceConnectPrompt, setVoiceConnectPrompt] = useState(false);
   const [voiceRTCStats, setVoiceRTCStats] = useState<WebRTCVoiceStats[]>([]);
   const [voiceInputLevel, setVoiceInputLevel] = useState(0);
   const [voiceDevices, setVoiceDevices] = useState<{ inputs: VoiceDevice[]; outputs: VoiceDevice[] }>({ inputs: [], outputs: [] });
@@ -114,6 +113,8 @@ export default function App() {
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const webrtcVoiceRef = useRef<WebRTCVoiceSession | null>(null);
+  const webrtcChatRef = useRef<WebRTCChatSession | null>(null);
+  const webrtcChatGeneration = useRef(0);
   const voiceRelayTrafficPending = useRef(0);
   const voiceRelayTrafficTimer = useRef<number | null>(null);
   const voiceRelayTrafficReporting = useRef(false);
@@ -124,6 +125,10 @@ export default function App() {
       .catch((err: unknown) => showNotice(errorText(err), "error"));
     const off = EventsOn("state-changed", (next: AppState) => applyState(next));
     const offWebRTCVoice = EventsOn("voice-webrtc-signal", (signal: WebRTCVoiceSignal) => {
+      if (typeof signal?.type === "string" && signal.type.startsWith("chat-")) {
+        void webrtcChatRef.current?.handleSignal(signal);
+        return;
+      }
       void webrtcVoiceRef.current?.handleSignal(signal);
     });
     return () => {
@@ -149,9 +154,16 @@ export default function App() {
 
   const currentRoom = useMemo(() => state.currentRoom ?? state.rooms[0], [state.currentRoom, state.rooms]);
   const members = state.members ?? [];
-  const chatMessages = useMemo(
+  const serverChatMessages = useMemo(
     () => (currentRoom ? (state.chatMessages ?? []).filter((message) => message.roomID === currentRoom.id) : []),
     [currentRoom, state.chatMessages],
+  );
+  const chatMessages = useMemo(
+    () =>
+      [...serverChatMessages, ...p2pChatMessages.filter((message) => currentRoom && message.roomID === currentRoom.id)].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      ),
+    [currentRoom, serverChatMessages, p2pChatMessages],
   );
   const onlineCount = members.filter((member) => member.online).length;
   const currentMember = members.find((member) => member.userID === state.user?.id);
@@ -160,9 +172,14 @@ export default function App() {
   const connectionRunning = isConnectionRunning(state.connection.status);
   const networkDisplayIP = state.connection.ip || currentRoom?.networkCIDR || "";
   const directPeerIPSet = useMemo(() => new Set(state.connection.directPeerIPs ?? []), [state.connection.directPeerIPs]);
+  const updateHasTarget = state.update.latestVersion !== "";
   const showUpdatePrompt =
-    state.update.status === "ready" &&
-    state.update.latestVersion !== "";
+    updateHasTarget &&
+    (state.update.mandatory ||
+      state.update.status === "downloading" ||
+      state.update.status === "ready" ||
+      state.update.status === "installing" ||
+      state.update.status === "error");
   const isBusy = busy !== "";
   const authRules = authRuleState(loginForm.email, loginForm.password);
   const canSubmitReset = authRules.emailFormat && loginForm.resetCode.trim().length === 6 && loginForm.resetPassword.length >= passwordMinLength;
@@ -186,18 +203,27 @@ export default function App() {
 
   useEffect(() => {
     setPendingChats([]);
+    setP2PChatMessages([]);
   }, [currentRoom?.id]);
 
   useEffect(() => {
     const selfInVoice = !!state.user && state.voice.participants.some((item) => item.userID === state.user?.id);
-    if ((!selfInVoice || !connectionRunning) && voiceActive) {
-      void stopLocalVoice(connectionRunning === false && selfInVoice);
+    if (!selfInVoice && voiceActive) {
+      void stopLocalVoice(false);
     }
-  }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id, connectionRunning, voiceActive]);
+  }, [state.voice.updatedAt, state.voice.participantCount, state.user?.id, voiceActive]);
 
   useEffect(() => {
     return () => {
       void stopLocalVoice(false);
+      void stopWebRTCChat();
+    };
+  }, [currentRoom?.id, state.user?.id]);
+
+  useEffect(() => {
+    void startWebRTCChat();
+    return () => {
+      void stopWebRTCChat();
     };
   }, [currentRoom?.id, state.user?.id]);
 
@@ -226,6 +252,10 @@ export default function App() {
   useEffect(() => {
     webrtcVoiceRef.current?.updateSettings(settingsForm.voiceSettings);
   }, [settingsForm.voiceSettings]);
+
+  useEffect(() => {
+    void webrtcChatRef.current?.syncMembers(members);
+  }, [members, currentRoom?.id]);
 
   useEffect(() => {
     if (!voiceActive) {
@@ -343,6 +373,11 @@ export default function App() {
       return;
     }
     const pendingID = `pending-${Date.now()}`;
+    const p2pSent = sendP2PChat(message);
+    if (!shouldFallbackToServerChat({ currentRoomID: currentRoom.id, message, p2pSent })) {
+      setChatText("");
+      return;
+    }
     setPendingChats((items) => [...items, { id: pendingID, message }]);
     setChatText("");
     setChatSending(true);
@@ -366,7 +401,6 @@ export default function App() {
   }
 
   async function disconnectCurrentRoom() {
-    await stopLocalVoice(true);
     return run("断开虚拟网络", Disconnect);
   }
 
@@ -376,10 +410,6 @@ export default function App() {
     }
     if (voiceActive) {
       await handleLeaveVoice();
-      return;
-    }
-    if (!connectionRunning) {
-      setVoiceConnectPrompt(true);
       return;
     }
     await startVoiceSession();
@@ -411,14 +441,6 @@ export default function App() {
         }
       }
       showNotice(errorText(err), "error");
-    }
-  }
-
-  async function handleConnectAndJoinVoice() {
-    setVoiceConnectPrompt(false);
-    const ok = await connectCurrentRoom();
-    if (ok) {
-      await startVoiceSession();
     }
   }
 
@@ -457,17 +479,20 @@ export default function App() {
     } catch (err) {
       showNotice(`获取语音网络配置失败，已使用默认配置：${errorText(err)}`, "info");
     }
-    const session = new WebRTCVoiceSession(currentRoom, state.user.id, state.voiceSettings, iceServers, {
-      onError: (message) => showNotice(message, "error"),
-      onStats: (stats) => {
-        setVoiceRTCStats(stats);
-        if (stats.length > 0) {
-          (globalThis as any).__lwylinkWebRTCVoiceStats = stats;
-        }
+    const session = new WebRTCVoiceSession(
+      currentRoom,
+      state.user.id,
+      state.voiceSettings,
+      iceServers,
+      {
+        onError: (message) => showNotice(message, "error"),
+        onStats: (stats) => {
+          setVoiceRTCStats(stats);
+        },
+        onInputLevel: setVoiceInputLevel,
+        onRelayTraffic: queueVoiceRelayTraffic,
       },
-      onInputLevel: setVoiceInputLevel,
-      onRelayTraffic: queueVoiceRelayTraffic,
-    });
+    );
     try {
       webrtcVoiceRef.current = session;
       await session.start(nextState.voice.participants ?? []);
@@ -484,6 +509,58 @@ export default function App() {
     await session?.close();
   }
 
+  async function startWebRTCChat() {
+    await stopWebRTCChat();
+    if (!currentRoom || !state.user) {
+      return;
+    }
+    const roomID = currentRoom.id;
+    const userID = state.user.id;
+    const generation = ++webrtcChatGeneration.current;
+    let iceServers: RTCIceServer[] = [];
+    try {
+      iceServers = await VoiceWebRTCICE();
+    } catch {
+      iceServers = [];
+    }
+    if (webrtcChatGeneration.current !== generation || !currentRoom || currentRoom.id !== roomID || !state.user || state.user.id !== userID) {
+      return;
+    }
+    const session = new WebRTCChatSession(
+      currentRoom,
+      userID,
+      iceServers,
+      {
+        onError: (message) => showNotice(message, "error"),
+        onDataChat: (message) => appendP2PChat(message, roomID),
+      },
+    );
+    webrtcChatRef.current = session;
+    try {
+      await session.start(members);
+    } catch (err) {
+      if (webrtcChatRef.current === session) {
+        webrtcChatRef.current = null;
+      }
+      await session.close();
+      showNotice(errorText(err), "error");
+      return;
+    }
+    if (webrtcChatGeneration.current !== generation || !currentRoom || currentRoom.id !== roomID || !state.user || state.user.id !== userID) {
+      if (webrtcChatRef.current === session) {
+        webrtcChatRef.current = null;
+      }
+      await session.close();
+    }
+  }
+
+  async function stopWebRTCChat() {
+    webrtcChatGeneration.current += 1;
+    const session = webrtcChatRef.current;
+    webrtcChatRef.current = null;
+    await session?.close();
+  }
+
   function queueVoiceRelayTraffic(bytes: number) {
     if (!Number.isFinite(bytes) || bytes <= 0) {
       return;
@@ -494,6 +571,40 @@ export default function App() {
       return;
     }
     scheduleVoiceRelayTrafficReport(5000);
+  }
+
+  function sendP2PChat(message: string) {
+    if (!currentRoom || !state.user) {
+      return false;
+    }
+    const session = webrtcChatRef.current;
+    if (!session || session.roomID !== currentRoom.id) {
+      return false;
+    }
+    const sent = session.sendChat(message, {
+      username: state.user.username,
+      displayName: state.user.displayName,
+    });
+    if (!sent) {
+      return false;
+    }
+    appendP2PChat(sent);
+    return true;
+  }
+
+  function appendP2PChat(message: WebRTCDataChatMessage, sessionRoomID = webrtcChatRef.current?.roomID) {
+    const currentRoomID = currentRoom?.id;
+    if (!isCurrentDataChatMessage({ message, currentRoomID, sessionRoomID })) {
+      return;
+    }
+    const member = members.find((item) => item.userID === message.userID);
+    const self = state.user?.id === message.userID ? state.user : undefined;
+    const displayMessage = {
+      ...message,
+      username: message.username || member?.username || self?.username || "",
+      displayName: message.displayName || member?.displayName || self?.displayName || "",
+    };
+    setP2PChatMessages((items) => appendDedupedDataChatMessage(items, displayMessage));
   }
 
   function scheduleVoiceRelayTrafficReport(delayMS: number) {
@@ -647,6 +758,34 @@ export default function App() {
     }
   }
 
+  function copyNetworkDiagnostics() {
+    if (!currentRoom) {
+      return;
+    }
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      appVersion: state.update.currentVersion,
+      apiBaseURL: state.apiBaseURL,
+      room: {
+        id: currentRoom.id,
+        name: currentRoom.name,
+        status: currentRoom.status,
+        networkCIDR: currentRoom.networkCIDR,
+        nodeName: currentRoom.nodeName,
+        nodeOverlayAddr: currentRoom.nodeOverlayAddr,
+      },
+      connection: state.connection,
+      members,
+      voice: {
+        active: voiceActive,
+        micActive: voiceMicActive,
+        state: state.voice,
+        rtcStats: voiceRTCStats,
+      },
+    };
+    void copyText(JSON.stringify(payload, null, 2), "网络诊断");
+  }
+
   function renderRoomSizePicker() {
     return (
       <div className="room-size-picker">
@@ -777,31 +916,6 @@ export default function App() {
           {page === "room" && renderRoomPage()}
           {page === "settings" && renderSettingsPage()}
           {showUpdatePrompt && renderUpdatePrompt()}
-          {voiceConnectPrompt && (
-            <div className="modal-scrim" role="presentation">
-              <div className="voice-connect-modal" role="dialog" aria-modal="true" aria-labelledby="voice-connect-title">
-                <button className="modal-close" type="button" aria-label="关闭" onClick={() => setVoiceConnectPrompt(false)}>
-                  <X size={16} />
-                </button>
-                <div className="modal-symbol">
-                  <PlugZap size={22} />
-                </div>
-                <div>
-                  <span className="eyebrow">语音需要先组网</span>
-                  <h2 id="voice-connect-title">启动虚拟网络后加入语音</h2>
-                  <p>加入语音前需要先连接虚拟网络，用于确认房间在线状态；语音媒体会使用 WebRTC 自动选择 P2P 或 TURN 路径。</p>
-                </div>
-                <div className="modal-actions">
-                  <Button type="button" onClick={() => setVoiceConnectPrompt(false)}>
-                    先不加入
-                  </Button>
-                  <Button appearance="primary" type="button" icon={<PlugZap size={16} />} disabled={isBusy || !currentRoom} onClick={handleConnectAndJoinVoice}>
-                    启动并加入
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
           {notice && (
             <div className={`app-toast ${notice.tone}`} key={notice.id}>
               {notice.text}
@@ -822,8 +936,6 @@ export default function App() {
         apiBaseURL={state.apiBaseURL}
         interfaceName={state.interfaceName}
         connection={state.connection}
-        currentRoom={currentRoom}
-        currentMember={currentMember}
         canSubmitAuth={canSubmitAuth}
         isBusy={isBusy}
         onAuthModeChange={setAuthMode}
@@ -873,6 +985,7 @@ export default function App() {
           isOwner={isOwner}
           disabled={isBusy}
           onCopyKey={() => copyText(currentRoom.roomPublicKey, "房间密钥")}
+          onCopyDiagnostics={copyNetworkDiagnostics}
           onConnect={connectCurrentRoom}
           onDeleteRoom={() => run("删除房间", () => DeleteRoom(currentRoom.id))}
           onLeaveRoom={() => run("退出房间", LeaveCurrentRoom)}
@@ -932,15 +1045,32 @@ export default function App() {
   }
 
   function renderUpdatePrompt() {
+    const progress = Math.max(0, Math.min(100, state.update.progress || (state.update.status === "ready" ? 100 : 0)));
+    const downloadedLabel = state.update.downloadedBytes ? formatBytes(state.update.downloadedBytes) : "";
+    const totalLabel = state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : "";
+    const progressLabel =
+      state.update.status === "downloading"
+        ? totalLabel
+          ? `${downloadedLabel || "0 B"} / ${totalLabel}`
+          : downloadedLabel || "正在下载"
+        : state.update.status === "ready"
+          ? "更新包已完成校验"
+          : state.update.status === "installing"
+            ? "正在启动安装程序"
+            : state.update.status === "error"
+              ? state.update.message || "更新失败"
+              : state.update.message || "正在准备更新";
+    const canInstall = state.update.status === "ready" && !isBusy;
+    const canRetry = state.update.status === "error" && !isBusy;
     return (
       <div className="update-backdrop">
         <div className="update-dialog">
           <div className="surface-head">
             <div>
-              <span className="eyebrow">Update Ready</span>
-              <h2>新版本 {state.update.latestVersion} 已准备好</h2>
+              <span className="eyebrow">{state.update.status === "ready" ? "Update Ready" : "Required Update"}</span>
+              <h2>新版本 {state.update.latestVersion}</h2>
             </div>
-            <span className="status-pill warn">强制更新</span>
+            <span className={`status-pill ${state.update.status === "error" ? "bad" : "warn"}`}>{state.update.mandatory ? "强制更新" : "可选更新"}</span>
           </div>
           <div className="update-body">
             <div className="update-version-line">
@@ -948,11 +1078,25 @@ export default function App() {
               <span>目标 {state.update.latestVersion}</span>
               <span>{state.update.sizeBytes ? formatBytes(state.update.sizeBytes) : ""}</span>
             </div>
-            {state.update.notes ? <p>{state.update.notes}</p> : <p>更新包已经在后台下载并完成校验。</p>}
+            <div className="update-progress-block">
+              <div className="update-progress-head">
+                <strong>{progressLabel}</strong>
+                <span>{progress > 0 ? `${progress}%` : state.update.status === "checking" ? "检查中" : ""}</span>
+              </div>
+              <div className="update-progress-track" aria-label="更新下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} role="progressbar">
+                <span style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+            {state.update.notes ? <p>{state.update.notes}</p> : <p>正在准备更新包，完成后即可重启更新。</p>}
           </div>
           <div className="update-actions">
-            <Button appearance="primary" icon={<Power size={16} />} disabled={isBusy} onClick={() => run("启动更新", InstallPreparedUpdate)}>
-              立即重启更新
+            {canRetry && (
+              <Button icon={<PlugZap size={16} />} disabled={isBusy} onClick={handleCheckUpdates}>
+                重新下载
+              </Button>
+            )}
+            <Button appearance="primary" icon={<Power size={16} />} disabled={!canInstall} onClick={() => run("启动更新", InstallPreparedUpdate)}>
+              {state.update.status === "ready" ? "立即重启更新" : "等待下载完成"}
             </Button>
           </div>
         </div>

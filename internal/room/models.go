@@ -59,3 +59,32 @@ type Filter struct {
 	Limit  int
 	Offset int
 }
+
+type TransportDiagnostic struct {
+	VirtualIP           string   `json:"virtualIP"`
+	CandidateCount      int      `json:"candidateCount"`
+	CandidateTypes      []string `json:"candidateTypes"`
+	SelectedType        string   `json:"selectedType"`
+	SelectedPath        string   `json:"selectedPath"`
+	LastProbeAt         string   `json:"lastProbeAt"`
+	LastSuccessAt       string   `json:"lastSuccessAt"`
+	LastFailureAt       string   `json:"lastFailureAt"`
+	LastRTTMS           int64    `json:"lastRTTMS"`
+	FailedProbes        int      `json:"failedProbes"`
+	ConsecutiveFailures int      `json:"consecutiveFailures"`
+	FailureReason       string   `json:"failureReason"`
+	DisabledReason      string   `json:"disabledReason"`
+	LastObservedPeerAt  string   `json:"lastObservedPeerAt"`
+}
+
+type NetworkDiagnosticReport struct {
+	RoomID               int64                 `json:"roomID"`
+	UserID               int64                 `json:"userID"`
+	Status               string                `json:"status"`
+	Message              string                `json:"message"`
+	IP                   string                `json:"ip"`
+	TransportMode        string                `json:"transportMode"`
+	DirectPeerIPs        []string              `json:"directPeerIPs"`
+	TransportDiagnostics []TransportDiagnostic `json:"transportDiagnostics"`
+	UpdatedAt            time.Time             `json:"updatedAt"`
+}

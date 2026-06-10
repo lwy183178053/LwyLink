@@ -175,6 +175,7 @@ $nodeBin = Join-Path $DistDir "lwylink-node"
 $smokeBin = Join-Path $DistDir "lwylink-smoke"
 $controlService = Join-Path $repoRoot "deploy\lwylink-control.service"
 $nodeService = Join-Path $repoRoot "deploy\lwylink-node.service"
+$generatedServiceDir = Join-Path ([System.IO.Path]::GetTempPath()) ("lwylink-services-" + [System.Guid]::NewGuid().ToString("N"))
 
 Assert-File $controlBin
 Assert-File $nodeBin
@@ -187,6 +188,22 @@ if ($UploadConfigs) {
 }
 $mailLocalConfig = Join-Path $repoRoot "configs\mail.local.json"
 $uploadMailConfig = $UploadConfigs -and (Test-Path $mailLocalConfig)
+
+function New-ServiceFileForRemoteRoot {
+  param(
+    [string]$Source,
+    [string]$DestinationDir
+  )
+  New-Item -ItemType Directory -Force -Path $DestinationDir | Out-Null
+  $target = Join-Path $DestinationDir ([System.IO.Path]::GetFileName($Source))
+  $text = Get-Content $Source -Raw
+  $text = $text.Replace("/opt/lwylink", $RemoteRoot)
+  [System.IO.File]::WriteAllText($target, $text, [System.Text.UTF8Encoding]::new($false))
+  return $target
+}
+
+$controlServiceUpload = New-ServiceFileForRemoteRoot $controlService $generatedServiceDir
+$nodeServiceUpload = New-ServiceFileForRemoteRoot $nodeService $generatedServiceDir
 
 Set-Location $repoRoot
 $client = New-DeployClient
@@ -209,8 +226,8 @@ mkdir -p $RemoteRoot/deploy/dist $RemoteRoot/configs
     Send-File $client $controlBin "$RemoteRoot/deploy/dist"
     Send-File $client $nodeBin "$RemoteRoot/deploy/dist"
     Send-File $client $smokeBin "$RemoteRoot/deploy/dist"
-    Send-File $client $controlService "$RemoteRoot/deploy"
-    Send-File $client $nodeService "$RemoteRoot/deploy"
+    Send-File $client $controlServiceUpload "$RemoteRoot/deploy"
+    Send-File $client $nodeServiceUpload "$RemoteRoot/deploy"
     if ($UploadConfigs) {
       Send-File $client (Join-Path $repoRoot "configs\control.prod.json") "$RemoteRoot/configs"
       Send-File $client (Join-Path $repoRoot "configs\node.prod.json") "$RemoteRoot/configs"
@@ -246,6 +263,7 @@ ss -ltnup | grep -E ':443 ' || true
     Remove-SFTPSession -SessionId $script:SFTPSession.SessionId | Out-Null
     $script:SFTPSession = $null
   }
+  Remove-Item -LiteralPath $generatedServiceDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if (-not $SkipSmoke) {

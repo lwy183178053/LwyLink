@@ -19,6 +19,7 @@ const (
 	FrameError      FrameType = 4
 	FramePing       FrameType = 5
 	FrameUDPControl FrameType = 6
+	FrameRelayProbe FrameType = 7
 )
 
 // AuthRequest is the first overlay frame a client must send after tcpx is ready.
@@ -44,15 +45,17 @@ type DHCPResponse struct {
 }
 
 const (
-	UDPControlConfig = "config"
-	UDPControlPeer   = "peer"
+	UDPControlConfig     = "config"
+	UDPControlPeer       = "peer"
+	UDPControlRelayProbe = "relay-probe"
 )
 
 type UDPControl struct {
-	Type  string            `json:"type"`
-	Token string            `json:"token,omitempty"`
-	Key   string            `json:"key,omitempty"`
-	Peer  *UDPPeerCandidate `json:"peer,omitempty"`
+	Type       string             `json:"type"`
+	Token      string             `json:"token,omitempty"`
+	Key        string             `json:"key,omitempty"`
+	Peer       *UDPPeerCandidate  `json:"peer,omitempty"`
+	RelayProbe *RelayProbePayload `json:"relayProbe,omitempty"`
 }
 
 type UDPPeerCandidate struct {
@@ -72,6 +75,13 @@ type UDPRegisterPayload struct {
 	ReflexiveEndpoints []string `json:"reflexiveEndpoints,omitempty"`
 }
 
+type RelayProbePayload struct {
+	Seq    uint64 `json:"seq"`
+	FromIP string `json:"fromIP"`
+	ToIP   string `json:"toIP"`
+	Reply  bool   `json:"reply"`
+}
+
 // PackFrame wraps an overlay payload for transport through tcpx.SecureConn.
 // It does not include a length header because tcpx already frames encrypted
 // messages.
@@ -89,7 +99,7 @@ func UnpackFrame(raw []byte) (FrameType, []byte, error) {
 	}
 	typ := FrameType(raw[0])
 	switch typ {
-	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing, FrameUDPControl:
+	case FrameAuth, FrameDHCP, FrameIP, FrameError, FramePing, FrameUDPControl, FrameRelayProbe:
 		return typ, raw[1:], nil
 	default:
 		return 0, nil, fmt.Errorf("unknown overlay frame: %d", raw[0])

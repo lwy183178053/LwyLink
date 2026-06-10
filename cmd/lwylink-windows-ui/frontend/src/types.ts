@@ -89,9 +89,17 @@ export type ConnectionState = {
 export type TransportDiagnostic = {
   virtualIP: string;
   candidateCount: number;
+  candidateTypes?: string[];
   selectedType: string;
+  selectedPath?: string;
   lastProbeAt: string;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  lastRTTMS?: number;
   failedProbes: number;
+  consecutiveFailures?: number;
+  failureReason?: string;
+  disabledReason?: string;
   lastObservedPeerAt: string;
 };
 
@@ -106,6 +114,8 @@ export type UpdateState = {
   installArgs: string;
   fileName: string;
   sizeBytes: number;
+  downloadedBytes: number;
+  progress: number;
   sha256: string;
 };
 
@@ -159,19 +169,19 @@ export const emptyState: AppState = {
     updatedAt: "",
   },
   announcement: "官方 QQ 群：715516422",
-    connection: {
-      status: "disconnected",
-      message: "未连接",
-      roomID: 0,
-      ip: "",
-      transportMode: "",
-      directPeerIPs: [],
-      transportDiagnostics: [],
-    },
+  connection: {
+    status: "disconnected",
+    message: "未连接",
+    roomID: 0,
+    ip: "",
+    transportMode: "",
+    directPeerIPs: [],
+    transportDiagnostics: [],
+  },
   update: {
     status: "idle",
     message: "",
-    currentVersion: "0.2.8",
+    currentVersion: "0.2.1",
     latestVersion: "",
     platform: "windows-amd64",
     notes: "",
@@ -179,6 +189,8 @@ export const emptyState: AppState = {
     installArgs: "",
     fileName: "",
     sizeBytes: 0,
+    downloadedBytes: 0,
+    progress: 0,
     sha256: "",
   },
 };
